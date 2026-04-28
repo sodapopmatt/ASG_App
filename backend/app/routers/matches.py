@@ -1,10 +1,133 @@
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.database import supabase
 from app.auth import require_admin
-from app.schemas.match import Match, MatchCreate, MatchResult, MatchForfeit, MatchDoubleForfeit
+from app.schemas.match import Match, MatchCreate, MatchUpdate, MatchResult, MatchForfeit, MatchDoubleForfeit
 from app.bracket_engine.generator import advance_winner, settle_bracket, retract_winner
 
 router = APIRouter()
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _parse_dt(value: str | datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _compute_estimated_starts(
+    matches: list[dict],
+    sport_duration_map: dict[str, int],
+) -> dict[str, datetime | None]:
+    """Per-court ripple: propagate actual start delays to all upcoming matches.
+
+    For each court, matches are processed in scheduled_at order. When a match
+    has already started (actual_start is set), its actual start time anchors the
+    court's free-at time. Subsequent matches are shifted forward if the court
+    won't be free in time.
+
+    Matches without scheduled_at but with both teams (playable) are assigned
+    estimated times based on court availability.
+    """
+    from datetime import timedelta
+
+    by_court: dict[str | None, list[dict]] = {}
+    for m in matches:
+        by_court.setdefault(m.get("location_id"), []).append(m)
+
+    result: dict[str, datetime | None] = {}
+
+    for court, court_matches in by_court.items():
+        sorted_matches = sorted(
+            court_matches,
+            key=lambda m: (m.get("scheduled_at") is None, m.get("scheduled_at") or ""),
+        )
+
+        court_free_at: datetime | None = None
+
+        for m in sorted_matches:
+            duration = timedelta(minutes=sport_duration_map.get(m.get("sport_id", ""), 30))
+            scheduled_at = _parse_dt(m.get("scheduled_at"))
+            actual_start = _parse_dt(m.get("actual_start"))
+            is_playable = m.get("home_team_id") and m.get("away_team_id")
+            is_completed = m.get("status") in ("completed", "forfeit", "double_forfeit")
+
+            if actual_start:
+                result[m["id"]] = actual_start
+                court_free_at = actual_start + duration
+            elif scheduled_at:
+                est = scheduled_at
+                if court_free_at and court_free_at > scheduled_at:
+                    est = court_free_at
+                result[m["id"]] = est
+                court_free_at = est + duration
+            elif is_playable and not is_completed:
+                if court_free_at:
+                    result[m["id"]] = court_free_at
+                    court_free_at = court_free_at + duration
+                else:
+                    result[m["id"]] = None
+            else:
+                result[m["id"]] = None
+
+    return result
+
+
+def _attach_estimated_starts(matches: list[dict]) -> list[dict]:
+    """Fetch sport durations, compute estimated_start, and attach to each match dict."""
+    sport_ids = list({m["sport_id"] for m in matches if m.get("sport_id")})
+    sport_duration_map: dict[str, int] = {}
+    if sport_ids:
+        sports = (
+            supabase.table("sports")
+            .select("id, match_duration_minutes")
+            .in_("id", sport_ids)
+            .execute()
+            .data
+        )
+        sport_duration_map = {s["id"]: s["match_duration_minutes"] or 30 for s in sports}
+
+    estimated = _compute_estimated_starts(matches, sport_duration_map)
+    for m in matches:
+        m["estimated_start"] = estimated.get(m["id"])
+    return matches
+
+
+def _assign_dynamic_court(match_id: str) -> None:
+    """If the winner's next match has no court yet, assign it this match's court.
+
+    Called after a result is posted. The first of the two semifinal finishers
+    claims the court for the grand final; the second finds it already set.
+    """
+    current = (
+        supabase.table("matches")
+        .select("location_id, winner_next_match_id")
+        .eq("id", match_id)
+        .limit(1)
+        .execute()
+    )
+    if not current.data:
+        return
+    row = current.data[0]
+    court = row.get("location_id")
+    next_id = row.get("winner_next_match_id")
+    if not next_id or not court:
+        return
+
+    next_match = (
+        supabase.table("matches")
+        .select("location_id")
+        .eq("id", next_id)
+        .limit(1)
+        .execute()
+    )
+    if next_match.data and next_match.data[0].get("location_id") is None:
+        supabase.table("matches").update({"location_id": court}).eq("id", next_id).execute()
 
 
 @router.get("/", response_model=list[Match])
@@ -20,7 +143,8 @@ def list_matches(
         q = q.eq("bracket_id", bracket_id)
     if status:
         q = q.eq("status", status)
-    return q.order("match_round").order("scheduled_at").execute().data
+    matches = q.order("match_round").order("scheduled_at").execute().data
+    return _attach_estimated_starts(matches)
 
 
 @router.get("/{match_id}", response_model=Match)
@@ -28,7 +152,32 @@ def get_match(match_id: str):
     response = supabase.table("matches").select("*, locations(name)").eq("id", match_id).limit(1).execute()
     if not response.data:
         raise HTTPException(status_code=404, detail="Match not found")
-    return response.data[0]
+    m = response.data[0]
+
+    # Compute estimated_start using all matches on the same court
+    if m.get("location_id"):
+        court_matches = (
+            supabase.table("matches")
+            .select("*")
+            .eq("location_id", m["location_id"])
+            .execute()
+            .data
+        )
+        sport_ids = list({cm["sport_id"] for cm in court_matches if cm.get("sport_id")})
+        sport_duration_map: dict[str, int] = {}
+        if sport_ids:
+            sports = (
+                supabase.table("sports")
+                .select("id, match_duration_minutes")
+                .in_("id", sport_ids)
+                .execute()
+                .data
+            )
+            sport_duration_map = {s["id"]: s["match_duration_minutes"] or 30 for s in sports}
+        estimated = _compute_estimated_starts(court_matches, sport_duration_map)
+        m["estimated_start"] = estimated.get(match_id)
+
+    return m
 
 
 @router.post("/", response_model=Match, status_code=201)
@@ -43,7 +192,10 @@ def start_match(match_id: str, _=Depends(require_admin)):
         raise HTTPException(status_code=404, detail="Match not found")
     if response.data[0]["status"] != "scheduled":
         raise HTTPException(status_code=422, detail="Only scheduled matches can be started")
-    return supabase.table("matches").update({"status": "in_progress"}).eq("id", match_id).execute().data[0]
+    return supabase.table("matches").update({
+        "status": "in_progress",
+        "actual_start": _now_iso(),
+    }).eq("id", match_id).execute().data[0]
 
 
 @router.post("/{match_id}/result", response_model=Match)
@@ -60,9 +212,7 @@ def post_result(match_id: str, result: MatchResult, _=Depends(require_admin)):
     if winner_id not in (match["home_team_id"], match["away_team_id"]):
         raise HTTPException(status_code=422, detail="winner_id must be home_team_id or away_team_id")
 
-    # If result is being changed, retract the previous advancement first.
     if match["winner_id"]:
-        # Guard: if the downstream match already has its own result, refuse the change.
         if match.get("winner_next_match_id"):
             downstream = supabase.table("matches").select("status").eq(
                 "id", match["winner_next_match_id"]
@@ -76,9 +226,11 @@ def post_result(match_id: str, result: MatchResult, _=Depends(require_admin)):
         prev_loser = match["away_team_id"] if prev_winner == match["home_team_id"] else match["home_team_id"]
         retract_winner(match_id, prev_winner, prev_loser, supabase)
 
-    update: dict = {"winner_id": winner_id, "status": "completed"}
-    if result.played_at:
-        update["played_at"] = result.played_at.isoformat()
+    update: dict = {
+        "winner_id": winner_id,
+        "status": "completed",
+        "played_at": result.played_at.isoformat() if result.played_at else _now_iso(),
+    }
     if result.notes:
         update["notes"] = result.notes
 
@@ -86,6 +238,7 @@ def post_result(match_id: str, result: MatchResult, _=Depends(require_admin)):
 
     loser_id = match["away_team_id"] if winner_id == match["home_team_id"] else match["home_team_id"]
     advance_winner(match_id, winner_id, loser_id, supabase)
+    _assign_dynamic_court(match_id)
     settle_bracket(match["sport_id"], supabase)
 
     return updated
@@ -121,13 +274,18 @@ def post_forfeit(match_id: str, body: MatchForfeit, _=Depends(require_admin)):
         prev_loser = match["away_team_id"] if prev_winner == match["home_team_id"] else match["home_team_id"]
         retract_winner(match_id, prev_winner, prev_loser, supabase)
 
-    update: dict = {"winner_id": winner_id, "status": "forfeit"}
+    update: dict = {
+        "winner_id": winner_id,
+        "status": "forfeit",
+        "played_at": _now_iso(),
+    }
     if body.notes:
         update["notes"] = body.notes
 
     updated = supabase.table("matches").update(update).eq("id", match_id).execute().data[0]
 
     advance_winner(match_id, winner_id, forfeiting_id, supabase)
+    _assign_dynamic_court(match_id)
     settle_bracket(match["sport_id"], supabase)
 
     return updated
@@ -145,13 +303,28 @@ def post_double_forfeit(match_id: str, body: MatchDoubleForfeit | None = None, _
     if match["status"] not in ("scheduled", "in_progress"):
         raise HTTPException(status_code=422, detail="Match is already resolved")
 
-    update: dict = {"status": "double_forfeit", "winner_id": None}
+    update: dict = {
+        "status": "double_forfeit",
+        "winner_id": None,
+        "played_at": _now_iso(),
+    }
     if body and body.notes:
         update["notes"] = body.notes
 
     updated = supabase.table("matches").update(update).eq("id", match_id).execute().data[0]
     settle_bracket(match["sport_id"], supabase)
     return updated
+
+
+@router.patch("/{match_id}", response_model=Match)
+def update_match(match_id: str, body: MatchUpdate, _=Depends(require_admin)):
+    updates = body.model_dump(exclude_none=True, mode="json")
+    if not updates:
+        raise HTTPException(status_code=422, detail="No fields to update")
+    response = supabase.table("matches").select("id").eq("id", match_id).limit(1).execute()
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Match not found")
+    return supabase.table("matches").update(updates).eq("id", match_id).execute().data[0]
 
 
 @router.delete("/{match_id}", status_code=204)

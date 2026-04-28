@@ -5,7 +5,9 @@ then wires up winner_next_match_id / loser_next_match_id links
 and auto-completes any bye slots.
 """
 
+import math
 import random
+from datetime import datetime, timedelta
 
 from supabase import Client
 from .types import MatchSlot
@@ -35,21 +37,13 @@ def _shuffle_avoiding_same_company(
     team_ids: list[str],
     company_map: dict[str, str],
 ) -> list[str]:
-    """Shuffle teams randomly, then greedily resolve same-company first-round pairs.
-
-    Works in the post-seeding index space: _seed_positions tells us which indices
-    of the padded array become pairs in round 1. For each conflicting pair, we scan
-    later pairs for a team from a different company and swap it in. If no valid swap
-    exists (edge case), the same-company pair is left in place.
-    """
+    """Shuffle teams randomly, then greedily resolve same-company first-round pairs."""
     teams = list(team_ids)
     random.shuffle(teams)
 
     n = len(teams)
     size = _next_power_of_2(n)
     positions = _seed_positions(size)
-    # positions[2k] and positions[2k+1] are the padded-array indices for pair k.
-    # padded = teams + [None]*byes, so index >= n means a bye slot.
 
     num_pairs = size // 2
     for k in range(num_pairs):
@@ -57,15 +51,14 @@ def _shuffle_avoiding_same_company(
         b_idx = positions[2 * k + 1]
 
         if a_idx >= n or b_idx >= n:
-            continue  # bye match — skip
+            continue
 
         a = teams[a_idx]
         b = teams[b_idx]
 
         if company_map.get(a) != company_map.get(b):
-            continue  # already different companies
+            continue
 
-        # Conflict: search later pairs for a valid swap partner for b.
         for j in range(k + 1, num_pairs):
             c_idx = positions[2 * j]
             d_idx = positions[2 * j + 1]
@@ -77,9 +70,120 @@ def _shuffle_avoiding_same_company(
             if d_idx < n and company_map.get(teams[d_idx]) != company_map.get(a):
                 teams[b_idx], teams[d_idx] = teams[d_idx], teams[b_idx]
                 break
-        # If no valid swap found, the same-company pair stands (unavoidable edge case).
 
     return teams
+
+
+def _assign_courts_subtree(slots: list[MatchSlot], courts: list[str]) -> dict[int, str | None]:
+    """Map slot index → court UUID (or None for the grand final).
+
+    Winners bracket: subtree grouping — the group of R1 matches that ultimately
+    feed the same R2 match all share a court, so a court's chain plays
+    continuously without gaps between rounds.
+
+    Losers bracket: simple round-robin across all courts.
+
+    Grand final (bracket_phase == 'finals'): None — court is assigned
+    dynamically at runtime when the first semifinal ends.
+    """
+    if not courts:
+        return {}
+
+    C = len(courts)
+    assignment: dict[int, str | None] = {}
+
+    # Grand final gets no pre-assigned court
+    for i, s in enumerate(slots):
+        if s.bracket_phase == "finals":
+            assignment[i] = None
+
+    # Winners bracket: group R1 into C blocks then propagate up
+    wb_phases = {"winners", "bracket"}
+    wb_non_bye = [i for i, s in enumerate(slots) if s.bracket_phase in wb_phases and not s.is_bye]
+
+    if wb_non_bye:
+        min_round = min(slots[i].match_round for i in wb_non_bye)
+        r1 = [i for i in wb_non_bye if slots[i].match_round == min_round]
+
+        # Adjacent R1 pairs feed the same R2 match, so assign in contiguous blocks
+        group_size = max(1, len(r1) // C)
+        for pos, i in enumerate(r1):
+            court_idx = min(pos // group_size, C - 1)
+            assignment[i] = courts[court_idx]
+
+        # Propagate court up through winner_next_idx (slots are ordered by round,
+        # so iterating by index is already topological order within the WB)
+        for i, s in enumerate(slots):
+            if s.bracket_phase not in wb_phases or s.is_bye:
+                continue
+            if i not in assignment:
+                continue
+            nxt = s.winner_next_idx
+            if nxt is None or slots[nxt].bracket_phase == "finals":
+                continue
+            if nxt not in assignment:
+                assignment[nxt] = assignment[i]
+
+    # Losers bracket: round-robin
+    lb = [i for i, s in enumerate(slots) if s.bracket_phase == "losers" and not s.is_bye]
+    for pos, i in enumerate(lb):
+        assignment[i] = courts[pos % C]
+
+    return assignment
+
+
+def _compute_scheduled_times(
+    slots: list[MatchSlot],
+    assignment: dict[int, str | None],
+    start_time: datetime,
+    match_duration_minutes: int,
+) -> dict[int, str]:
+    """Return {slot_index: ISO scheduled_at} for non-bye slots with both teams.
+
+    Only schedules matches where both home_team_id and away_team_id are set,
+    allowing dependent matches (losers bracket, later rounds) to receive teams
+    and be scheduled when they become playable.
+
+    Within each court, matches are scheduled sequentially (chain order).
+    The grand final (court=None) is scheduled after the deepest court finishes.
+    """
+    duration = timedelta(minutes=match_duration_minutes)
+
+    # Group non-bye slots with both teams by court
+    court_chains: dict[str, list[int]] = {}
+    final_indices: list[int] = []
+
+    for i, s in enumerate(slots):
+        if s.is_bye:
+            continue
+        if s.home_team_id is None or s.away_team_id is None:
+            continue
+        court = assignment.get(i)
+        if court is None:
+            final_indices.append(i)
+        else:
+            court_chains.setdefault(court, []).append(i)
+
+    scheduled: dict[int, str] = {}
+
+    # Sequential scheduling within each court (sort by round, then index)
+    court_depths: list[int] = []
+    for court, indices in court_chains.items():
+        indices.sort(key=lambda i: (slots[i].match_round, i))
+        t = start_time
+        for i in indices:
+            scheduled[i] = t.isoformat()
+            t += duration
+        court_depths.append(len(indices))
+
+    # Grand final starts when the last court finishes its last match
+    if final_indices:
+        max_depth = max(court_depths, default=0)
+        final_time = start_time + timedelta(minutes=max_depth * match_duration_minutes)
+        for i in final_indices:
+            scheduled[i] = final_time.isoformat()
+
+    return scheduled
 
 
 def clear_brackets(sport_id: str, db: Client) -> None:
@@ -101,14 +205,20 @@ def persist_bracket(
     db: Client,
     clear_existing: bool = False,
     location_ids: list[str] | None = None,
+    start_time: datetime | None = None,
+    match_duration_minutes: int = 30,
 ) -> dict:
     """Generate and save a bracket for a sport.
 
     Args:
-        sport_id:       UUID of the sport.
-        team_ids:       Team UUIDs ordered by seed (index 0 = top seed).
-        db:             Supabase client (service role).
-        clear_existing: If True, delete existing brackets/matches first.
+        sport_id:              UUID of the sport.
+        team_ids:              Team UUIDs ordered by seed (index 0 = top seed).
+        db:                    Supabase client (service role).
+        clear_existing:        If True, delete existing brackets/matches first.
+        location_ids:          Court UUIDs to assign. Subtree grouping for WB,
+                               round-robin for LB, dynamic (None) for grand final.
+        start_time:            Earliest start time for the first match on each court.
+        match_duration_minutes: Minutes per match slot on each court.
 
     Returns:
         Summary dict with bracket_ids and match_count.
@@ -133,12 +243,11 @@ def persist_bracket(
 
     slots: list[MatchSlot] = generator(team_ids)
 
-    # ── Optionally clear existing brackets + matches ──────────────────────────
     if clear_existing:
         clear_brackets(sport_id, db)
 
     # ── Create one bracket record per phase ───────────────────────────────────
-    phases = dict.fromkeys(slot.bracket_phase for slot in slots)  # preserves order
+    phases = dict.fromkeys(slot.bracket_phase for slot in slots)
     phase_to_bracket_id: dict[str, str] = {}
     bracket_ids_created: list[str] = []
 
@@ -152,12 +261,19 @@ def persist_bracket(
         phase_to_bracket_id[phase] = bid
         bracket_ids_created.append(bid)
 
-    # ── Batch-insert all match slots ─────────────────────────────────────────
+    # ── Compute court and time assignments ───────────────────────────────────
     courts = list(location_ids) if location_ids else []
-    court_cursor = 0
+    assignment = _assign_courts_subtree(slots, courts)
 
+    scheduled_at_map: dict[int, str] = {}
+    if start_time is not None:
+        scheduled_at_map = _compute_scheduled_times(
+            slots, assignment, start_time, match_duration_minutes
+        )
+
+    # ── Batch-insert all match slots ─────────────────────────────────────────
     rows = []
-    for slot in slots:
+    for i, slot in enumerate(slots):
         row: dict = {
             "sport_id": sport_id,
             "bracket_id": phase_to_bracket_id[slot.bracket_phase],
@@ -169,14 +285,17 @@ def persist_bracket(
         if slot.is_bye:
             row["winner_id"] = slot.home_team_id or slot.away_team_id
             row["status"] = "completed"
-        elif courts:
-            # Round-robin across courts; byes are skipped so they don't consume a slot.
-            row["location_id"] = courts[court_cursor % len(courts)]
-            court_cursor += 1
+        else:
+            court = assignment.get(i)
+            if court is not None:
+                row["location_id"] = court
+            # Grand final (court=None) gets location_id left null for dynamic assignment
+            if i in scheduled_at_map:
+                row["scheduled_at"] = scheduled_at_map[i]
         rows.append(row)
 
     result = db.table("matches").insert(rows).execute()
-    inserted = result.data          # ordered the same as `rows`
+    inserted = result.data
     inserted_ids = [r["id"] for r in inserted]
 
     for i, slot in enumerate(slots):
@@ -228,7 +347,6 @@ def _fill_team_slot(match_id: str, team_id: str, db: Client) -> None:
     if not row.data:
         return
     slot = row.data[0]
-    # If the team is already in either slot, nothing to do.
     if slot["home_team_id"] == team_id or slot["away_team_id"] == team_id:
         return
     field = "home_team_id" if slot["home_team_id"] is None else "away_team_id"
@@ -264,16 +382,7 @@ def retract_winner(match_id: str, winner_id: str, loser_id: str | None, db: Clie
 
 
 def settle_bracket(sport_id: str, db: Client) -> None:
-    """Sweep all bracket matches for a sport and auto-resolve anything that no longer needs a human decision.
-
-    Runs in passes until no changes occur. Each pass resolves matches whose every
-    upstream source has already been settled:
-      - 2 teams present  → skip (needs a human result)
-      - 1 team present   → auto-complete as a bye; advance that team
-      - 0 teams present  → void the match (double_forfeit); advance nothing
-
-    Call this after every match resolution (result, forfeit, double_forfeit).
-    """
+    """Sweep all bracket matches for a sport and auto-resolve anything that no longer needs a human decision."""
     _TERMINAL = {"completed", "forfeit", "double_forfeit"}
 
     changed = True
@@ -286,7 +395,6 @@ def settle_bracket(sport_id: str, db: Client) -> None:
 
         terminal_ids = {r["id"] for r in rows if r["status"] in _TERMINAL}
 
-        # upstream_of[match_id] = list of match IDs that feed into it
         upstream_of: dict[str, list[str]] = {}
         for r in rows:
             for dst in filter(None, [r["winner_next_match_id"], r["loser_next_match_id"]]):
@@ -296,14 +404,13 @@ def settle_bracket(sport_id: str, db: Client) -> None:
             if m["status"] != "scheduled":
                 continue
 
-            # Skip if any upstream source is still unresolved
             if any(uid not in terminal_ids for uid in upstream_of.get(m["id"], [])):
                 continue
 
             home, away = m["home_team_id"], m["away_team_id"]
 
             if home and away:
-                continue  # two teams — needs a human result
+                continue
 
             if home or away:
                 solo = home or away
@@ -315,7 +422,6 @@ def settle_bracket(sport_id: str, db: Client) -> None:
                 changed = True
 
             else:
-                # No teams will ever arrive — void the match
                 db.table("matches").update(
                     {"status": "double_forfeit"}
                 ).eq("id", m["id"]).execute()
