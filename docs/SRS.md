@@ -108,12 +108,13 @@ The system does not support:
 
 ### 4.5 Scheduling
 
-- Admins shall assign:
+- Admins shall be able to assign:
   - match start time
   - location
 - The system shall:
-  - not require match duration
-  - not auto-generate schedules
+  - require match duration per sport
+  - auto-generate schedules for elimination brackets at generation time
+  - compute `estimated_start` per-court dynamically (not stored)
 - The system shall warn when:
   - two matches are scheduled at the same location at the same time
 
@@ -130,14 +131,15 @@ Each match shall include:
 - result
 
 Match statuses:
-- Not Started
-- In Progress
-- Completed
-- Forfeit
+- `scheduled` — match is created and has a time/location
+- `in_progress` — match has started (`actual_start` timestamp set)
+- `completed` — winner recorded
+- `forfeit` — one team forfeited; opponent wins and advances
+- `double_forfeit` — both teams forfeited; no winner; no advancement
 
 - Only admins may change match status
-- Starting a match sets status to In Progress
-- Submitting a result sets status to Completed
+- Starting a match sets status to `in_progress`
+- Submitting a result sets status to `completed`
 
 ---
 
@@ -148,34 +150,47 @@ Match statuses:
 - Forfeits:
   - opponent automatically wins
   - forfeiting team does not advance
+- Double forfeits:
+  - no winner; neither team advances
+- Result retraction is allowed if no downstream matches have started
 
 ---
 
 ### 4.8 Bracket Management
 
-- The system shall support:
-  - single elimination
-  - double elimination
+- The system shall support auto-generation for:
+  - `single_elimination`
+  - `double_elimination`
 - The system shall:
-  - automatically advance winners
-  - route losers appropriately (double elimination)
+  - automatically advance winners to next match
+  - route losers to the losers bracket (double elimination only)
+  - dynamically assign courts to winner's next match after result posted
+  - mark a bracket settled when all matches are resolved
 - Brackets shall update automatically after results are entered
+- Other bracket types (`pool_bracket`, `pool_swiss`, `heats`, `points_based`) are not auto-generated; matches must be created manually
 
 ---
 
 ### 4.9 Non-Bracket Events
 
-The system shall support:
-- placement-based events
-- score-based events
-- custom scoring events
+The system shall support the following non-elimination sport structures:
+
+| Type | Behavior |
+|------|----------|
+| `pool_bracket` | Pool play (manual match creation) followed by bracket phase |
+| `pool_swiss` | Swiss-style matching (manual match creation) |
+| `heats` | Timed/sequential heats; `notes` field used for heat metadata |
+| `points_based` | No match structure; placement awarded directly via scoring workflow |
 
 Admins shall:
-- enter placements or raw scores manually
+- enter placements manually via the Scoring page
+- create individual matches manually for pool/heats sports
 
 The system shall:
-- compute rankings automatically
-- apply scoring rules per sport
+- apply scoring rules per sport when placement is submitted
+- compute rankings automatically from placements
+
+**Frontend status:** Pool, heats, and points-based sports do not yet have dedicated UI. The Schedule page renders all sports identically regardless of bracket type. The Brackets page labels these sports as "Manual entry."
 
 ---
 
@@ -183,15 +198,20 @@ The system shall:
 
 - Scoring shall be assigned at the company level
 - A company shall receive only one placement per sport
+- The system shall enforce `UNIQUE(company_id, sport_id)` on `event_points`
 
-If multiple teams from the same company place:
-- only the highest placement shall count
-- lower placements from the same company shall be ignored
-- the next highest team from a different company shall determine the next placement
+**Scoring direction** (`scoring_direction`):
+- `high_wins` — higher score / faster time wins (most sports)
+- `low_wins` — lower score wins (e.g., Human Pyramid: lower time is better)
 
-- Points shall be assigned based on:
-  - default ASG scale (40, 38, 36, ...)
-  - or sport-specific custom scale
+**Multi-team rule** (`multi_team_rule`) — applies when a company enters multiple teams:
+- `best_placement` — only the best-placing team's result counts
+- `average_score` — average across all company teams (Water Ball Toss)
+
+**Points scale** (`points_scale`):
+- Default ASG scale: 1st = 40, 2nd = 38, 3rd = 36, then −2 per place (floor 0)
+- Implemented as SQL function `asg_points(placement INTEGER)`
+- Sports may override with a custom JSONB scale, e.g. `{"1": 15, "2": 10, "default": 5}`
 
 - Company scoring shall:
   - always be derived from raw results
@@ -206,15 +226,15 @@ If multiple teams from the same company place:
   - company name
   - total points
   - rank
-- The system shall store per-sport point contributions
-- The leaderboard shall update automatically when results are entered
+- The system shall store per-sport point contributions in `event_points`
+- The leaderboard is computed via SQL RPC function `get_leaderboard()`
 
 ---
 
 ### 4.12 UI / Views
 
 #### Global Views
-- Full-day schedule (all sports)
+- Full-day schedule (all sports, all matches)
 - Leaderboard
 
 Schedule shall display:
@@ -268,15 +288,84 @@ Team managers shall:
 
 ## 5. Data Requirements
 
-Key entities:
-- companies
-- sports
-- teams
-- roster_entries
-- matches
-- brackets
-- event_points
-- locations
+### companies
+- `id` (UUID, PK)
+- `name` (TEXT, UNIQUE)
+- `short_id` (TEXT, UNIQUE, NOT NULL, format `^[A-Z0-9-]+$`)
+- `logo_url` (TEXT, nullable)
+- `created_at` (TIMESTAMPTZ)
+
+### sports
+- `id` (UUID, PK)
+- `name` (TEXT, UNIQUE)
+- `bracket_type` (TEXT) — `single_elimination` | `double_elimination` | `pool_bracket` | `pool_swiss` | `heats` | `points_based`
+- `teams_per_company` (INT, default 1)
+- `scoring_direction` (TEXT, default `high_wins`) — `high_wins` | `low_wins`
+- `multi_team_rule` (TEXT, default `best_placement`) — `best_placement` | `average_score`
+- `points_scale` (JSONB, nullable) — custom override; NULL = ASG default
+- `match_duration_minutes` (INT, nullable) — used for auto-scheduling
+- `concurrent_courts` (INT, nullable) — courts available in parallel
+- `schedule_start` (TIMESTAMPTZ, nullable) — when bracket scheduling begins
+- `created_at` (TIMESTAMPTZ)
+
+### teams
+- `id` (UUID, PK)
+- `company_id` (UUID, FK → companies)
+- `sport_id` (UUID, FK → sports)
+- `name` (TEXT, optional display name)
+- `created_at` (TIMESTAMPTZ)
+
+### roster_entries
+- `id` (UUID, PK)
+- `team_id` (UUID, FK → teams)
+- `player_name` (TEXT)
+- `created_at` (TIMESTAMPTZ)
+
+### brackets
+- `id` (UUID, PK)
+- `sport_id` (UUID, FK → sports)
+- `name` (TEXT) — e.g., "Winners Bracket", "Pool A"
+- `phase` (TEXT) — `pool` | `bracket` | `heats` | `finals`
+- `created_at` (TIMESTAMPTZ)
+
+### matches
+- `id` (UUID, PK)
+- `sport_id` (UUID, FK → sports)
+- `bracket_id` (UUID, FK → brackets, nullable)
+- `home_team_id` (UUID, FK → teams, nullable)
+- `away_team_id` (UUID, FK → teams, nullable)
+- `location_id` (UUID, FK → locations, nullable)
+- `winner_id` (UUID, FK → teams, nullable)
+- `winner_next_match_id` (UUID, self-ref FK → matches, nullable) — where winner advances
+- `loser_next_match_id` (UUID, self-ref FK → matches, nullable) — where loser drops (double elim)
+- `status` (TEXT) — `scheduled` | `in_progress` | `completed` | `forfeit` | `double_forfeit`
+- `match_round` (INT, nullable)
+- `scheduled_at` (TIMESTAMPTZ, nullable)
+- `actual_start` (TIMESTAMPTZ, nullable) — set when match is marked in_progress
+- `played_at` (TIMESTAMPTZ, nullable) — set when result is submitted
+- `notes` (TEXT, nullable)
+- `created_at` (TIMESTAMPTZ)
+
+### event_points
+- `id` (UUID, PK)
+- `company_id` (UUID, FK → companies)
+- `sport_id` (UUID, FK → sports)
+- `placement` (INT)
+- `points` (INT, default 0)
+- `notes` (TEXT, nullable)
+- `created_at` (TIMESTAMPTZ)
+- UNIQUE(company_id, sport_id)
+
+### locations
+- `id` (UUID, PK)
+- `name` (TEXT)
+
+### user_profiles
+- `id` (UUID, PK, FK → auth.users)
+- `company_id` (UUID, FK → companies, nullable)
+- `role` (TEXT) — `player` | `team_manager` | `admin`
+- `full_name` (TEXT, nullable)
+- `created_at` (TIMESTAMPTZ)
 
 Constraints:
 - records shall not be deletable once used
@@ -332,6 +421,7 @@ Constraints:
 ## 10. Open Items
 
 - Leaderboard tie-breaker logic TBD
+- Pool/Swiss/Heats/Points-based sport management UI not yet built
 
 ---
 
@@ -345,20 +435,49 @@ Constraints:
 
 ## 12. Preset Sports
 
-- Basketball
-- Cornhole
-- Dodgeball
-- Human Pyramid
-- Pickleball
-- Relay Race
-- Soccer
-- Tug of War
-- Ultimate Frisbee
-- Volleyball
-- Water Ball Toss
-- Canned Food Drive
+| Sport | Bracket Type | Teams/Company | Scoring Direction | Multi-Team Rule | Points Scale |
+|---|---|---|---|---|---|
+| Volleyball | double_elimination | 1 | high_wins | best_placement | ASG default |
+| Basketball | double_elimination | 1 | high_wins | best_placement | ASG default |
+| Dodgeball | double_elimination | 3 | high_wins | best_placement | ASG default |
+| Soccer | single_elimination | 1 | high_wins | best_placement | ASG default |
+| Tug of War | single_elimination | 1 | high_wins | best_placement | ASG default |
+| Ultimate Frisbee | pool_bracket | 1 | high_wins | best_placement | ASG default |
+| Pickleball | pool_swiss | 2 | high_wins | best_placement | ASG default |
+| Cornhole | pool_swiss | 4 | high_wins | best_placement | ASG default |
+| Relay Race | heats | 1 | high_wins | best_placement | ASG default |
+| Human Pyramid | heats | 1 | low_wins | best_placement | ASG default |
+| Water Ball Toss | points_based | 5 | high_wins | average_score | ASG default |
+| Canned Food Drive | points_based | 1 | high_wins | best_placement | `{"1":15,"2":10,"default":5}` |
 
-Each sport shall define:
-- bracket type
-- teams per company
-- scoring rule
+Each sport defines:
+- bracket type (determines match structure and generation method)
+- teams per company (how many separate teams one company fields)
+- scoring direction (high_wins or low_wins)
+- multi-team rule (how to resolve a company's score when they have multiple teams)
+- points scale (custom override or ASG default)
+
+---
+
+## 13. Implementation Status
+
+### Fully Built
+- Single and double elimination bracket generation, advancement, result/forfeit/double-forfeit entry
+- Scheduling config (`match_duration_minutes`, `concurrent_courts`, `schedule_start`) and `estimated_start` computation
+- Placement-based scoring (ScoringPage + `/event-points/award-placement`)
+- Teams, companies, and roster management
+- Leaderboard (SQL RPC `get_leaderboard()`)
+- Auth (Supabase) with admin / team_manager / public roles
+- Match retraction if downstream matches haven't started
+
+### Partially Built / Admin Workaround Available
+- Pool/Swiss sports — matches can be manually created via POST `/matches`; no pool grouping or standings UI
+- Heats — matches can be manually created; `notes` field used for heat metadata; no progression UI
+- Points-based — placement can be awarded via Scoring page; no match structure or score entry UI
+
+### Not Yet Built
+- Pool group creation and standings calculation UI
+- Heat assignment and result tracking UI
+- Points-based event score entry UI
+- Sport-type-aware visualization on the Schedule page (all sports render identically today)
+- Real-time push updates (frontend currently requires manual refresh or polling)

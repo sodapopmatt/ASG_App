@@ -14,6 +14,8 @@ export interface Sport {
   scoring_direction: 'high_wins' | 'low_wins'
   multi_team_rule: 'best_placement' | 'average_score'
   points_scale: Record<string, number> | null
+  match_duration_minutes: number | null
+  schedule_start: string | null
   created_at: string
 }
 
@@ -40,9 +42,11 @@ export interface Match {
   winner_next_match_id: string | null
   loser_next_match_id: string | null
   scheduled_at: string | null
+  actual_start: string | null
   played_at: string | null
   notes: string | null
   created_at: string
+  estimated_start: string | null
 }
 
 export interface Bracket {
@@ -55,6 +59,7 @@ export interface Bracket {
 
 export interface Location {
   id: string
+  sport_id: string
   name: string
 }
 

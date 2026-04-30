@@ -10,7 +10,6 @@ export function generateBracket(
   sportId: string,
   teamIds: string[],
   clearExisting = false,
-  locationIds: string[] = [],
 ) {
   return apiFetch<unknown>(`/sports/${sportId}/generate-bracket`, {
     method: 'POST',
@@ -18,7 +17,14 @@ export function generateBracket(
     body: JSON.stringify({
       team_ids: teamIds,
       clear_existing: clearExisting,
-      location_ids: locationIds,
     }),
+  })
+}
+
+export function updateSport(sportId: string, body: Partial<Sport>) {
+  return apiFetch<Sport>(`/sports/${sportId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   })
 }

@@ -12,7 +12,9 @@ import RosterPage from './pages/manage/RosterPage'
 import BracketsPage from './pages/manage/BracketsPage'
 import ResultsPage from './pages/manage/ResultsPage'
 import BracketResultsPage from './pages/manage/BracketResultsPage'
+import HeatsResultPage from './pages/manage/HeatsResultPage'
 import ScoringPage from './pages/manage/ScoringPage'
+import SportConfigPage from './pages/manage/SportConfigPage'
 
 export default function App() {
   return (
@@ -28,8 +30,10 @@ export default function App() {
           <Route path="manage/teams" element={<RequireAuth><TeamsPage /></RequireAuth>} />
           <Route path="manage/teams/:teamId/roster" element={<RequireAuth><RosterPage /></RequireAuth>} />
           <Route path="manage/brackets" element={<RequireAuth><BracketsPage /></RequireAuth>} />
+          <Route path="manage/brackets/:sportId" element={<RequireAuth><SportConfigPage /></RequireAuth>} />
           <Route path="manage/results" element={<RequireAuth><ResultsPage /></RequireAuth>} />
           <Route path="manage/results/brackets/:sportId" element={<RequireAuth><BracketResultsPage /></RequireAuth>} />
+          <Route path="manage/results/heats/:sportId" element={<RequireAuth><HeatsResultPage /></RequireAuth>} />
           <Route path="manage/scoring" element={<RequireAuth><ScoringPage /></RequireAuth>} />
         </Route>
       </Routes>

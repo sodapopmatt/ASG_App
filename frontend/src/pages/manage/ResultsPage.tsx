@@ -8,6 +8,7 @@ import { getCompanies } from '../../api/companies'
 import type { Match, Team, Sport, Company } from '../../types'
 
 const BRACKET_TYPES = new Set(['single_elimination', 'double_elimination'])
+const HEATS_TYPES = new Set(['heats'])
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [String(item[key]), item]))
@@ -52,6 +53,7 @@ function SportRow({
 }) {
   const [open, setOpen] = useState(false)
   const isBracket = BRACKET_TYPES.has(sport.bracket_type)
+  const isHeats = HEATS_TYPES.has(sport.bracket_type)
   const pendingCount = matches.filter(
     m => m.status === 'scheduled' || m.status === 'in_progress',
   ).length
@@ -88,6 +90,16 @@ function SportRow({
               className="flex items-center justify-between w-full px-4 py-3 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 active:bg-blue-800 transition-colors"
             >
               View Bracket
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </Link>
+          ) : isHeats ? (
+            <Link
+              to={`/manage/results/heats/${sport.id}`}
+              className="flex items-center justify-between w-full px-4 py-3 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 active:bg-blue-800 transition-colors"
+            >
+              Enter Times
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
@@ -184,6 +196,9 @@ export default function ResultsPage() {
 
   return (
     <div className="p-4 mt-2 space-y-3">
+      <div className="flex items-center gap-2">
+        <Link to="/manage" className="text-blue-600 text-sm">← Manage</Link>
+      </div>
       <h2 className="text-xl font-bold text-slate-800">Enter Results</h2>
 
       {sportsWithMatches.length === 0 ? (

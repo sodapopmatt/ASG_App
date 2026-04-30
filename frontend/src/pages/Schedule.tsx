@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { Fragment, useState, useMemo, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getMatches } from '../api/matches'
 import { getSports } from '../api/sports'
@@ -6,33 +6,69 @@ import { getTeams } from '../api/teams'
 import { getCompanies } from '../api/companies'
 import type { Match, Sport, Team, Company } from '../types'
 
-type Tab = 'upcoming' | 'completed'
+type ViewMode = 'by_sport' | 'timeline'
+type StatusFilter = 'all' | 'upcoming' | 'live' | 'completed'
+
+const ACCENT_COLORS = [
+  '#3B82F6', '#F97316', '#10B981', '#8B5CF6', '#EF4444',
+  '#F59E0B', '#06B6D4', '#EC4899', '#84CC16', '#6366F1',
+]
+
+function buildTimeSlot(minutes: number): { label: string; minutes: number } {
+  const h = Math.floor(minutes / 60)
+  const min = minutes % 60
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+  return { label: `${h12}:${min.toString().padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`, minutes }
+}
+
+function buildTimelineSlots(matches: Match[]): { label: string; minutes: number }[] {
+  const times = matches
+    .map(m => m.estimated_start ?? m.scheduled_at)
+    .filter(Boolean)
+    .map(t => { const d = new Date(t!); return d.getHours() * 60 + d.getMinutes() })
+
+  const from = times.length ? Math.floor(Math.min(...times) / 30) * 30 : 8 * 60
+  const to   = times.length ? Math.ceil(Math.max(...times) / 30) * 30  : 17 * 60
+
+  const slots = []
+  for (let m = from; m <= to; m += 30) slots.push(buildTimeSlot(m))
+  return slots
+}
+
+// ── Data hook ───────────────────────────────────────────────────────────────
 
 function useScheduleData() {
-  const matches   = useQuery({ queryKey: ['matches'],    queryFn: () => getMatches() })
-  const sports    = useQuery({ queryKey: ['sports'],     queryFn: getSports,          staleTime: Infinity })
-  const teams     = useQuery({ queryKey: ['teams'],      queryFn: () => getTeams(),   staleTime: Infinity })
-  const companies = useQuery({ queryKey: ['companies'],  queryFn: getCompanies,       staleTime: Infinity })
+  const matches   = useQuery({ queryKey: ['matches'],   queryFn: () => getMatches() })
+  const sports    = useQuery({ queryKey: ['sports'],    queryFn: getSports,         staleTime: Infinity })
+  const teams     = useQuery({ queryKey: ['teams'],     queryFn: () => getTeams(),  staleTime: Infinity })
+  const companies = useQuery({ queryKey: ['companies'], queryFn: getCompanies,      staleTime: Infinity })
 
   const sportMap   = useMemo(() => indexBy(sports.data   ?? [], 'id') as Record<string, Sport>,   [sports.data])
   const teamMap    = useMemo(() => indexBy(teams.data    ?? [], 'id') as Record<string, Team>,    [teams.data])
   const companyMap = useMemo(() => indexBy(companies.data ?? [], 'id') as Record<string, Company>, [companies.data])
 
   return {
-    matches: matches.data ?? [],
+    matches:   matches.data   ?? [],
+    sports:    sports.data    ?? [],
     sportMap,
     teamMap,
     companyMap,
     isLoading: matches.isLoading || sports.isLoading || teams.isLoading || companies.isLoading,
-    isError: matches.isError,
+    isError:   matches.isError,
   }
 }
+
+// ── Utilities ───────────────────────────────────────────────────────────────
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [item[key], item]))
 }
 
-function teamLabel(teamId: string | null, teamMap: Record<string, Team>, companyMap: Record<string, Company>) {
+function teamLabel(
+  teamId: string | null | undefined,
+  teamMap: Record<string, Team>,
+  companyMap: Record<string, Company>,
+): string {
   if (!teamId) return 'TBD'
   const team = teamMap[teamId]
   if (!team) return '—'
@@ -41,105 +77,72 @@ function teamLabel(teamId: string | null, teamMap: Record<string, Team>, company
   return team.name ? `${base} (${team.name})` : base
 }
 
-function StatusPill({ status }: { status: Match['status'] }) {
-  if (status === 'in_progress') {
-    return (
-      <span className="text-xs font-medium text-green-700 bg-green-50 px-2 py-0.5 rounded-full animate-pulse">
-        Live
-      </span>
-    )
-  }
-  return null
+function teamShort(
+  teamId: string | null | undefined,
+  teamMap: Record<string, Team>,
+  companyMap: Record<string, Company>,
+): string {
+  if (!teamId) return 'TBD'
+  const team = teamMap[teamId]
+  if (!team) return '—'
+  const company = companyMap[team.company_id]
+  return (company?.name ?? '?').split(' ')[0]
 }
 
-function MatchCard({
-  match,
-  teamMap,
-  companyMap,
-}: {
-  match: Match
-  teamMap: Record<string, Team>
-  companyMap: Record<string, Company>
-}) {
-  const homeLabel   = teamLabel(match.home_team_id, teamMap, companyMap)
-  const awayLabel   = teamLabel(match.away_team_id, teamMap, companyMap)
-  const isWinnerHome = match.winner_id && match.winner_id === teamMap[match.home_team_id ?? '']?.id
-  const isWinnerAway = match.winner_id && match.winner_id === teamMap[match.away_team_id ?? '']?.id
-
-  return (
-    <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-      <div className="flex items-center justify-between mb-2">
-        <StatusPill status={match.status} />
-        {match.status !== 'in_progress' && <span />}
-      </div>
-
-      <div className="flex items-center gap-2">
-        <span className={`flex-1 text-sm font-semibold truncate ${isWinnerHome ? 'text-green-700' : 'text-slate-800'}`}>
-          {homeLabel}
-        </span>
-
-        {(match.status === 'completed' || match.status === 'forfeit' || match.status === 'double_forfeit') ? (
-          <span className="shrink-0 text-xs font-medium text-gray-400 w-14 text-center">
-            {match.status === 'double_forfeit' ? 'Dbl Forfeit' : match.status === 'forfeit' ? 'Forfeit' : 'Final'}
-          </span>
-        ) : (
-          <span className="shrink-0 text-sm text-gray-400 w-14 text-center">vs</span>
-        )}
-
-        <span className={`flex-1 text-sm font-semibold text-right truncate ${isWinnerAway ? 'text-green-700' : 'text-slate-800'}`}>
-          {awayLabel}
-        </span>
-      </div>
-
-      {(match.status === 'completed' || match.status === 'forfeit') && match.winner_id && (
-        <p className="text-xs text-green-700 font-medium mt-1">
-          Winner: {teamLabel(match.winner_id, teamMap, companyMap)}
-        </p>
-      )}
-
-      {match.scheduled_at && match.status === 'scheduled' && (
-        <p className="text-xs text-gray-400 mt-2">
-          {new Date(match.scheduled_at).toLocaleString(undefined, {
-            weekday: 'short', month: 'short', day: 'numeric',
-            hour: 'numeric', minute: '2-digit',
-          })}
-        </p>
-      )}
-
-      {match.locations?.name && (
-        <p className="text-xs text-gray-400 mt-1">{match.locations.name}</p>
-      )}
-    </div>
-  )
+function formatTime(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
 }
 
-function Skeleton() {
-  return (
-    <div className="space-y-3 p-4 mt-16">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="h-20 rounded-xl bg-gray-200 animate-pulse" />
-      ))}
-    </div>
-  )
+function useNow(): Date {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30_000)
+    return () => clearInterval(id)
+  }, [])
+  return now
 }
 
-function groupBySportAndRound(matches: Match[], sportMap: Record<string, Sport>) {
+function slotIndex(iso: string, baseMinutes: number): number {
+  const d = new Date(iso)
+  return Math.round((d.getHours() * 60 + d.getMinutes() - baseMinutes) / 30)
+}
+
+function isResolved(m: Match): boolean {
+  return m.status === 'completed' || m.status === 'forfeit' || m.status === 'double_forfeit'
+}
+
+function matchesStatusFilter(m: Match, f: StatusFilter): boolean {
+  if (f === 'all')       return true
+  if (f === 'upcoming')  return m.status === 'scheduled'
+  if (f === 'live')      return m.status === 'in_progress'
+  if (f === 'completed') return isResolved(m)
+  return true
+}
+
+function groupBySportAndRound(
+  matches: Match[],
+  sportMap: Record<string, Sport>,
+): { sportId: string; sport: Sport; rounds: { roundKey: string; matches: Match[] }[] }[] {
   const sportOrder: string[] = []
   const bySport: Record<string, { sport: Sport; rounds: Record<string, Match[]> }> = {}
 
-  for (const match of matches) {
+  const sorted = [...matches].sort((a, b) => {
+    if (!a.scheduled_at && !b.scheduled_at) return 0
+    if (!a.scheduled_at) return 1
+    if (!b.scheduled_at) return -1
+    return a.scheduled_at.localeCompare(b.scheduled_at)
+  })
+
+  for (const match of sorted) {
     const sport = sportMap[match.sport_id]
     if (!sport) continue
-
     if (!bySport[match.sport_id]) {
       bySport[match.sport_id] = { sport, rounds: {} }
       sportOrder.push(match.sport_id)
     }
-
     const roundKey = match.match_round != null ? String(match.match_round) : 'unscheduled'
-    if (!bySport[match.sport_id].rounds[roundKey]) {
-      bySport[match.sport_id].rounds[roundKey] = []
-    }
+    bySport[match.sport_id].rounds[roundKey] ??= []
     bySport[match.sport_id].rounds[roundKey].push(match)
   }
 
@@ -156,129 +159,444 @@ function groupBySportAndRound(matches: Match[], sportMap: Record<string, Sport>)
   }))
 }
 
-export default function Schedule() {
-  const [tab, setTab] = useState<Tab>('upcoming')
-  const { matches, sportMap, teamMap, companyMap, isLoading, isError } = useScheduleData()
+// ── Shared components ────────────────────────────────────────────────────────
 
-  const [expandedSports, setExpandedSports] = useState<Set<string>>(new Set())
-  const [expandedRounds, setExpandedRounds] = useState<Set<string>>(new Set())
+function LiveClock({ base, actualStart }: {
+  base: string
+  actualStart: string | null
+}) {
+  const [elapsed, setElapsed] = useState(() =>
+    actualStart ? Math.floor((Date.now() - new Date(actualStart).getTime()) / 60000) : 0
+  )
+  useEffect(() => {
+    if (!actualStart) return
+    const start = new Date(actualStart).getTime()
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 60000)), 30_000)
+    return () => clearInterval(id)
+  }, [actualStart])
+  return (
+    <span className={`${base} text-green-700 bg-green-100 animate-pulse`}>
+      Live{actualStart ? ` · ${elapsed}m` : ''}
+    </span>
+  )
+}
 
-  const filtered = useMemo(() => {
-    const isUpcoming = (m: Match) => m.status === 'scheduled' || m.status === 'in_progress'
-    if (tab === 'upcoming') {
-      return matches
-        .filter(isUpcoming)
-        .sort((a, b) => (a.scheduled_at ?? '').localeCompare(b.scheduled_at ?? ''))
+function StatusBadge({ match }: { match: Match }) {
+  const now = useNow()
+  const base = 'text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap'
+
+  if (match.status === 'in_progress')
+    return <LiveClock base={base} actualStart={match.actual_start} />
+
+  if (match.status === 'scheduled') {
+    const effectiveTime = match.estimated_start ?? match.scheduled_at
+    const isPushed = !!(match.estimated_start && match.scheduled_at &&
+      new Date(match.estimated_start) > new Date(match.scheduled_at))
+    const overdueMs = effectiveTime ? now.getTime() - new Date(effectiveTime).getTime() : -Infinity
+    const isOverdue = overdueMs >= 3 * 60 * 1000
+    const overdueMins = Math.floor(overdueMs / 60000)
+
+    if (isOverdue) {
+      return (
+        <div className="flex flex-col items-end gap-0.5">
+          <span className={`${base} text-orange-700 bg-orange-100`}>
+            {effectiveTime ? formatTime(effectiveTime) : 'TBD'}
+          </span>
+          <span className="text-xs text-orange-500 tabular-nums">{overdueMins}m late</span>
+        </div>
+      )
     }
-    return matches
-      .filter(m => m.status === 'completed' || m.status === 'forfeit' || m.status === 'double_forfeit')
-      .sort((a, b) => (b.played_at ?? b.created_at).localeCompare(a.played_at ?? a.created_at))
-  }, [matches, tab])
 
-  const grouped = useMemo(() => groupBySportAndRound(filtered, sportMap), [filtered, sportMap])
+    return (
+      <span className={`${base} ${isPushed ? 'text-orange-700 bg-orange-100' : 'text-blue-700 bg-blue-100'}`}>
+        {effectiveTime ? `${isPushed ? '~' : ''}${formatTime(effectiveTime)}` : 'TBD'}
+      </span>
+    )
+  }
+
+  if (match.status === 'completed' && match.actual_start && match.played_at) {
+    const mins = Math.round(
+      (new Date(match.played_at).getTime() - new Date(match.actual_start).getTime()) / 60000
+    )
+    return <span className={`${base} text-gray-500 bg-gray-100`}>{mins}m</span>
+  }
+
+  if (match.status === 'forfeit')
+    return <span className={`${base} text-gray-500 bg-gray-100`}>Forfeit</span>
+  if (match.status === 'double_forfeit')
+    return <span className={`${base} text-gray-500 bg-gray-100`}>Dbl Forfeit</span>
+  return <span className={`${base} text-gray-500 bg-gray-100`}>Done</span>
+}
+
+function MatchRow({
+  match, teamMap, companyMap, bracketType,
+}: {
+  match: Match
+  teamMap: Record<string, Team>
+  companyMap: Record<string, Company>
+  bracketType?: string
+}) {
+  const home = teamLabel(match.home_team_id, teamMap, companyMap)
+  const away = teamLabel(match.away_team_id, teamMap, companyMap)
+  const showTime = match.status !== 'scheduled'
+  const time = match.scheduled_at ? formatTime(match.scheduled_at) : null
+  const isSingleTeam = bracketType === 'heats'
+  const courtName = match.locations?.name
+
+  if (isSingleTeam) {
+    return (
+      <div
+        className="grid items-center gap-x-2 px-4 py-2 hover:bg-gray-50 text-sm border-t border-gray-100"
+        style={{ gridTemplateColumns: '5rem 1fr 5.5rem' }}
+      >
+        <div className="flex flex-col gap-0.5">
+          <span className="text-xs text-gray-400 tabular-nums">{showTime && time ? time : ''}</span>
+          {courtName && <span className="text-xs text-gray-300 truncate">{courtName}</span>}
+        </div>
+        <span className="font-medium text-slate-700 truncate">{home}</span>
+        <div className="flex justify-end"><StatusBadge match={match}  /></div>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className="grid items-center gap-x-2 px-4 py-2 hover:bg-gray-50 text-sm border-t border-gray-100"
+      style={{ gridTemplateColumns: '5rem 1fr 2rem 1fr 5.5rem' }}
+    >
+      <div className="flex flex-col gap-0.5">
+        <span className="text-xs text-gray-400 tabular-nums">{showTime && time ? time : ''}</span>
+        {courtName && <span className="text-xs text-gray-300 truncate">{courtName}</span>}
+      </div>
+      <span className="text-right font-medium text-slate-700 truncate">{home}</span>
+      <span className="text-center text-xs text-gray-400">vs</span>
+      <span className="font-medium text-slate-700 truncate">{away}</span>
+      <div className="flex justify-end"><StatusBadge match={match}  /></div>
+    </div>
+  )
+}
+
+function Skeleton() {
+  return (
+    <div className="space-y-3 p-4 mt-16">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} className="h-16 rounded-xl bg-gray-200 animate-pulse" />
+      ))}
+    </div>
+  )
+}
+
+// ── Toolbar ──────────────────────────────────────────────────────────────────
+
+function StatsStrip({ matches }: { matches: Match[] }) {
+  const live     = matches.filter(m => m.status === 'in_progress').length
+  const done     = matches.filter(m => isResolved(m)).length
+  const upcoming = matches.filter(m => m.status === 'scheduled').length
+  return (
+    <div className="flex items-center gap-3 text-xs text-gray-500">
+      <span className="flex items-center gap-1.5">
+        <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
+        {live} live
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span className="w-1.5 h-1.5 rounded-full bg-gray-400 inline-block" />
+        {done} done
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" />
+        {upcoming} upcoming
+      </span>
+    </div>
+  )
+}
+
+// ── By Sport view ────────────────────────────────────────────────────────────
+
+function SportCard({
+  sport, color, rounds, teamMap, companyMap, expanded, onToggle,
+}: {
+  sport: Sport
+  color: string
+  rounds: { roundKey: string; matches: Match[] }[]
+  teamMap: Record<string, Team>
+  companyMap: Record<string, Company>
+  expanded: boolean
+  onToggle: () => void
+}) {
+  const now = useNow()
+  const totalMatches = rounds.reduce((n, r) => n + r.matches.length, 0)
+  const allMatches = rounds.flatMap(r => r.matches)
+  const hasLive = allMatches.some(m => m.status === 'in_progress') || (
+    sport.bracket_type === 'heats' &&
+    allMatches.some(m => !isResolved(m)) &&
+    allMatches.some(m => m.scheduled_at && new Date(m.scheduled_at) <= now)
+  )
+
+  return (
+    <div className="rounded-xl border border-gray-200 overflow-hidden">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-2.5 px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+      >
+        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+        <span className="font-semibold text-slate-800 flex-1">{sport.name}</span>
+        {hasLive && (
+          <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Live</span>
+        )}
+        <span className="text-xs text-gray-400">{totalMatches} match{totalMatches !== 1 ? 'es' : ''}</span>
+        <svg
+          className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}
+          viewBox="0 0 20 20" fill="currentColor"
+        >
+          <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+        </svg>
+      </button>
+
+      {expanded && (
+        <div>
+          {rounds.map(({ roundKey, matches: roundMatches }) => (
+            <div key={roundKey}>
+              <div className="px-4 py-1.5 bg-white border-t border-gray-100">
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                  {roundKey === 'unscheduled' ? 'Unscheduled' : `Round ${roundKey}`}
+                </span>
+              </div>
+              {roundMatches.map(match => (
+                <MatchRow key={match.id} match={match} teamMap={teamMap} companyMap={companyMap} bracketType={sport.bracket_type} />
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Timeline view ────────────────────────────────────────────────────────────
+
+function MatchChip({
+  match, teamMap, companyMap, bracketType,
+}: {
+  match: Match
+  teamMap: Record<string, Team>
+  companyMap: Record<string, Company>
+  bracketType?: string
+}) {
+  const home = teamShort(match.home_team_id, teamMap, companyMap)
+  const away = teamShort(match.away_team_id, teamMap, companyMap)
+  const cls = match.status === 'in_progress'
+    ? 'bg-green-100 text-green-800'
+    : isResolved(match)
+    ? 'bg-gray-100 text-gray-600'
+    : 'bg-blue-100 text-blue-800'
+  const label = bracketType === 'heats' ? home : `${home} vs ${away}`
+  return (
+    <div className={`text-xs rounded px-1.5 py-0.5 mb-0.5 truncate leading-snug ${cls}`}>
+      {label}
+    </div>
+  )
+}
+
+function TimelineView({
+  matches, sports, sportColorMap, teamMap, companyMap,
+}: {
+  matches: Match[]
+  sports: Sport[]
+  sportColorMap: Record<string, string>
+  teamMap: Record<string, Team>
+  companyMap: Record<string, Company>
+}) {
+  const sportIds = useMemo(() => {
+    const ids = [...new Set(matches.map(m => m.sport_id))]
+    // Keep same order as sorted sports list
+    return sports.filter(s => ids.includes(s.id)).map(s => s.id)
+  }, [matches, sports])
+
+  const timelineSlots = useMemo(() => buildTimelineSlots(matches), [matches])
+  const baseMinutes = timelineSlots[0]?.minutes ?? 8 * 60
+
+  const grid = useMemo(() => {
+    const g: Record<string, Record<number, Match[]>> = {}
+    for (const m of matches) {
+      const timeSource = m.estimated_start ?? m.scheduled_at
+      if (!timeSource) continue
+      const idx = slotIndex(timeSource, baseMinutes)
+      if (idx < 0 || idx >= timelineSlots.length) continue
+      g[m.sport_id] ??= {}
+      g[m.sport_id][idx] ??= []
+      g[m.sport_id][idx].push(m)
+    }
+    return g
+  }, [matches, baseMinutes, timelineSlots.length])
+
+  const sportMap = useMemo(() => indexBy(sports, 'id') as Record<string, Sport>, [sports])
+
+  if (sportIds.length === 0) {
+    return <p className="text-center text-gray-500 py-12">No matches to display.</p>
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-xl border border-gray-200">
+      <div
+        style={{ display: 'grid', gridTemplateColumns: `160px repeat(${timelineSlots.length}, minmax(80px, 1fr))` }}
+      >
+        {/* Header row */}
+        <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs font-medium text-gray-400">
+          Sport
+        </div>
+        {timelineSlots.map(slot => (
+          <div
+            key={slot.label}
+            className="px-1 py-2 bg-gray-50 border-b border-l border-gray-200 text-xs text-gray-500 text-center"
+          >
+            {slot.label}
+          </div>
+        ))}
+
+        {/* Sport rows */}
+        {sportIds.map(sportId => {
+          const sport = sportMap[sportId]
+          const color = sportColorMap[sportId]
+          const slots = grid[sportId] ?? {}
+          return (
+            <Fragment key={sportId}>
+              <div className="flex items-center gap-2 px-3 py-3 border-b border-gray-100">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                <span className="text-xs font-medium text-slate-700 truncate">{sport?.name}</span>
+              </div>
+              {timelineSlots.map((_, idx) => (
+                <div
+                  key={idx}
+                  className="p-1 border-b border-l border-gray-100 min-h-[48px] align-top"
+                >
+                  {(slots[idx] ?? []).map(m => (
+                    <MatchChip key={m.id} match={m} teamMap={teamMap} companyMap={companyMap} bracketType={sportMap[m.sport_id]?.bracket_type} />
+                  ))}
+                </div>
+              ))}
+            </Fragment>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── Main page ────────────────────────────────────────────────────────────────
+
+export default function Schedule() {
+  const [view, setView]               = useState<ViewMode>('by_sport')
+  const [sportFilter, setSportFilter] = useState<string>('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('upcoming')
+  const [collapsedSports, setCollapsedSports] = useState<Set<string>>(new Set())
+
+  const { matches, sports, sportMap, teamMap, companyMap, isLoading, isError } = useScheduleData()
+
+  const sportColorMap = useMemo(() => {
+    const sorted = [...sports].sort((a, b) => a.name.localeCompare(b.name))
+    return Object.fromEntries(sorted.map((s, i) => [s.id, ACCENT_COLORS[i % ACCENT_COLORS.length]]))
+  }, [sports])
+
+  const filteredMatches = useMemo(() =>
+    matches
+      .filter(m => m.home_team_id !== null || m.away_team_id !== null)
+      .filter(m => sportFilter === 'all' || m.sport_id === sportFilter)
+      .filter(m => matchesStatusFilter(m, statusFilter)),
+    [matches, sportFilter, statusFilter],
+  )
+
+  const grouped = useMemo(
+    () => groupBySportAndRound(filteredMatches, sportMap),
+    [filteredMatches, sportMap],
+  )
 
   function toggleSport(sportId: string) {
-    setExpandedSports(prev => {
+    setCollapsedSports(prev => {
       const next = new Set(prev)
       next.has(sportId) ? next.delete(sportId) : next.add(sportId)
       return next
     })
   }
 
-  function toggleRound(key: string) {
-    setExpandedRounds(prev => {
-      const next = new Set(prev)
-      next.has(key) ? next.delete(key) : next.add(key)
-      return next
-    })
-  }
-
   if (isLoading) return <Skeleton />
-  if (isError) return <p className="text-center text-red-500 p-8">Failed to load schedule.</p>
+  if (isError)   return <p className="text-center text-red-500 p-8">Failed to load schedule.</p>
 
   return (
-    <div className="p-4">
-      <div className="flex rounded-lg bg-gray-100 p-1 mb-4 mt-2">
-        {(['upcoming', 'completed'] as Tab[]).map(t => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors capitalize ${
-              tab === t ? 'bg-white shadow-sm text-slate-800' : 'text-gray-500'
-            }`}
-          >
-            {t}
-          </button>
-        ))}
+    <div className="p-4 space-y-3">
+      {/* Toolbar row 1: toggle + stats */}
+      <div className="flex items-center gap-3 mt-2">
+        <div className="flex rounded-lg bg-gray-100 p-1">
+          {(['by_sport', 'timeline'] as ViewMode[]).map(v => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                view === v ? 'bg-white shadow-sm text-slate-800' : 'text-gray-500'
+              }`}
+            >
+              {v === 'by_sport' ? 'By Sport' : 'Timeline'}
+            </button>
+          ))}
+        </div>
+        <div className="flex-1 flex justify-end">
+          <StatsStrip matches={matches} />
+        </div>
       </div>
 
-      {grouped.length === 0 && (
-        <p className="text-center text-gray-500 py-12">No {tab} matches.</p>
+      {/* Toolbar row 2: filters */}
+      <div className="flex gap-2">
+        <select
+          value={sportFilter}
+          onChange={e => setSportFilter(e.target.value)}
+          className="flex-1 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+        >
+          <option value="all">All sports</option>
+          {[...sports].sort((a, b) => a.name.localeCompare(b.name)).map(s => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </select>
+        <select
+          value={statusFilter}
+          onChange={e => setStatusFilter(e.target.value as StatusFilter)}
+          className="flex-1 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+        >
+          <option value="upcoming">Upcoming</option>
+          <option value="live">Live</option>
+          <option value="completed">Completed</option>
+          <option value="all">All matches</option>
+        </select>
+      </div>
+
+      {/* Views */}
+      {view === 'by_sport' && (
+        <div className="space-y-2">
+          {grouped.length === 0 && (
+            <p className="text-center text-gray-500 py-12">No matches found.</p>
+          )}
+          {grouped.map(({ sportId, sport, rounds }) => (
+            <SportCard
+              key={sportId}
+              sport={sport}
+              color={sportColorMap[sportId] ?? '#6B7280'}
+              rounds={rounds}
+              teamMap={teamMap}
+              companyMap={companyMap}
+              expanded={!collapsedSports.has(sportId)}
+              onToggle={() => toggleSport(sportId)}
+            />
+          ))}
+        </div>
       )}
 
-      <div className="space-y-2">
-        {grouped.map(({ sportId, sport, rounds }) => {
-          const sportExpanded = expandedSports.has(sportId)
-          const totalMatches = rounds.reduce((n, r) => n + r.matches.length, 0)
-
-          return (
-            <div key={sportId} className="rounded-xl border border-gray-200 overflow-hidden">
-              {/* Sport header */}
-              <button
-                onClick={() => toggleSport(sportId)}
-                className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
-              >
-                <div className="flex items-center gap-2">
-                  <svg className="w-4 h-4 text-gray-500 transition-transform" style={{ transform: sportExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" /></svg>
-                  <span className="font-semibold text-slate-800">{sport.name}</span>
-                </div>
-                <span className="text-xs text-gray-400">{totalMatches} match{totalMatches !== 1 ? 'es' : ''}</span>
-              </button>
-
-              {/* Rounds */}
-              {sportExpanded && (
-                <div className="divide-y divide-gray-100">
-                  {rounds.map(({ roundKey, matches: roundMatches }) => {
-                    const roundExpandKey = `${sportId}-${roundKey}`
-                    const roundExpanded = expandedRounds.has(roundExpandKey)
-                    const roundLabel = roundKey === 'unscheduled' ? 'Unscheduled' : `Round ${roundKey}`
-
-                    return (
-                      <div key={roundKey}>
-                        {/* Round header */}
-                        <button
-                          onClick={() => toggleRound(roundExpandKey)}
-                          className="w-full flex items-center justify-between px-6 py-2.5 bg-white hover:bg-gray-50 transition-colors text-left"
-                        >
-                          <div className="flex items-center gap-2">
-                            <svg className="w-3.5 h-3.5 text-gray-400 transition-transform" style={{ transform: roundExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" /></svg>
-                            <span className="text-sm font-medium text-slate-700">{roundLabel}</span>
-                          </div>
-                          <span className="text-xs text-gray-400">{roundMatches.length} match{roundMatches.length !== 1 ? 'es' : ''}</span>
-                        </button>
-
-                        {/* Match cards */}
-                        {roundExpanded && (
-                          <div className="px-4 pb-3 pt-1 space-y-2 bg-gray-50">
-                            {roundMatches.map(match => (
-                              <MatchCard
-                                key={match.id}
-                                match={match}
-                                teamMap={teamMap}
-                                companyMap={companyMap}
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
+      {view === 'timeline' && (
+        <TimelineView
+          matches={filteredMatches}
+          sports={[...sports].sort((a, b) => a.name.localeCompare(b.name))}
+          sportColorMap={sportColorMap}
+          teamMap={teamMap}
+          companyMap={companyMap}
+        />
+      )}
     </div>
   )
 }

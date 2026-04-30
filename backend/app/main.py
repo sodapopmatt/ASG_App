@@ -9,6 +9,7 @@ from app.routers import (
     event_points,
     leaderboard,
     roster_entries,
+    locations,
 )
 from app.auth import get_current_profile, UserProfile
 
@@ -30,6 +31,7 @@ app.include_router(matches.router,      prefix="/matches",      tags=["matches"]
 app.include_router(event_points.router, prefix="/event-points", tags=["event-points"])
 app.include_router(leaderboard.router,     prefix="/leaderboard",     tags=["leaderboard"])
 app.include_router(roster_entries.router, prefix="/roster-entries", tags=["roster-entries"])
+app.include_router(locations.router,      prefix="/locations",      tags=["locations"])
 
 
 @app.get("/me")

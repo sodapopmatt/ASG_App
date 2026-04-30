@@ -37,3 +37,19 @@ export function submitDoubleForfeit(matchId: string, notes?: string) {
     body: JSON.stringify(notes ? { notes } : {}),
   })
 }
+
+export function submitHeatResult(matchId: string, body: { time_ms?: number; forfeit?: boolean }) {
+  return apiFetch<Match>(`/matches/${matchId}/heat-result`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export function patchMatch(matchId: string, body: { scheduled_at?: string | null; location_id?: string | null }) {
+  return apiFetch<Match>(`/matches/${matchId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}

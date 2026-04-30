@@ -5,7 +5,7 @@ import { getSports } from '../api/sports'
 import { getTeams } from '../api/teams'
 import { getCompanies } from '../api/companies'
 import { getBrackets } from '../api/brackets'
-import type { Match, Team, Company } from '../types'
+import type { Match, Team, Company, Sport } from '../types'
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [item[key], item]))
@@ -208,6 +208,92 @@ function BracketPhase({
   )
 }
 
+function formatHeatTime(ms: number): string {
+  const totalSec = Math.floor(ms / 1000)
+  const m = Math.floor(totalSec / 60)
+  const s = totalSec % 60
+  const millis = ms % 1000
+  return `${m}:${String(s).padStart(2, '0')}.${String(millis).padStart(3, '0')}`
+}
+
+function HeatsStandingsView({
+  matches,
+  teamMap,
+  companyMap,
+}: {
+  matches: Match[]
+  teamMap: Record<string, Team>
+  companyMap: Record<string, Company>
+}) {
+  const rows = useMemo(() => {
+    const completed = matches
+      .filter(m => m.status === 'completed' && m.notes)
+      .map(m => ({ match: m, ms: parseInt(m.notes!, 10) }))
+      .filter(r => !isNaN(r.ms))
+      .sort((a, b) => a.ms - b.ms)
+
+    const forfeited = matches.filter(m => m.status === 'forfeit')
+    const pending   = matches.filter(m => m.status === 'scheduled' || m.status === 'in_progress')
+
+    return [
+      ...completed.map((r, i) => ({ match: r.match, rank: i + 1, ms: r.ms, state: 'done' as const })),
+      ...forfeited.map(m  => ({ match: m,  rank: null, ms: null, state: 'forfeit' as const })),
+      ...pending.map(m    => ({ match: m,  rank: null, ms: null, state: 'pending' as const })),
+    ]
+  }, [matches])
+
+  function teamName(teamId: string | null | undefined) {
+    if (!teamId) return '—'
+    const team = teamMap[teamId]
+    if (!team) return '—'
+    const company = companyMap[team.company_id]
+    const base = company?.name ?? 'Unknown'
+    return team.name ? `${base} · ${team.name}` : base
+  }
+
+  if (rows.length === 0) {
+    return <p className="text-center text-gray-500 py-12">No results yet.</p>
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-200 overflow-hidden">
+      <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 grid text-xs font-semibold text-gray-400 uppercase tracking-wider"
+        style={{ gridTemplateColumns: '2.5rem 1fr auto' }}>
+        <span>Rank</span>
+        <span>Team</span>
+        <span>Time</span>
+      </div>
+      <div className="divide-y divide-gray-100">
+        {rows.map(({ match, rank, ms, state }) => (
+          <div
+            key={match.id}
+            className="grid items-center px-4 py-3 gap-3"
+            style={{ gridTemplateColumns: '2.5rem 1fr auto' }}
+          >
+            <span className={`font-bold text-sm text-center ${
+              state === 'done' ? 'text-slate-700' : 'text-gray-300'
+            }`}>
+              {state === 'done' ? rank : '—'}
+            </span>
+            <span className="text-sm font-medium text-slate-700 truncate">
+              {teamName(match.home_team_id)}
+            </span>
+            {state === 'done' && (
+              <span className="font-mono text-sm text-slate-700">{formatHeatTime(ms!)}</span>
+            )}
+            {state === 'forfeit' && (
+              <span className="text-xs text-gray-400">Forfeit</span>
+            )}
+            {state === 'pending' && (
+              <span className="text-xs text-blue-400">TBD</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function Skeleton() {
   return (
     <div className="p-4 mt-2 space-y-3">
@@ -230,6 +316,11 @@ export default function BracketView() {
   const sports = sportsQuery.data ?? []
   const [selectedSportId, setSelectedSportId] = useState<string | null>(null)
   const activeSportId = selectedSportId ?? sports[0]?.id ?? null
+  const activeSport: Sport | undefined = useMemo(
+    () => sports.find(s => s.id === activeSportId),
+    [sports, activeSportId],
+  )
+  const isHeats = activeSport?.bracket_type === 'heats'
 
   // Fetch brackets for the active sport to resolve bracket_phase per match.
   // bracket_phase lives on the brackets table, not on matches, so we join client-side
@@ -332,7 +423,13 @@ export default function BracketView() {
         ))}
       </div>
 
-      {!hasMatches ? (
+      {isHeats ? (
+        <HeatsStandingsView
+          matches={matchesBySport.get(activeSportId!) ?? []}
+          teamMap={teamMap}
+          companyMap={companyMap}
+        />
+      ) : !hasMatches ? (
         <p className="text-center text-gray-500 py-12">No matches for this sport yet.</p>
       ) : hasPhases ? (
         <div className="space-y-8">

@@ -150,6 +150,10 @@ def _compute_scheduled_times(
     duration = timedelta(minutes=match_duration_minutes)
 
     # Group non-bye slots with both teams by court
+    # Without court assignments we can't produce meaningful times
+    if not assignment:
+        return {}
+
     court_chains: dict[str, list[int]] = {}
     final_indices: list[int] = []
 
@@ -197,6 +201,9 @@ def clear_brackets(sport_id: str, db: Client) -> None:
         }).eq("bracket_id", bid).execute()
         db.table("matches").delete().eq("bracket_id", bid).execute()
         db.table("brackets").delete().eq("id", bid).execute()
+
+    # Delete unbucketed matches (e.g. heats, where bracket_id is null)
+    db.table("matches").delete().eq("sport_id", sport_id).is_("bracket_id", "null").execute()
 
 
 def persist_bracket(

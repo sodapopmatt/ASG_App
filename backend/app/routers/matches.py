@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.database import supabase
 from app.auth import require_admin
-from app.schemas.match import Match, MatchCreate, MatchUpdate, MatchResult, MatchForfeit, MatchDoubleForfeit
+from app.schemas.match import Match, MatchCreate, MatchUpdate, MatchResult, MatchForfeit, MatchDoubleForfeit, HeatResult
 from app.bracket_engine.generator import advance_winner, settle_bracket, retract_winner
 
 router = APIRouter()
@@ -54,18 +54,21 @@ def _compute_estimated_starts(
             duration = timedelta(minutes=sport_duration_map.get(m.get("sport_id", ""), 30))
             scheduled_at = _parse_dt(m.get("scheduled_at"))
             actual_start = _parse_dt(m.get("actual_start"))
-            is_playable = m.get("home_team_id") and m.get("away_team_id")
+            is_playable = bool(m.get("home_team_id") or m.get("away_team_id"))
             is_completed = m.get("status") in ("completed", "forfeit", "double_forfeit")
 
             if actual_start:
                 result[m["id"]] = actual_start
                 court_free_at = actual_start + duration
             elif scheduled_at:
-                est = scheduled_at
-                if court_free_at and court_free_at > scheduled_at:
-                    est = court_free_at
-                result[m["id"]] = est
-                court_free_at = est + duration
+                if court is None:
+                    result[m["id"]] = scheduled_at
+                else:
+                    est = scheduled_at
+                    if court_free_at and court_free_at > scheduled_at:
+                        est = court_free_at
+                    result[m["id"]] = est
+                    court_free_at = est + duration
             elif is_playable and not is_completed:
                 if court_free_at:
                     result[m["id"]] = court_free_at
@@ -314,6 +317,32 @@ def post_double_forfeit(match_id: str, body: MatchDoubleForfeit | None = None, _
     updated = supabase.table("matches").update(update).eq("id", match_id).execute().data[0]
     settle_bracket(match["sport_id"], supabase)
     return updated
+
+
+@router.post("/{match_id}/heat-result", response_model=Match)
+def post_heat_result(match_id: str, body: HeatResult, _=Depends(require_admin)):
+    """Record a heat time or forfeit for a heats-type sport match."""
+    if body.forfeit and body.time_ms is not None:
+        raise HTTPException(status_code=422, detail="Provide either time_ms or forfeit, not both")
+    if not body.forfeit and body.time_ms is None:
+        raise HTTPException(status_code=422, detail="Provide time_ms or set forfeit=true")
+    if body.time_ms is not None and body.time_ms < 0:
+        raise HTTPException(status_code=422, detail="time_ms must be non-negative")
+
+    row = supabase.table("matches").select("id, sport_id").eq("id", match_id).limit(1).execute()
+    if not row.data:
+        raise HTTPException(status_code=404, detail="Match not found")
+
+    sport = supabase.table("sports").select("bracket_type").eq("id", row.data[0]["sport_id"]).limit(1).execute()
+    if not sport.data or sport.data[0]["bracket_type"] != "heats":
+        raise HTTPException(status_code=422, detail="This endpoint is only valid for heats-type sports")
+
+    if body.forfeit:
+        update: dict = {"status": "forfeit", "winner_id": None, "notes": None, "played_at": _now_iso()}
+    else:
+        update = {"status": "completed", "notes": str(body.time_ms), "winner_id": None, "played_at": _now_iso()}
+
+    return supabase.table("matches").update(update).eq("id", match_id).execute().data[0]
 
 
 @router.patch("/{match_id}", response_model=Match)

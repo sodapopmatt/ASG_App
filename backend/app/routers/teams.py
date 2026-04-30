@@ -29,6 +29,11 @@ def get_team(team_id: str):
 
 @router.post("/", response_model=Team, status_code=201)
 def create_team(body: TeamCreate, _=Depends(require_admin)):
+    # Check for duplicate team name within the same company and sport
+    existing = supabase.table("teams").select("id").eq("company_id", str(body.company_id)).eq("sport_id", str(body.sport_id)).eq("name", body.name).execute()
+    if existing.data:
+        raise HTTPException(status_code=422, detail=f"A team named '{body.name}' already exists for this company and sport")
+
     return supabase.table("teams").insert(body.model_dump(mode="json")).execute().data[0]
 
 

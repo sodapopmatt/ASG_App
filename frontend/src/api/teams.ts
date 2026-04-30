@@ -21,6 +21,14 @@ export function createTeam(body: { company_id: string; sport_id: string; name?: 
   })
 }
 
+export function updateTeam(id: string, body: { name?: string | null }) {
+  return apiFetch<Team>(`/teams/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
 export function deleteTeam(id: string) {
   return apiFetch<void>(`/teams/${id}`, { method: 'DELETE' })
 }

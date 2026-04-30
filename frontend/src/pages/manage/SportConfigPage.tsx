@@ -1,0 +1,462 @@
+import { useState, useMemo } from 'react'
+import { Link, useParams, Navigate } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { getSports, generateBracket, resetBrackets, updateSport } from '../../api/sports'
+import { getMatches, patchMatch } from '../../api/matches'
+import { getTeams } from '../../api/teams'
+import { getCompanies } from '../../api/companies'
+import { getLocations, createLocation, deleteLocation } from '../../api/locations'
+import type { Match, Team, Company } from '../../types'
+
+const GENERATABLE = new Set(['single_elimination', 'double_elimination', 'heats'])
+
+function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
+  return Object.fromEntries(arr.map(item => [String(item[key]), item]))
+}
+
+function toDatetimeLocal(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function teamLabel(
+  teamId: string | null | undefined,
+  teamMap: Record<string, Team>,
+  companyMap: Record<string, Company>,
+): string {
+  if (!teamId) return 'TBD'
+  const team = teamMap[teamId]
+  if (!team) return '—'
+  const company = companyMap[team.company_id]
+  const base = company?.name ?? 'Unknown'
+  return team.name ? `${base} · ${team.name}` : base
+}
+
+function UpIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="18 15 12 9 6 15" />
+    </svg>
+  )
+}
+
+function DownIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  )
+}
+
+function SectionHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{children}</p>
+  )
+}
+
+export default function SportConfigPage() {
+  const { sportId } = useParams<{ sportId: string }>()
+  const qc = useQueryClient()
+
+  const { data: sports = [], isLoading: sportsLoading } = useQuery({
+    queryKey: ['sports'],
+    queryFn: getSports,
+    staleTime: Infinity,
+  })
+  const { data: teams = [] } = useQuery({ queryKey: ['teams'], queryFn: () => getTeams() })
+  const { data: companies = [] } = useQuery({ queryKey: ['companies'], queryFn: getCompanies, staleTime: Infinity })
+  const { data: locations = [] } = useQuery({
+    queryKey: ['locations', sportId],
+    queryFn: () => getLocations(sportId!),
+    enabled: !!sportId,
+  })
+  const { data: matches = [] } = useQuery({
+    queryKey: ['matches', { sport_id: sportId }],
+    queryFn: () => getMatches({ sport_id: sportId! }),
+    enabled: !!sportId,
+  })
+
+  const sport = sports.find(s => s.id === sportId)
+  const sportTeams = useMemo(() => teams.filter(t => t.sport_id === sportId), [teams, sportId])
+  const companyMap = useMemo(() => indexBy(companies, 'id') as Record<string, Company>, [companies])
+  const teamMap = useMemo(() => indexBy(teams, 'id') as Record<string, Team>, [teams])
+
+  // Schedule config state
+  const [configDuration, setConfigDuration] = useState<number | null>(null)
+  const [configStart, setConfigStart] = useState<string | null>(null)
+  const [configError, setConfigError] = useState<string | null>(null)
+
+  // Courts state
+  const [newCourtName, setNewCourtName] = useState('')
+  const [courtError, setCourtError] = useState<string | null>(null)
+
+  // Generate bracket state
+  const [seeds, setSeeds] = useState<Team[]>([])
+  const [seedsInit, setSeedsInit] = useState(false)
+  const [genError, setGenError] = useState<string | null>(null)
+
+  // Schedule patch state
+  const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [pendingTimes, setPendingTimes] = useState<Record<string, string>>({})
+  const [patchError, setPatchError] = useState<string | null>(null)
+
+  const matchesByRound = useMemo(() => {
+    const sorted = [...matches].sort((a, b) => {
+      if (!a.scheduled_at && !b.scheduled_at) return 0
+      if (!a.scheduled_at) return 1
+      if (!b.scheduled_at) return -1
+      return a.scheduled_at.localeCompare(b.scheduled_at)
+    })
+    const groups: Record<string, Match[]> = {}
+    for (const m of sorted) {
+      const key = m.match_round != null ? String(m.match_round) : 'unscheduled'
+      groups[key] ??= []
+      groups[key].push(m)
+    }
+    return Object.entries(groups).sort(([a], [b]) => {
+      if (a === 'unscheduled') return 1
+      if (b === 'unscheduled') return -1
+      return Number(a) - Number(b)
+    })
+  }, [matches])
+
+  // Init seeds once sport teams are loaded
+  if (sport && !seedsInit && sportTeams.length > 0) {
+    setSeeds([...sportTeams])
+    setSeedsInit(true)
+  }
+
+  const effectiveDuration = configDuration ?? sport?.match_duration_minutes ?? 30
+  const effectiveStart = configStart ?? (sport?.schedule_start ? toDatetimeLocal(sport.schedule_start) : '')
+
+  const configMutation = useMutation({
+    mutationFn: () => updateSport(sportId!, {
+      match_duration_minutes: effectiveDuration,
+      schedule_start: effectiveStart ? new Date(effectiveStart).toISOString() : null,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sports'] })
+      setConfigError(null)
+    },
+    onError: (e) => setConfigError(e instanceof Error ? e.message : 'Failed to save config'),
+  })
+
+  const createCourtMutation = useMutation({
+    mutationFn: (name: string) => createLocation(sportId!, name),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['locations', sportId] })
+      setNewCourtName('')
+      setCourtError(null)
+    },
+    onError: (e) => setCourtError(e instanceof Error ? e.message : 'Failed to add court'),
+  })
+
+  const deleteCourtMutation = useMutation({
+    mutationFn: (locationId: string) => deleteLocation(locationId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['locations', sportId] }),
+    onError: (e) => setCourtError(e instanceof Error ? e.message : 'Failed to remove court'),
+  })
+
+  const isHeats = sport?.bracket_type === 'heats'
+  const isRandomized = sport?.bracket_type === 'double_elimination'
+
+  const alreadyGenerated = matches.length > 0
+
+  const genMutation = useMutation({
+    mutationFn: () =>
+      isRandomized
+        ? generateBracket(sportId!, sportTeams.map(t => t.id), false)
+        : generateBracket(sportId!, seeds.map(t => t.id), false),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['matches'] })
+      qc.invalidateQueries({ queryKey: ['brackets'] })
+      setGenError(null)
+    },
+    onError: (e) => setGenError(e instanceof Error ? e.message : 'Failed to generate bracket'),
+  })
+
+  const resetMutation = useMutation({
+    mutationFn: () => resetBrackets(sportId!),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['brackets'] })
+      qc.invalidateQueries({ queryKey: ['matches'] })
+      setGenError(null)
+    },
+    onError: (e) => setGenError(e instanceof Error ? e.message : 'Failed to reset brackets'),
+  })
+
+  const patchMutation = useMutation({
+    mutationFn: ({ matchId, scheduledAt }: { matchId: string; scheduledAt: string }) =>
+      patchMatch(matchId, { scheduled_at: scheduledAt }),
+    onSuccess: (_, { matchId }) => {
+      qc.invalidateQueries({ queryKey: ['matches'] })
+      setPendingTimes(prev => { const n = { ...prev }; delete n[matchId]; return n })
+    },
+    onError: (e) => setPatchError(e instanceof Error ? e.message : 'Failed to save time'),
+  })
+
+  function move(idx: number, dir: -1 | 1) {
+    const next = [...seeds]
+    const swap = idx + dir
+    if (swap < 0 || swap >= next.length) return
+    ;[next[idx], next[swap]] = [next[swap], next[idx]]
+    setSeeds(next)
+  }
+
+  function addCourt() {
+    const name = newCourtName.trim()
+    if (!name) return
+    setCourtError(null)
+    createCourtMutation.mutate(name)
+  }
+
+  function handleReset() {
+    if (!window.confirm(`Reset all brackets for ${sport?.name}? This will delete all matches and cannot be undone.`)) return
+    resetMutation.mutate()
+  }
+
+  if (sportsLoading) {
+    return (
+      <div className="p-4 mt-2 space-y-3">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-20 rounded-xl bg-gray-200 animate-pulse" />
+        ))}
+      </div>
+    )
+  }
+
+  if (!sport) return <Navigate to="/manage/brackets" replace />
+
+  const canGenerate = GENERATABLE.has(sport.bracket_type)
+
+  return (
+    <div className="p-4 mt-2 space-y-5">
+      {/* Header */}
+      <div>
+        <Link to="/manage/brackets" className="text-blue-600 text-sm">← Matches</Link>
+        <h2 className="text-xl font-bold text-slate-800">{sport.name}</h2>
+        <p className="text-xs text-gray-400 mt-0.5">{sport.bracket_type.replace(/_/g, ' ')} · {sportTeams.length} team{sportTeams.length !== 1 ? 's' : ''}</p>
+      </div>
+
+      {/* Schedule Config */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-4 space-y-3">
+        <SectionHeading>Scheduling</SectionHeading>
+        <label className="space-y-1 block">
+          <span className="text-xs text-gray-400">Start time</span>
+          <input
+            type="datetime-local"
+            value={effectiveStart}
+            onChange={e => setConfigStart(e.target.value)}
+            className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+          />
+        </label>
+        <label className="space-y-1 block">
+          <span className="text-xs text-gray-400">Match duration (min)</span>
+          <input
+            type="number"
+            min={5}
+            value={effectiveDuration}
+            onChange={e => setConfigDuration(Number(e.target.value))}
+            className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+          />
+        </label>
+        {configError && <p className="text-sm text-red-600">{configError}</p>}
+        <button
+          onClick={() => configMutation.mutate()}
+          disabled={configMutation.isPending}
+          className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
+        >
+          {configMutation.isPending ? 'Saving…' : configMutation.isSuccess ? 'Saved' : 'Save'}
+        </button>
+      </div>
+
+      {/* Courts */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-4 space-y-3">
+        <SectionHeading>Courts</SectionHeading>
+        {locations.length === 0 && (
+          <p className="text-sm text-slate-400 italic">No courts defined — matches will be unassigned.</p>
+        )}
+        {locations.map(loc => (
+          <div key={loc.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
+            <span className="flex-1 text-sm text-slate-700">{loc.name}</span>
+            <button
+              onClick={() => deleteCourtMutation.mutate(loc.id)}
+              disabled={deleteCourtMutation.isPending}
+              className="text-xs text-red-500 hover:text-red-700 disabled:opacity-40 shrink-0"
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+        <div className="flex gap-2">
+          <input
+            type="text"
+            placeholder="e.g. Court 1"
+            value={newCourtName}
+            onChange={e => setNewCourtName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && addCourt()}
+            className="flex-1 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+          />
+          <button
+            onClick={addCourt}
+            disabled={!newCourtName.trim() || createCourtMutation.isPending}
+            className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0"
+          >
+            Add
+          </button>
+        </div>
+        {courtError && <p className="text-sm text-red-600">{courtError}</p>}
+      </div>
+
+      {/* Generate / Setup */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <SectionHeading>{canGenerate ? 'Generate Bracket' : 'Bracket Setup'}</SectionHeading>
+          {canGenerate && alreadyGenerated && (
+            <span className="mb-2 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
+              Generated
+            </span>
+          )}
+        </div>
+
+        {!canGenerate ? (
+          <p className="text-sm text-slate-500 italic">
+            This sport uses manual entry. Create matches directly in the schedule.
+          </p>
+        ) : alreadyGenerated ? (
+          <p className="text-sm text-slate-500">
+            Bracket has been generated. To regenerate, reset all brackets &amp; matches below first.
+          </p>
+        ) : isHeats ? (
+          <p className="text-sm text-slate-500 italic">
+            This will create one entry per team. Each team's ref will record their time separately.
+          </p>
+        ) : isRandomized ? (
+          <p className="text-sm text-slate-500 italic">
+            {sport.name} matchups are randomized automatically.
+            {locations.length > 0
+              ? ` Matches will be distributed across ${locations.length} court${locations.length !== 1 ? 's' : ''}.`
+              : ' Add courts above to enable court assignment and scheduling.'}
+          </p>
+        ) : (
+          <>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Seed order</p>
+            <div className="space-y-1">
+              {seeds.map((team, idx) => (
+                <div key={team.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
+                  <span className="text-xs font-bold text-gray-400 w-5 text-center">{idx + 1}</span>
+                  <span className="flex-1 text-sm text-slate-700">
+                    {companyMap[team.company_id]?.name ?? '—'}
+                    {team.name && <span className="text-gray-400"> · {team.name}</span>}
+                  </span>
+                  <div className="flex gap-0.5">
+                    <button onClick={() => move(idx, -1)} disabled={idx === 0} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><UpIcon /></button>
+                    <button onClick={() => move(idx, 1)} disabled={idx === seeds.length - 1} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><DownIcon /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {canGenerate && !alreadyGenerated && (
+          <>
+            {genError && <p className="text-sm text-red-600">{genError}</p>}
+            <button
+              onClick={() => genMutation.mutate()}
+              disabled={genMutation.isPending || sportTeams.length < 2}
+              className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
+            >
+              {genMutation.isPending ? 'Generating…' : isHeats ? 'Generate Entries' : 'Generate Bracket'}
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Adjust Match Times */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <button
+          onClick={() => setScheduleOpen(v => !v)}
+          className="w-full px-4 py-4 flex items-center justify-between text-left"
+        >
+          <SectionHeading>Manually Adjust Match Times</SectionHeading>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+            className={`shrink-0 text-gray-400 transition-transform ${scheduleOpen ? 'rotate-180' : ''}`}>
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </button>
+        {scheduleOpen && (
+          <div className="border-t border-gray-100 px-4 py-3 space-y-3">
+            {matches.length === 0 ? (
+              <p className="text-sm text-slate-500 italic text-center py-2">
+                No matches yet. Generate a bracket first.
+              </p>
+            ) : (
+              <>
+                {patchError && <p className="text-sm text-red-600">{patchError}</p>}
+                {matchesByRound.map(([roundKey, roundMatches]) => (
+                  <div key={roundKey} className="space-y-1">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      {roundKey === 'unscheduled' ? 'Unscheduled' : `Round ${roundKey}`}
+                    </p>
+                    {roundMatches.map(match => {
+                      const label = isHeats
+                        ? teamLabel(match.home_team_id, teamMap, companyMap)
+                        : `${teamLabel(match.home_team_id, teamMap, companyMap)} vs ${teamLabel(match.away_team_id, teamMap, companyMap)}`
+                      const inputVal = pendingTimes[match.id] ?? toDatetimeLocal(match.scheduled_at)
+                      return (
+                        <div key={match.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
+                          <span className="flex-1 text-sm text-slate-700 truncate min-w-0">
+                            {label}
+                            {match.locations?.name && (
+                              <span className="text-gray-400"> · {match.locations.name}</span>
+                            )}
+                          </span>
+                          <input
+                            type="datetime-local"
+                            value={inputVal}
+                            onChange={e => setPendingTimes(prev => ({ ...prev, [match.id]: e.target.value }))}
+                            className="text-sm border border-gray-200 rounded-lg px-2 py-1 text-slate-700 shrink-0"
+                          />
+                          <button
+                            onClick={() => {
+                              if (!inputVal) return
+                              setPatchError(null)
+                              patchMutation.mutate({ matchId: match.id, scheduledAt: new Date(inputVal).toISOString() })
+                            }}
+                            disabled={patchMutation.isPending}
+                            className="text-sm font-medium text-blue-600 disabled:text-gray-300 shrink-0"
+                          >
+                            Set
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Danger zone */}
+      <div className="bg-white rounded-xl border border-red-100 shadow-sm px-4 py-4 space-y-3">
+        <SectionHeading>Danger Zone</SectionHeading>
+        {resetMutation.isError && <p className="text-sm text-red-600">{genError}</p>}
+        <button
+          onClick={handleReset}
+          disabled={resetMutation.isPending}
+          className="w-full py-2 rounded-lg border border-red-200 text-red-600 font-semibold text-sm hover:bg-red-50 disabled:opacity-50"
+        >
+          {resetMutation.isPending ? 'Resetting…' : 'Reset All Brackets & Matches'}
+        </button>
+      </div>
+    </div>
+  )
+}

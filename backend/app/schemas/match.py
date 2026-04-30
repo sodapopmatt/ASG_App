@@ -31,6 +31,16 @@ class MatchDoubleForfeit(BaseModel):
     notes: str | None = None
 
 
+class HeatResult(BaseModel):
+    time_ms: int | None = None  # total milliseconds; mutually exclusive with forfeit
+    forfeit: bool = False
+
+
+class MatchUpdate(BaseModel):
+    scheduled_at: datetime | None = None
+    location_id: UUID | None = None
+
+
 class LocationBrief(BaseModel):
     name: str
 
@@ -49,6 +59,8 @@ class Match(BaseModel):
     winner_next_match_id: UUID | None
     loser_next_match_id: UUID | None
     scheduled_at: datetime | None
+    actual_start: datetime | None = None
     played_at: datetime | None
     notes: str | None
     created_at: datetime
+    estimated_start: datetime | None = None

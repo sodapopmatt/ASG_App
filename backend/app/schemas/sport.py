@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from uuid import UUID
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Optional
 
 BracketType = Literal[
     "double_elimination",
@@ -23,6 +23,8 @@ class SportCreate(BaseModel):
     scoring_direction: ScoringDirection = "high_wins"
     multi_team_rule: MultiTeamRule = "best_placement"
     points_scale: dict | None = None  # None = use ASG scale; e.g. {"1": 15, "2": 10, "default": 5}
+    match_duration_minutes: Optional[int] = None
+    schedule_start: Optional[datetime] = None
 
 
 class SportUpdate(BaseModel):
@@ -32,6 +34,8 @@ class SportUpdate(BaseModel):
     scoring_direction: ScoringDirection | None = None
     multi_team_rule: MultiTeamRule | None = None
     points_scale: dict | None = None
+    match_duration_minutes: Optional[int] = None
+    schedule_start: Optional[datetime] = None
 
 
 class Sport(SportCreate):

@@ -2,7 +2,18 @@
   "permissions": {
     "allow": [
       "Bash(grep -E \"\\(package\\\\.json|\\\\.jsx|\\\\.js\\)$\")",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Skill(claude-api)",
+      "Skill(claude-api:*)",
+      "Bash(python -m pytest -xvs)",
+      "Bash(python -c \"from app.bracket_engine.generator import _compute_scheduled_times; print\\('✓ generator imports correctly'\\)\")",
+      "Bash(python -m py_compile app/bracket_engine/generator.py app/routers/matches.py)",
+      "Bash(python test_scheduling_logic.py)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git config *)",
+      "Bash(npm run *)",
+      "Bash(git rm *)"
     ]
   }
 }
