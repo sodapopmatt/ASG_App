@@ -58,6 +58,8 @@ class Match(BaseModel):
     match_round: int | None
     winner_next_match_id: UUID | None
     loser_next_match_id: UUID | None
+    home_slot_state: str = "tbd"
+    away_slot_state: str = "tbd"
     scheduled_at: datetime | None
     actual_start: datetime | None = None
     played_at: datetime | None

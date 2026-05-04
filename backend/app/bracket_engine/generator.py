@@ -349,15 +349,43 @@ def advance_winner(match_id: str, winner_id: str, loser_id: str | None, db: Clie
 
 
 def _fill_team_slot(match_id: str, team_id: str, db: Client) -> None:
-    """Put team_id into the first empty slot (home, then away) of a match."""
-    row = db.table("matches").select("home_team_id, away_team_id").eq("id", match_id).limit(1).execute()
+    """Put team_id into the first empty, non-bye slot (home, then away) of a match."""
+    row = db.table("matches").select(
+        "home_team_id, away_team_id, home_slot_state, away_slot_state"
+    ).eq("id", match_id).limit(1).execute()
     if not row.data:
         return
     slot = row.data[0]
     if slot["home_team_id"] == team_id or slot["away_team_id"] == team_id:
         return
-    field = "home_team_id" if slot["home_team_id"] is None else "away_team_id"
-    db.table("matches").update({field: team_id}).eq("id", match_id).execute()
+    if slot["home_team_id"] is None and slot["home_slot_state"] != "bye":
+        db.table("matches").update({"home_team_id": team_id}).eq("id", match_id).execute()
+    elif slot["away_team_id"] is None and slot["away_slot_state"] != "bye":
+        db.table("matches").update({"away_team_id": team_id}).eq("id", match_id).execute()
+
+
+def _fill_bye_slot(match_id: str, db: Client) -> None:
+    """Mark the first null, non-bye slot as a permanent bye (no team will ever fill it)."""
+    row = db.table("matches").select(
+        "home_team_id, away_team_id, home_slot_state, away_slot_state"
+    ).eq("id", match_id).limit(1).execute()
+    if not row.data:
+        return
+    slot = row.data[0]
+    if slot["home_team_id"] is None and slot["home_slot_state"] != "bye":
+        db.table("matches").update({"home_slot_state": "bye"}).eq("id", match_id).execute()
+    elif slot["away_team_id"] is None and slot["away_slot_state"] != "bye":
+        db.table("matches").update({"away_slot_state": "bye"}).eq("id", match_id).execute()
+
+
+def advance_double_forfeit(match_id: str, db: Client) -> None:
+    """After a double forfeit, mark the winner-advance slot of the next match as a permanent bye."""
+    row = db.table("matches").select("winner_next_match_id").eq("id", match_id).limit(1).execute()
+    if not row.data:
+        return
+    next_id = row.data[0].get("winner_next_match_id")
+    if next_id:
+        _fill_bye_slot(next_id, db)
 
 
 def _clear_team_from_slot(match_id: str, team_id: str, db: Client) -> None:
@@ -397,7 +425,8 @@ def settle_bracket(sport_id: str, db: Client) -> None:
         changed = False
 
         rows = db.table("matches").select(
-            "id, status, home_team_id, away_team_id, winner_next_match_id, loser_next_match_id"
+            "id, status, home_team_id, away_team_id, home_slot_state, away_slot_state, "
+            "winner_next_match_id, loser_next_match_id"
         ).eq("sport_id", sport_id).execute().data
 
         terminal_ids = {r["id"] for r in rows if r["status"] in _TERMINAL}
@@ -414,22 +443,26 @@ def settle_bracket(sport_id: str, db: Client) -> None:
             if any(uid not in terminal_ids for uid in upstream_of.get(m["id"], [])):
                 continue
 
-            home, away = m["home_team_id"], m["away_team_id"]
+            home_id = m["home_team_id"]
+            away_id = m["away_team_id"]
+            home_is_bye = home_id is None and m["home_slot_state"] == "bye"
+            away_is_bye = away_id is None and m["away_slot_state"] == "bye"
+            home_determined = home_id is not None or home_is_bye
+            away_determined = away_id is not None or away_is_bye
 
-            if home and away:
+            if not (home_determined and away_determined):
                 continue
 
-            if home or away:
-                solo = home or away
+            if home_is_bye and away_is_bye:
+                db.table("matches").update({"status": "double_forfeit"}).eq("id", m["id"]).execute()
+                advance_double_forfeit(m["id"], db)
+                changed = True
+            elif home_is_bye or away_is_bye:
+                solo = home_id or away_id
                 db.table("matches").update(
                     {"winner_id": solo, "status": "completed"}
                 ).eq("id", m["id"]).execute()
                 if m["winner_next_match_id"]:
                     _fill_team_slot(m["winner_next_match_id"], solo, db)
                 changed = True
-
-            else:
-                db.table("matches").update(
-                    {"status": "double_forfeit"}
-                ).eq("id", m["id"]).execute()
-                changed = True
+            # else: both slots have real teams — a human must play this match

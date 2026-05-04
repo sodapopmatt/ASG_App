@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@g-loot/react-tournament-brackets": "^1.0.31-rc",
     "@supabase/supabase-js": "^2.45.0",
     "@tanstack/react-query": "^5.40.0",
     "react": "^18.3.1",

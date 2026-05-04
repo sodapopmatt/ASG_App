@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.database import supabase
 from app.auth import require_admin
 from app.schemas.match import Match, MatchCreate, MatchUpdate, MatchResult, MatchForfeit, MatchDoubleForfeit, HeatResult
-from app.bracket_engine.generator import advance_winner, settle_bracket, retract_winner
+from app.bracket_engine.generator import advance_winner, advance_double_forfeit, settle_bracket, retract_winner
 
 router = APIRouter()
 
@@ -315,6 +315,7 @@ def post_double_forfeit(match_id: str, body: MatchDoubleForfeit | None = None, _
         update["notes"] = body.notes
 
     updated = supabase.table("matches").update(update).eq("id", match_id).execute().data[0]
+    advance_double_forfeit(match_id, supabase)
     settle_bracket(match["sport_id"], supabase)
     return updated
 

@@ -33,6 +33,8 @@ export interface Match {
   bracket_id: string | null
   home_team_id: string | null
   away_team_id: string | null
+  home_slot_state: 'tbd' | 'bye'
+  away_slot_state: 'tbd' | 'bye'
   location_id: string | null
   locations: { name: string } | null
   winner_id: string | null

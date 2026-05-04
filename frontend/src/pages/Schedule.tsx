@@ -7,7 +7,7 @@ import { getCompanies } from '../api/companies'
 import type { Match, Sport, Team, Company } from '../types'
 
 type ViewMode = 'by_sport' | 'timeline'
-type StatusFilter = 'all' | 'upcoming' | 'live' | 'completed'
+type StatusFilter = 'all' | 'active' | 'upcoming' | 'live' | 'completed'
 
 const ACCENT_COLORS = [
   '#3B82F6', '#F97316', '#10B981', '#8B5CF6', '#EF4444',
@@ -114,6 +114,7 @@ function isResolved(m: Match): boolean {
 
 function matchesStatusFilter(m: Match, f: StatusFilter): boolean {
   if (f === 'all')       return true
+  if (f === 'active')    return m.status === 'scheduled' || m.status === 'in_progress'
   if (f === 'upcoming')  return m.status === 'scheduled'
   if (f === 'live')      return m.status === 'in_progress'
   if (f === 'completed') return isResolved(m)
@@ -251,9 +252,9 @@ function MatchRow({
       >
         <div className="flex flex-col gap-0.5">
           <span className="text-xs text-gray-400 tabular-nums">{showTime && time ? time : ''}</span>
-          {courtName && <span className="text-xs text-gray-300 truncate">{courtName}</span>}
+          {courtName && <span className="text-xs text-gray-500 truncate">{courtName}</span>}
         </div>
-        <span className="font-medium text-slate-700 truncate">{home}</span>
+        <span className="font-medium text-slate-700 truncate text-center">{home}</span>
         <div className="flex justify-end"><StatusBadge match={match}  /></div>
       </div>
     )
@@ -266,7 +267,7 @@ function MatchRow({
     >
       <div className="flex flex-col gap-0.5">
         <span className="text-xs text-gray-400 tabular-nums">{showTime && time ? time : ''}</span>
-        {courtName && <span className="text-xs text-gray-300 truncate">{courtName}</span>}
+        {courtName && <span className="text-xs text-gray-500 truncate">{courtName}</span>}
       </div>
       <span className="text-right font-medium text-slate-700 truncate">{home}</span>
       <span className="text-center text-xs text-gray-400">vs</span>
@@ -487,7 +488,7 @@ function TimelineView({
 export default function Schedule() {
   const [view, setView]               = useState<ViewMode>('by_sport')
   const [sportFilter, setSportFilter] = useState<string>('all')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('upcoming')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
   const [collapsedSports, setCollapsedSports] = useState<Set<string>>(new Set())
 
   const { matches, sports, sportMap, teamMap, companyMap, isLoading, isError } = useScheduleData()
@@ -555,16 +556,25 @@ export default function Schedule() {
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </select>
-        <select
-          value={statusFilter}
-          onChange={e => setStatusFilter(e.target.value as StatusFilter)}
-          className="flex-1 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-        >
-          <option value="upcoming">Upcoming</option>
-          <option value="live">Live</option>
-          <option value="completed">Completed</option>
-          <option value="all">All matches</option>
-        </select>
+      </div>
+      <div className="flex rounded-lg bg-gray-100 p-1 gap-0.5">
+        {([
+          ['active',    'Live & Upcoming'],
+          ['live',      'Live'],
+          ['upcoming',  'Upcoming'],
+          ['completed', 'Completed'],
+          ['all',       'All'],
+        ] as [StatusFilter, string][]).map(([val, label]) => (
+          <button
+            key={val}
+            onClick={() => setStatusFilter(val)}
+            className={`flex-1 px-2 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+              statusFilter === val ? 'bg-white shadow-sm text-slate-800' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {/* Views */}
