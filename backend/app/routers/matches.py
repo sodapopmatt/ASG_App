@@ -24,15 +24,15 @@ def _compute_estimated_starts(
     matches: list[dict],
     sport_duration_map: dict[str, int],
 ) -> dict[str, datetime | None]:
-    """Per-court ripple: propagate actual start delays to all upcoming matches.
+    """Compute estimated start times accounting for court availability and feeder matches.
 
-    For each court, matches are processed in scheduled_at order. When a match
-    has already started (actual_start is set), its actual start time anchors the
-    court's free-at time. Subsequent matches are shifted forward if the court
-    won't be free in time.
+    Pass 1 — per-court ripple: processes each court's chain in scheduled_at order,
+    shifting matches forward when their court isn't free yet.
 
-    Matches without scheduled_at but with both teams (playable) are assigned
-    estimated times based on court availability.
+    Pass 2 — feeder adjustment: for each match, estimated_start must be at least
+    as late as the finish time of both upstream feeder matches (via
+    winner_next_match_id / loser_next_match_id). Processed in round order so
+    feeders are always resolved before their downstream matches.
     """
     from datetime import timedelta
 
@@ -42,6 +42,7 @@ def _compute_estimated_starts(
 
     result: dict[str, datetime | None] = {}
 
+    # Pass 1: per-court ripple
     for court, court_matches in by_court.items():
         sorted_matches = sorted(
             court_matches,
@@ -77,6 +78,40 @@ def _compute_estimated_starts(
                     result[m["id"]] = None
             else:
                 result[m["id"]] = None
+
+    # Pass 2: feeder adjustment
+    # Build reverse map: match_id -> list of upstream match_ids that feed into it
+    match_by_id = {m["id"]: m for m in matches}
+    upstream_of: dict[str, list[str]] = {}
+    for m in matches:
+        for key in ("winner_next_match_id", "loser_next_match_id"):
+            next_id = m.get(key)
+            if next_id and next_id in match_by_id:
+                upstream_of.setdefault(next_id, []).append(m["id"])
+
+    # Process in round order so each match's feeders are already resolved
+    for m in sorted(matches, key=lambda m: (m.get("match_round") or 0)):
+        mid = m["id"]
+        feeders = upstream_of.get(mid)
+        if not feeders:
+            continue
+
+        feeder_finishes = []
+        for fid in feeders:
+            feeder_est = result.get(fid)
+            if feeder_est is not None:
+                feeder_duration = timedelta(
+                    minutes=sport_duration_map.get(match_by_id[fid].get("sport_id", ""), 30)
+                )
+                feeder_finishes.append(feeder_est + feeder_duration)
+
+        if not feeder_finishes:
+            continue
+
+        latest_feeder_finish = max(feeder_finishes)
+        current = result.get(mid)
+        if current is None or latest_feeder_finish > current:
+            result[mid] = latest_feeder_finish
 
     return result
 
@@ -157,28 +192,19 @@ def get_match(match_id: str):
         raise HTTPException(status_code=404, detail="Match not found")
     m = response.data[0]
 
-    # Compute estimated_start using all matches on the same court
-    if m.get("location_id"):
-        court_matches = (
+    # Fetch all matches for the sport so feeder timing is available for Pass 2
+    if m.get("sport_id"):
+        sport_matches = (
             supabase.table("matches")
-            .select("*")
-            .eq("location_id", m["location_id"])
+            .select("*, locations(name)")
+            .eq("sport_id", m["sport_id"])
             .execute()
             .data
         )
-        sport_ids = list({cm["sport_id"] for cm in court_matches if cm.get("sport_id")})
-        sport_duration_map: dict[str, int] = {}
-        if sport_ids:
-            sports = (
-                supabase.table("sports")
-                .select("id, match_duration_minutes")
-                .in_("id", sport_ids)
-                .execute()
-                .data
-            )
-            sport_duration_map = {s["id"]: s["match_duration_minutes"] or 30 for s in sports}
-        estimated = _compute_estimated_starts(court_matches, sport_duration_map)
-        m["estimated_start"] = estimated.get(match_id)
+        _attach_estimated_starts(sport_matches)
+        match_map = {sm["id"]: sm for sm in sport_matches}
+        if match_id in match_map:
+            m["estimated_start"] = match_map[match_id].get("estimated_start")
 
     return m
 

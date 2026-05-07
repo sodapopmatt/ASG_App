@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import React, { useState, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -6,7 +6,7 @@ import {
   DoubleEliminationBracket,
   Match as LibMatch,
 } from '@g-loot/react-tournament-brackets'
-import type { MatchType } from '@g-loot/react-tournament-brackets'
+import type { MatchType, MatchComponentProps } from '@g-loot/react-tournament-brackets'
 import { getMatches, startMatch, submitResult, submitForfeit, submitDoubleForfeit } from '../../api/matches'
 import { getSports } from '../../api/sports'
 import { getTeams } from '../../api/teams'
@@ -194,6 +194,30 @@ function MatchResultModal({
   )
 }
 
+// ─── Custom match component ───────────────────────────────────────────────────
+
+function MatchComponent(props: MatchComponentProps) {
+  const isPlaying = props.match.state === 'PLAYING'
+  const openModal = () => props.onMatchClick({ match: props.match, topWon: props.topWon, bottomWon: props.bottomWon, event: {} as React.MouseEvent<HTMLAnchorElement> })
+  return (
+    <div style={{ position: 'relative', height: '100%' }}>
+      <LibMatch {...props} onMatchClick={undefined} onPartyClick={openModal} />
+      {isPlaying && (
+        <span style={{
+          position: 'absolute', top: 4, right: 8,
+          display: 'flex', alignItems: 'center', gap: 4,
+          fontSize: 10, fontWeight: 600, color: '#92400e',
+          fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+          pointerEvents: 'none',
+        }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#eab308', display: 'inline-block' }} />
+          In Progress
+        </span>
+      )}
+    </div>
+  )
+}
+
 // ─── Bracket views ────────────────────────────────────────────────────────────
 
 function SingleBracketView({
@@ -217,7 +241,7 @@ function SingleBracketView({
   return (
     <SingleEliminationBracket
       matches={libMatches}
-      matchComponent={LibMatch}
+      matchComponent={MatchComponent}
       theme={lightTheme}
       options={bracketOptions}
       onMatchClick={({ match }) => onMatchClick(String(match.id))}
@@ -258,7 +282,7 @@ function DoubleBracketView({
   return (
     <DoubleEliminationBracket
       matches={{ upper, lower }}
-      matchComponent={LibMatch}
+      matchComponent={MatchComponent}
       theme={lightTheme}
       options={bracketOptions}
       onMatchClick={({ match }) => onMatchClick(String(match.id))}

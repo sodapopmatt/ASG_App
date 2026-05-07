@@ -37,39 +37,51 @@ def _shuffle_avoiding_same_company(
     team_ids: list[str],
     company_map: dict[str, str],
 ) -> list[str]:
-    """Shuffle teams randomly, then greedily resolve same-company first-round pairs."""
+    """Shuffle teams randomly, then resolve same-company first-round pairs.
+
+    After each swap the scan restarts from the beginning so that swaps never
+    silently introduce new conflicts earlier in the bracket.
+    """
     teams = list(team_ids)
     random.shuffle(teams)
 
     n = len(teams)
     size = _next_power_of_2(n)
     positions = _seed_positions(size)
-
     num_pairs = size // 2
-    for k in range(num_pairs):
-        a_idx = positions[2 * k]
-        b_idx = positions[2 * k + 1]
 
-        if a_idx >= n or b_idx >= n:
-            continue
+    changed = True
+    while changed:
+        changed = False
+        for k in range(num_pairs):
+            a_idx = positions[2 * k]
+            b_idx = positions[2 * k + 1]
 
-        a = teams[a_idx]
-        b = teams[b_idx]
+            if a_idx >= n or b_idx >= n:
+                continue
 
-        if company_map.get(a) != company_map.get(b):
-            continue
+            a = teams[a_idx]
+            b = teams[b_idx]
 
-        for j in range(k + 1, num_pairs):
-            c_idx = positions[2 * j]
-            d_idx = positions[2 * j + 1]
+            if company_map.get(a) != company_map.get(b):
+                continue
 
-            if c_idx < n and company_map.get(teams[c_idx]) != company_map.get(a):
-                teams[b_idx], teams[c_idx] = teams[c_idx], teams[b_idx]
-                break
+            # Search all other pairs for a swap candidate from a different company
+            for j in range(num_pairs):
+                if j == k:
+                    continue
+                c_idx = positions[2 * j]
+                d_idx = positions[2 * j + 1]
 
-            if d_idx < n and company_map.get(teams[d_idx]) != company_map.get(a):
-                teams[b_idx], teams[d_idx] = teams[d_idx], teams[b_idx]
-                break
+                if c_idx < n and company_map.get(teams[c_idx]) != company_map.get(a):
+                    teams[b_idx], teams[c_idx] = teams[c_idx], teams[b_idx]
+                    changed = True
+                    break
+
+                if d_idx < n and company_map.get(teams[d_idx]) != company_map.get(a):
+                    teams[b_idx], teams[d_idx] = teams[d_idx], teams[b_idx]
+                    changed = True
+                    break
 
     return teams
 

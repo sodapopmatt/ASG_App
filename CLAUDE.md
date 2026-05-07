@@ -195,6 +195,12 @@ V1 migration is complete.
 - Court assignment is done at generation time using subtree grouping (WB) and round-robin (LB)
 - Grand final gets no pre-assigned court; inherits from first semifinal winner
 
+### Seeding Constraint
+- No two teams from the same company may meet in **Winners Bracket Round 1**
+- Enforced via exhaustive greedy scan in `_shuffle_avoiding_same_company()` (bracket_engine/generator.py)
+- Same-company matchups in WB R2+, LB rounds, and later stages are accepted as structurally inevitable when companies field multiple teams
+- If no valid swap exists (one company holds more than half the slots), the conflict is left silently
+
 ### Match Advancement
 - Happens automatically after result or forfeit submission
 - `advance_winner()` slots winner into `winner_next_match_id`
@@ -205,8 +211,11 @@ V1 migration is complete.
 ### Scheduling
 - `match_duration_minutes`, `schedule_start` are stored on the sport
 - Court count is derived from the sport's named `locations` rows — not stored as an integer
-- `estimated_start` is computed per-court dynamically at read time (GET /matches) — not stored
+- `estimated_start` is computed dynamically at read time (GET /matches) — not stored
+  - **Pass 1:** per-court ripple — shifts matches forward if their court isn't free yet
+  - **Pass 2:** feeder adjustment — `estimated_start` is at least as late as the finish time of both upstream feeder matches; processed in round order so feeders are always resolved first
 - `actual_start` anchors a court's timeline when a match is marked in_progress
+- Both `GET /matches` (list) and `GET /matches/{id}` (single) fetch all sport matches to ensure Pass 2 has full feeder visibility
 
 ---
 

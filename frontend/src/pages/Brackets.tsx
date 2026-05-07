@@ -5,7 +5,7 @@ import {
   DoubleEliminationBracket,
   Match as LibMatch,
 } from '@g-loot/react-tournament-brackets'
-import type { MatchType } from '@g-loot/react-tournament-brackets'
+import type { MatchType, MatchComponentProps } from '@g-loot/react-tournament-brackets'
 import { getMatches } from '../api/matches'
 import { getSports } from '../api/sports'
 import { getTeams } from '../api/teams'
@@ -150,6 +150,29 @@ function FallbackMatchList({
   )
 }
 
+// ---- Custom match component ------------------------------------------------
+
+function MatchComponent(props: MatchComponentProps) {
+  const isPlaying = props.match.state === 'PLAYING'
+  return (
+    <div style={{ position: 'relative', height: '100%' }}>
+      <LibMatch {...props} topText="" onMatchClick={undefined} />
+      {isPlaying && (
+        <span style={{
+          position: 'absolute', top: 4, right: 8,
+          display: 'flex', alignItems: 'center', gap: 4,
+          fontSize: 10, fontWeight: 600, color: '#92400e',
+          fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+          pointerEvents: 'none',
+        }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#eab308', display: 'inline-block' }} />
+          In Progress
+        </span>
+      )}
+    </div>
+  )
+}
+
 // ---- Elimination bracket views --------------------------------------------
 
 function SingleBracketView({
@@ -174,7 +197,7 @@ function SingleBracketView({
     <div className="-mx-4 px-4">
       <SingleEliminationBracket
         matches={libMatches}
-        matchComponent={LibMatch}
+        matchComponent={MatchComponent}
         theme={lightTheme}
         options={bracketOptions}
         onMatchClick={onMatchClick ? ({ match }) => onMatchClick(String(match.id)) : undefined}
@@ -217,7 +240,7 @@ function DoubleBracketView({
     <div className="-mx-4 px-4">
       <DoubleEliminationBracket
         matches={{ upper, lower }}
-        matchComponent={LibMatch}
+        matchComponent={MatchComponent}
         theme={lightTheme}
         options={bracketOptions}
         onMatchClick={onMatchClick ? ({ match }) => onMatchClick(String(match.id)) : undefined}

@@ -51,7 +51,10 @@ export function toLibraryMatch(
     nextMatchId: m.winner_next_match_id ?? null,
     nextLooserMatchId: m.loser_next_match_id ?? undefined,
     tournamentRoundText: m.match_round != null ? String(m.match_round) : '',
-    startTime: formatMatchTime(m.scheduled_at ?? m.estimated_start),
+    startTime: [
+      formatMatchTime(m.scheduled_at ?? m.estimated_start),
+      m.locations?.name ?? null,
+    ].filter(Boolean).join(' · '),
     state,
     participants: [
       {

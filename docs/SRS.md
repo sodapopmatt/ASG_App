@@ -114,7 +114,9 @@ The system does not support:
 - The system shall:
   - require match duration per sport
   - auto-generate schedules for elimination brackets at generation time
-  - compute `estimated_start` per-court dynamically (not stored)
+  - compute `estimated_start` dynamically at read time (not stored) using two passes:
+    1. Per-court ripple — shifts matches forward when their court is still busy
+    2. Feeder adjustment — ensures a match cannot start before both of its upstream feeder matches have finished, regardless of which court they are on
 - The system shall warn when:
   - two matches are scheduled at the same location at the same time
 
@@ -168,6 +170,11 @@ Match statuses:
   - mark a bracket settled when all matches are resolved
 - Brackets shall update automatically after results are entered
 - Other bracket types (`pool_bracket`, `pool_swiss`, `heats`, `points_based`) are not auto-generated; matches must be created manually
+
+#### Seeding Rule
+- No two teams from the same company shall be placed in the same Winners Bracket Round 1 matchup
+- Same-company matchups in later rounds (WB R2+) and in the Losers Bracket are accepted as structurally inevitable when companies field multiple teams
+- This constraint is enforced at bracket generation time via exhaustive greedy seeding
 
 ---
 
@@ -463,7 +470,9 @@ Each sport defines:
 
 ### Fully Built
 - Single and double elimination bracket generation, advancement, result/forfeit/double-forfeit entry
-- Scheduling config (`match_duration_minutes`, `concurrent_courts`, `schedule_start`) and `estimated_start` computation
+- Seeding constraint: no same-company matchups in WB Round 1 (exhaustive greedy scan)
+- Scheduling config (`match_duration_minutes`, `concurrent_courts`, `schedule_start`) and `estimated_start` computation (two-pass: court ripple + feeder adjustment)
+- Court label shown on bracket match slots alongside scheduled time
 - Placement-based scoring (ScoringPage + `/event-points/award-placement`)
 - Teams, companies, and roster management
 - Leaderboard (SQL RPC `get_leaderboard()`)
