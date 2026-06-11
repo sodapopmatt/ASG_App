@@ -8,7 +8,13 @@ export function getEventPoints(params?: { company_id?: string; sport_id?: string
   return apiFetch<EventPoints[]>(`/event-points/?${qs}`)
 }
 
-export function awardPlacement(company_id: string, sport_id: string, placement: number) {
+export function awardPlacement(
+  company_id: string,
+  sport_id: string,
+  placement: number,
+  tied_through?: number,
+) {
   const qs = new URLSearchParams({ company_id, sport_id, placement: String(placement) })
+  if (tied_through != null) qs.set('tied_through', String(tied_through))
   return apiFetch<EventPoints>(`/event-points/award-placement?${qs}`, { method: 'POST' })
 }

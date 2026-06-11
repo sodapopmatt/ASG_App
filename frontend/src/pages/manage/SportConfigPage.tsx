@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { Link, useParams, Navigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getSports, generateBracket, resetBrackets, updateSport } from '../../api/sports'
+import { getSports, generateBracket, resetBrackets, updateSport, type DivisionSpec } from '../../api/sports'
 import { getMatches, patchMatch } from '../../api/matches'
 import { getTeams } from '../../api/teams'
 import { getCompanies } from '../../api/companies'
@@ -58,6 +58,32 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
   )
 }
 
+function DivToggle({
+  value,
+  names,
+  onChange,
+}: {
+  value: 0 | 1
+  names: [string, string]
+  onChange: (v: 0 | 1) => void
+}) {
+  return (
+    <div className="flex rounded-lg overflow-hidden border border-gray-200 shrink-0">
+      {([0, 1] as const).map(i => (
+        <button
+          key={i}
+          onClick={() => onChange(i)}
+          className={`px-2 py-1 text-xs font-medium max-w-[5.5rem] truncate transition-colors ${
+            value === i ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
+          }`}
+        >
+          {names[i].trim() || `Div ${i + 1}`}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function SportConfigPage() {
   const { sportId } = useParams<{ sportId: string }>()
   const qc = useQueryClient()
@@ -98,6 +124,12 @@ export default function SportConfigPage() {
   const [seeds, setSeeds] = useState<Team[]>([])
   const [seedsInit, setSeedsInit] = useState(false)
   const [genError, setGenError] = useState<string | null>(null)
+
+  // Division split state (elimination sports across two venues)
+  const [splitEnabled, setSplitEnabled] = useState(false)
+  const [divNames, setDivNames] = useState<[string, string]>(['Main Gym', 'North Gym'])
+  const [teamDiv, setTeamDiv] = useState<Record<string, 0 | 1>>({})
+  const [courtDiv, setCourtDiv] = useState<Record<string, 0 | 1>>({})
 
   // Schedule patch state
   const [scheduleOpen, setScheduleOpen] = useState(false)
@@ -163,14 +195,39 @@ export default function SportConfigPage() {
 
   const isHeats = sport?.bracket_type === 'heats'
   const isRandomized = sport?.bracket_type === 'double_elimination'
+  const isElimination = sport?.bracket_type === 'single_elimination' || sport?.bracket_type === 'double_elimination'
 
   const alreadyGenerated = matches.length > 0
 
+  // Division assignment with sensible defaults: teams alternate (keeps the top
+  // seeds apart), courts split first half / second half (courts at the same
+  // venue are usually created together).
+  const orderedTeams = isRandomized ? sportTeams : seeds
+  const teamDivOf = (teamId: string): 0 | 1 => {
+    if (teamDiv[teamId] !== undefined) return teamDiv[teamId]
+    const idx = orderedTeams.findIndex(t => t.id === teamId)
+    return (idx >= 0 ? idx % 2 : 0) as 0 | 1
+  }
+  const courtDivOf = (locId: string): 0 | 1 => {
+    if (courtDiv[locId] !== undefined) return courtDiv[locId]
+    const idx = locations.findIndex(l => l.id === locId)
+    return idx >= 0 && idx >= Math.ceil(locations.length / 2) ? 1 : 0
+  }
+
+  const divisionSpecs: DivisionSpec[] = ([0, 1] as const).map(i => ({
+    name: divNames[i].trim() || `Division ${i + 1}`,
+    team_ids: orderedTeams.filter(t => teamDivOf(t.id) === i).map(t => t.id),
+    location_ids: locations.filter(l => courtDivOf(l.id) === i).map(l => l.id),
+  }))
+  const splitValid = divisionSpecs.every(d => d.team_ids.length >= 2)
+
   const genMutation = useMutation({
-    mutationFn: () =>
-      isRandomized
+    mutationFn: () => {
+      if (splitEnabled) return generateBracket(sportId!, [], false, divisionSpecs)
+      return isRandomized
         ? generateBracket(sportId!, sportTeams.map(t => t.id), false)
-        : generateBracket(sportId!, seeds.map(t => t.id), false),
+        : generateBracket(sportId!, seeds.map(t => t.id), false)
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['matches'] })
       qc.invalidateQueries({ queryKey: ['brackets'] })
@@ -335,31 +392,119 @@ export default function SportConfigPage() {
           <p className="text-sm text-slate-500 italic">
             This will create one entry per team. Each team's ref will record their time separately.
           </p>
-        ) : isRandomized ? (
-          <p className="text-sm text-slate-500 italic">
-            {sport.name} matchups are randomized automatically.
-            {locations.length > 0
-              ? ` Matches will be distributed across ${locations.length} court${locations.length !== 1 ? 's' : ''}.`
-              : ' Add courts above to enable court assignment and scheduling.'}
-          </p>
         ) : (
           <>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Seed order</p>
-            <div className="space-y-1">
-              {seeds.map((team, idx) => (
-                <div key={team.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
-                  <span className="text-xs font-bold text-gray-400 w-5 text-center">{idx + 1}</span>
-                  <span className="flex-1 text-sm text-slate-700">
-                    {companyMap[team.company_id]?.name ?? '—'}
-                    {team.name && <span className="text-gray-400"> · {team.name}</span>}
+            {isRandomized && (
+              <p className="text-sm text-slate-500 italic">
+                {sport.name} matchups are randomized automatically.
+                {locations.length > 0
+                  ? ` Matches will be distributed across ${locations.length} court${locations.length !== 1 ? 's' : ''}.`
+                  : ' Add courts above to enable court assignment and scheduling.'}
+              </p>
+            )}
+
+            {isElimination && sportTeams.length >= 4 && (
+              <label className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2.5 border border-gray-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={splitEnabled}
+                  onChange={e => setSplitEnabled(e.target.checked)}
+                  className="accent-blue-600"
+                />
+                <span className="text-sm text-slate-700">
+                  Split into two divisions
+                  <span className="block text-xs text-gray-400">
+                    Separate brackets per venue — the two division winners meet in a championship match.
                   </span>
-                  <div className="flex gap-0.5">
-                    <button onClick={() => move(idx, -1)} disabled={idx === 0} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><UpIcon /></button>
-                    <button onClick={() => move(idx, 1)} disabled={idx === seeds.length - 1} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><DownIcon /></button>
-                  </div>
+                </span>
+              </label>
+            )}
+
+            {splitEnabled ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  {([0, 1] as const).map(i => (
+                    <label key={i} className="space-y-1 block">
+                      <span className="text-xs text-gray-400">Division {i + 1} name</span>
+                      <input
+                        type="text"
+                        value={divNames[i]}
+                        onChange={e => setDivNames(prev => (i === 0 ? [e.target.value, prev[1]] : [prev[0], e.target.value]))}
+                        placeholder={`Division ${i + 1}`}
+                        className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+                      />
+                    </label>
+                  ))}
                 </div>
-              ))}
-            </div>
+
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Teams</p>
+                <div className="space-y-1">
+                  {orderedTeams.map((team, idx) => (
+                    <div key={team.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
+                      {!isRandomized && <span className="text-xs font-bold text-gray-400 w-5 text-center">{idx + 1}</span>}
+                      <span className="flex-1 text-sm text-slate-700 truncate min-w-0">
+                        {companyMap[team.company_id]?.name ?? '—'}
+                        {team.name && <span className="text-gray-400"> · {team.name}</span>}
+                      </span>
+                      <DivToggle
+                        value={teamDivOf(team.id)}
+                        names={divNames}
+                        onChange={v => setTeamDiv(prev => ({ ...prev, [team.id]: v }))}
+                      />
+                      {!isRandomized && (
+                        <div className="flex gap-0.5">
+                          <button onClick={() => move(idx, -1)} disabled={idx === 0} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><UpIcon /></button>
+                          <button onClick={() => move(idx, 1)} disabled={idx === seeds.length - 1} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><DownIcon /></button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Courts</p>
+                {locations.length === 0 ? (
+                  <p className="text-sm text-slate-400 italic">No courts defined — add courts above to assign them to divisions.</p>
+                ) : (
+                  <div className="space-y-1">
+                    {locations.map(loc => (
+                      <div key={loc.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
+                        <span className="flex-1 text-sm text-slate-700 truncate min-w-0">{loc.name}</span>
+                        <DivToggle
+                          value={courtDivOf(loc.id)}
+                          names={divNames}
+                          onChange={v => setCourtDiv(prev => ({ ...prev, [loc.id]: v }))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {!splitValid && (
+                  <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    Each division needs at least 2 teams.
+                  </p>
+                )}
+              </div>
+            ) : !isRandomized ? (
+              <>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Seed order</p>
+                <div className="space-y-1">
+                  {seeds.map((team, idx) => (
+                    <div key={team.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
+                      <span className="text-xs font-bold text-gray-400 w-5 text-center">{idx + 1}</span>
+                      <span className="flex-1 text-sm text-slate-700">
+                        {companyMap[team.company_id]?.name ?? '—'}
+                        {team.name && <span className="text-gray-400"> · {team.name}</span>}
+                      </span>
+                      <div className="flex gap-0.5">
+                        <button onClick={() => move(idx, -1)} disabled={idx === 0} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><UpIcon /></button>
+                        <button onClick={() => move(idx, 1)} disabled={idx === seeds.length - 1} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><DownIcon /></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : null}
           </>
         )}
 
@@ -368,10 +513,10 @@ export default function SportConfigPage() {
             {genError && <p className="text-sm text-red-600">{genError}</p>}
             <button
               onClick={() => genMutation.mutate()}
-              disabled={genMutation.isPending || sportTeams.length < 2}
+              disabled={genMutation.isPending || sportTeams.length < 2 || (splitEnabled && !splitValid)}
               className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
             >
-              {genMutation.isPending ? 'Generating…' : isHeats ? 'Generate Entries' : 'Generate Bracket'}
+              {genMutation.isPending ? 'Generating…' : isHeats ? 'Generate Entries' : splitEnabled ? 'Generate Division Brackets' : 'Generate Bracket'}
             </button>
           </>
         )}

@@ -231,10 +231,10 @@ function SingleBracketView({
   companyMap: Record<string, Company>
   onMatchClick: (matchId: string) => void
 }) {
-  const libMatches = useMemo(
-    () => stableSortMatches(matches).map(m => toLibraryMatch(m, teamMap, companyMap)),
-    [matches, teamMap, companyMap],
-  )
+  const libMatches = useMemo(() => {
+    const ids = new Set(matches.map(m => m.id))
+    return stableSortMatches(matches).map(m => toLibraryMatch(m, teamMap, companyMap, ids))
+  }, [matches, teamMap, companyMap])
 
   if (libMatches.length === 0) return <p className="text-center text-gray-500 py-12">No matches yet.</p>
 
@@ -268,9 +268,10 @@ function DoubleBracketView({
   const { upper, lower } = useMemo(() => {
     const upper: MatchType[] = []
     const lower: MatchType[] = []
+    const ids = new Set(matches.map(m => m.id))
     for (const m of stableSortMatches(matches)) {
       const phase = m.bracket_id ? bracketPhaseMap[m.bracket_id] : null
-      const lib = toLibraryMatch(m, teamMap, companyMap)
+      const lib = toLibraryMatch(m, teamMap, companyMap, ids)
       if (phase === 'losers') lower.push(lib)
       else upper.push(lib)
     }
@@ -290,6 +291,48 @@ function DoubleBracketView({
         <DoubleScrollSvg bracketWidth={bracketWidth} bracketHeight={bracketHeight}>{children}</DoubleScrollSvg>
       )}
     />
+  )
+}
+
+function ChampionshipCard({
+  match,
+  teamMap,
+  companyMap,
+  onClick,
+}: {
+  match: Match
+  teamMap: Record<string, Team>
+  companyMap: Record<string, Company>
+  onClick: () => void
+}) {
+  const isDone = match.status === 'completed' || match.status === 'forfeit' || match.status === 'double_forfeit'
+  const isLive = match.status === 'in_progress'
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full text-left bg-white rounded-xl border-2 shadow-sm px-4 py-3 ${isLive ? 'border-amber-400' : 'border-gray-200'} hover:border-blue-400 transition-colors`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className={`text-sm truncate ${match.winner_id && match.winner_id === match.home_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'} ${!match.home_team_id ? 'italic text-gray-400 font-normal' : ''}`}>
+            {fullLabel(match.home_team_id, teamMap, companyMap)}
+          </p>
+          <p className="text-xs text-gray-400 my-0.5">vs</p>
+          <p className={`text-sm truncate ${match.winner_id && match.winner_id === match.away_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'} ${!match.away_team_id ? 'italic text-gray-400 font-normal' : ''}`}>
+            {fullLabel(match.away_team_id, teamMap, companyMap)}
+          </p>
+        </div>
+        {isLive ? (
+          <span className="shrink-0 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full animate-pulse">Live</span>
+        ) : isDone ? (
+          <span className="shrink-0 text-xs text-gray-400">
+            {match.status === 'double_forfeit' ? 'Dbl Forfeit' : match.status === 'forfeit' ? 'Forfeit' : 'Final'}
+          </span>
+        ) : (
+          <span className="shrink-0 text-xs text-blue-400">Tap to enter</span>
+        )}
+      </div>
+    </button>
   )
 }
 
@@ -332,6 +375,19 @@ export default function BracketResultsPage() {
     return map
   }, [bracketsQuery.data])
 
+  const bracketDivisionMap = useMemo((): Record<string, string> => {
+    const map: Record<string, string> = {}
+    for (const b of (bracketsQuery.data ?? [])) {
+      if (b.division) map[b.id] = b.division
+    }
+    return map
+  }, [bracketsQuery.data])
+
+  const divisionNames = useMemo(
+    () => [...new Set((bracketsQuery.data ?? []).map(b => b.division).filter((d): d is string => !!d))],
+    [bracketsQuery.data],
+  )
+
   const sportMatches = useMemo(
     () => (matchesQuery.data ?? []).filter(m => m.sport_id === sportId),
     [matchesQuery.data, sportId],
@@ -356,6 +412,66 @@ export default function BracketResultsPage() {
 
   const bracketType = sport?.bracket_type
 
+  function renderElimination(matches: Match[]) {
+    if (bracketType === 'single_elimination') {
+      return (
+        <SingleBracketView
+          matches={matches}
+          teamMap={teamMap}
+          companyMap={companyMap}
+          onMatchClick={handleMatchClick}
+        />
+      )
+    }
+    return (
+      <DoubleBracketView
+        matches={matches}
+        bracketPhaseMap={bracketPhaseMap}
+        teamMap={teamMap}
+        companyMap={companyMap}
+        onMatchClick={handleMatchClick}
+      />
+    )
+  }
+
+  function renderBrackets() {
+    if (divisionNames.length === 0) {
+      return renderElimination(sportMatches)
+    }
+    // Division mode: one bracket per division plus a cross-division championship
+    const byDivision: Record<string, Match[]> = {}
+    const championship: Match[] = []
+    for (const m of sportMatches) {
+      const div = m.bracket_id ? bracketDivisionMap[m.bracket_id] : undefined
+      if (div) (byDivision[div] ??= []).push(m)
+      else championship.push(m)
+    }
+    return (
+      <div className="space-y-8">
+        {championship.length > 0 && (
+          <div className="space-y-2">
+            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Championship</h3>
+            {championship.map(m => (
+              <ChampionshipCard
+                key={m.id}
+                match={m}
+                teamMap={teamMap}
+                companyMap={companyMap}
+                onClick={() => setActiveMatch(m)}
+              />
+            ))}
+          </div>
+        )}
+        {divisionNames.map(div => (
+          <div key={div}>
+            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-2">{div}</h3>
+            {renderElimination(byDivision[div] ?? [])}
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   return (
     <>
       <div className="p-4 mt-2">
@@ -366,21 +482,8 @@ export default function BracketResultsPage() {
 
         {sportMatches.length === 0 ? (
           <p className="text-center text-gray-500 py-12">No matches for this sport yet.</p>
-        ) : bracketType === 'single_elimination' ? (
-          <SingleBracketView
-            matches={sportMatches}
-            teamMap={teamMap}
-            companyMap={companyMap}
-            onMatchClick={handleMatchClick}
-          />
-        ) : bracketType === 'double_elimination' ? (
-          <DoubleBracketView
-            matches={sportMatches}
-            bracketPhaseMap={bracketPhaseMap}
-            teamMap={teamMap}
-            companyMap={companyMap}
-            onMatchClick={handleMatchClick}
-          />
+        ) : bracketType === 'single_elimination' || bracketType === 'double_elimination' ? (
+          renderBrackets()
         ) : (
           <p className="text-center text-gray-500 py-12">Bracket type not supported here.</p>
         )}

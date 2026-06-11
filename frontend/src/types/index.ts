@@ -56,6 +56,7 @@ export interface Bracket {
   sport_id: string
   name: string
   phase: string | null
+  division: string | null
   created_at: string
 }
 

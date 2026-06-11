@@ -24,6 +24,7 @@ export default function ScoringPage() {
   const [sportId, setSportId] = useState('')
   const [companyId, setCompanyId] = useState('')
   const [placement, setPlacement] = useState('')
+  const [tiedThrough, setTiedThrough] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
 
@@ -64,13 +65,14 @@ export default function ScoringPage() {
   )
 
   const mutation = useMutation({
-    mutationFn: () => awardPlacement(companyId, sportId, Number(placement)),
+    mutationFn: () => awardPlacement(companyId, sportId, Number(placement), tiedThrough ? Number(tiedThrough) : undefined),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['event-points'] })
       qc.invalidateQueries({ queryKey: ['leaderboard'] })
       setSaved(true)
       setCompanyId('')
       setPlacement('')
+      setTiedThrough('')
       setError(null)
       setTimeout(() => setSaved(false), 2500)
     },
@@ -132,7 +134,7 @@ export default function ScoringPage() {
               <select
                 required
                 value={placement}
-                onChange={e => { setPlacement(e.target.value); setSaved(false) }}
+                onChange={e => { setPlacement(e.target.value); setTiedThrough(''); setSaved(false) }}
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 bg-white"
               >
                 <option value="">Select placement…</option>
@@ -141,6 +143,25 @@ export default function ScoringPage() {
                 ))}
               </select>
             </div>
+
+            {placement && Number(placement) < PLACEMENTS[PLACEMENTS.length - 1] && (
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Tied through (optional)</label>
+                <select
+                  value={tiedThrough}
+                  onChange={e => { setTiedThrough(e.target.value); setSaved(false) }}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 bg-white"
+                >
+                  <option value="">Not tied</option>
+                  {PLACEMENTS.filter(p => p > Number(placement)).map(p => (
+                    <option key={p} value={p}>{ordinal(p)}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  For shared placements: tied companies each receive the average of the tied places' points.
+                </p>
+              </div>
+            )}
 
             {existing && (
               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">

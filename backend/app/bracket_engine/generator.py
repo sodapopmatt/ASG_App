@@ -226,6 +226,7 @@ def persist_bracket(
     location_ids: list[str] | None = None,
     start_time: datetime | None = None,
     match_duration_minutes: int = 30,
+    division: str | None = None,
 ) -> dict:
     """Generate and save a bracket for a sport.
 
@@ -238,9 +239,13 @@ def persist_bracket(
                                round-robin for LB, dynamic (None) for grand final.
         start_time:            Earliest start time for the first match on each court.
         match_duration_minutes: Minutes per match slot on each court.
+        division:              Division label (e.g. "Main Gym") when the sport is
+                               split across venues; prefixes bracket names and is
+                               stored on each bracket row.
 
     Returns:
-        Summary dict with bracket_ids and match_count.
+        Summary dict with bracket_ids, match_count, final_match_id (the root
+        match no winner advances out of), and max_round.
 
     Raises:
         ValueError: If the sport's bracket_type has no generator yet.
@@ -271,10 +276,12 @@ def persist_bracket(
     bracket_ids_created: list[str] = []
 
     for phase in phases:
+        phase_name = _PHASE_NAMES.get(phase, phase.title())
         result = db.table("brackets").insert({
             "sport_id": sport_id,
-            "name": _PHASE_NAMES.get(phase, phase.title()),
+            "name": f"{division} — {phase_name}" if division else phase_name,
             "phase": phase,
+            "division": division,
         }).execute()
         bid = result.data[0]["id"]
         phase_to_bracket_id[phase] = bid
@@ -293,6 +300,8 @@ def persist_bracket(
     # ── Batch-insert all match slots ─────────────────────────────────────────
     rows = []
     for i, slot in enumerate(slots):
+        # Batch inserts must have identical keys on every row — PostgREST sends
+        # explicit NULL for keys missing from some rows, bypassing column defaults.
         row: dict = {
             "sport_id": sport_id,
             "bracket_id": phase_to_bracket_id[slot.bracket_phase],
@@ -300,10 +309,16 @@ def persist_bracket(
             "away_team_id": slot.away_team_id,
             "match_round": slot.match_round,
             "status": "scheduled",
+            "home_slot_state": "tbd",
+            "away_slot_state": "tbd",
         }
         if slot.is_bye:
             row["winner_id"] = slot.home_team_id or slot.away_team_id
             row["status"] = "completed"
+            if slot.home_team_id is None:
+                row["home_slot_state"] = "bye"
+            if slot.away_team_id is None:
+                row["away_slot_state"] = "bye"
         else:
             court = assignment.get(i)
             if court is not None:
@@ -338,9 +353,28 @@ def persist_bracket(
         next_id = inserted_ids[slot.winner_next_idx]
         _fill_team_slot(next_id, winner_team, db)
 
+    # A bye match produces no loser — mark its losers-bracket slot as a
+    # permanent bye so settle_bracket can auto-advance the team waiting there.
+    for slot in slots:
+        if slot.is_bye and slot.loser_next_idx is not None:
+            _fill_bye_slot(inserted_ids[slot.loser_next_idx], db)
+
+    # Identify the root match (no winner_next) so callers can chain brackets
+    # together — e.g. wiring two division finals into a championship match.
+    final_match_id = None
+    max_round = 0
+    for i, slot in enumerate(slots):
+        if slot.is_bye:
+            continue
+        max_round = max(max_round, slot.match_round)
+        if slot.winner_next_idx is None:
+            final_match_id = inserted_ids[i]
+
     return {
         "bracket_ids": bracket_ids_created,
         "match_count": len(slots),
+        "final_match_id": final_match_id,
+        "max_round": max_round,
     }
 
 
@@ -391,13 +425,17 @@ def _fill_bye_slot(match_id: str, db: Client) -> None:
 
 
 def advance_double_forfeit(match_id: str, db: Client) -> None:
-    """After a double forfeit, mark the winner-advance slot of the next match as a permanent bye."""
-    row = db.table("matches").select("winner_next_match_id").eq("id", match_id).limit(1).execute()
+    """After a double forfeit, neither team continues — mark both downstream
+    slots (winner-advance and loser-drop) as permanent byes."""
+    row = db.table("matches").select(
+        "winner_next_match_id, loser_next_match_id"
+    ).eq("id", match_id).limit(1).execute()
     if not row.data:
         return
-    next_id = row.data[0].get("winner_next_match_id")
-    if next_id:
-        _fill_bye_slot(next_id, db)
+    for key in ("winner_next_match_id", "loser_next_match_id"):
+        next_id = row.data[0].get(key)
+        if next_id:
+            _fill_bye_slot(next_id, db)
 
 
 def _clear_team_from_slot(match_id: str, team_id: str, db: Client) -> None:
@@ -476,5 +514,8 @@ def settle_bracket(sport_id: str, db: Client) -> None:
                 ).eq("id", m["id"]).execute()
                 if m["winner_next_match_id"]:
                     _fill_team_slot(m["winner_next_match_id"], solo, db)
+                # A match won by bye has no real loser — bye out the loser slot too
+                if m["loser_next_match_id"]:
+                    _fill_bye_slot(m["loser_next_match_id"], db)
                 changed = True
             # else: both slots have real teams — a human must play this match

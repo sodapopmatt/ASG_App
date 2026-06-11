@@ -146,6 +146,7 @@ V1 migration is complete.
 - `sport_id` (UUID, FK → sports)
 - `name` (TEXT) — e.g., "Winners Bracket", "Pool A"
 - `phase` (TEXT) — `pool` | `bracket` | `heats` | `finals`
+- `division` (TEXT, nullable) — venue split label (e.g., "Main Gym"); NULL for single-bracket sports and the cross-division championship bracket
 
 ---
 
@@ -192,8 +193,16 @@ V1 migration is complete.
 ### Auto-Generation Rules (elimination only)
 - `single_elimination`: standard seeding (1 vs N, 2 vs N-1), byes for non-power-of-2
 - `double_elimination`: winners bracket + losers bracket + grand final; WB losers drop to LB on schedule
+  - 2-team edge case: no losers bracket; the WB match's loser drops straight into the grand final
 - Court assignment is done at generation time using subtree grouping (WB) and round-robin (LB)
 - Grand final gets no pre-assigned court; inherits from first semifinal winner
+
+### Divisions (venue split — e.g., Basketball across two gyms)
+- `generate-bracket` accepts optional `divisions: [{name, team_ids, location_ids}]` (elimination types only, ≥2 divisions, ≥2 teams each; teams/courts cannot repeat across divisions)
+- Each division gets its own independent bracket on its own courts; bracket rows are tagged with `division` and names are prefixed (e.g., "Main Gym — Winners Bracket")
+- A single championship match (bracket "Championship", phase `finals`, division NULL) is created; each division's root match gets `winner_next_match_id` pointed at it, so division winners advance into it automatically via the existing engine
+- Championship court is unassigned (dynamic claim by first division to finish; admin can PATCH `location_id`)
+- Frontend (public Brackets + BracketResultsPage) renders one bracket per division plus a championship card when any bracket has a non-null `division`
 
 ### Seeding Constraint
 - No two teams from the same company may meet in **Winners Bracket Round 1**
@@ -259,7 +268,7 @@ ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place (floor 0). SQL: 
 | POST | `/` | admin | Create |
 | PATCH | `/{id}` | admin | Update (including scheduling config) |
 | DELETE | `/{id}` | admin | Delete |
-| POST | `/{id}/generate-bracket` | admin | Generate elimination bracket; accepts `team_ids`, `clear_existing`, `location_ids` |
+| POST | `/{id}/generate-bracket` | admin | Generate elimination bracket; accepts `team_ids`, `clear_existing`, and optional `divisions` (venue split + auto championship match) |
 | DELETE | `/{id}/brackets` | admin | Clear all matches/brackets for a sport |
 
 ### Teams — `/teams`
@@ -297,7 +306,7 @@ ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place (floor 0). SQL: 
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | GET | `/` | public | List; filters: `company_id`, `sport_id` |
-| POST | `/award-placement` | admin | Award placement to company; upserts record; applies points_scale |
+| POST | `/award-placement` | admin | Award placement to company; upserts record; applies points_scale. Optional `tied_through` shares a placement: points = average of the tied places' values (e.g., tied 3rd/4th → 35 each) |
 
 ### Leaderboard — `/leaderboard`
 | Method | Path | Auth | Description |

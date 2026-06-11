@@ -8,9 +8,18 @@ from pydantic import BaseModel
 router = APIRouter()
 
 
+class DivisionSpec(BaseModel):
+    name: str                 # e.g. "Main Gym"
+    team_ids: list[str]       # ordered by seed within the division
+    location_ids: list[str] = []  # this division's courts (subset of the sport's locations)
+
+
 class GenerateBracketRequest(BaseModel):
-    team_ids: list[str]       # ordered by seed — index 0 is the top seed
+    team_ids: list[str] = []  # ordered by seed — index 0 is the top seed
     clear_existing: bool = False
+    # When set (elimination only): one independent bracket per division, each on
+    # its own courts, with the division finals feeding a single championship match.
+    divisions: list[DivisionSpec] | None = None
 
 
 @router.get("/", response_model=list[Sport])
@@ -69,6 +78,9 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
 
     sport = sport_row.data[0]
     bracket_type = sport.get("bracket_type")
+
+    if body.divisions is not None and bracket_type not in ("single_elimination", "double_elimination"):
+        raise HTTPException(status_code=422, detail="Divisions are only supported for elimination brackets")
 
     # Fetch this sport's named courts
     sport_locations = (
@@ -133,15 +145,8 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
 
         return {"matches_created": len(matches)}
 
-    # Elimination brackets require at least 2 teams
-    if len(body.team_ids) < 2:
-        raise HTTPException(status_code=422, detail="At least 2 teams are required")
-
     teams = supabase.table("teams").select("id").eq("sport_id", sport_id).execute()
     valid_ids = {t["id"] for t in teams.data}
-    invalid = [tid for tid in body.team_ids if tid not in valid_ids]
-    if invalid:
-        raise HTTPException(status_code=422, detail=f"Teams not found in this sport: {invalid}")
 
     duration = sport.get("match_duration_minutes") or 30
 
@@ -153,6 +158,19 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
             start_time = datetime.fromisoformat(raw_start.replace("Z", "+00:00"))
         else:
             start_time = raw_start
+
+    if body.divisions is not None:
+        return _generate_division_brackets(
+            sport_id, body, valid_ids, location_ids, start_time, duration
+        )
+
+    # Elimination brackets require at least 2 teams
+    if len(body.team_ids) < 2:
+        raise HTTPException(status_code=422, detail="At least 2 teams are required")
+
+    invalid = [tid for tid in body.team_ids if tid not in valid_ids]
+    if invalid:
+        raise HTTPException(status_code=422, detail=f"Teams not found in this sport: {invalid}")
 
     try:
         result = persist_bracket(
@@ -168,3 +186,91 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
         raise HTTPException(status_code=422, detail=str(exc))
 
     return result
+
+
+def _generate_division_brackets(
+    sport_id: str,
+    body: GenerateBracketRequest,
+    valid_ids: set[str],
+    sport_location_ids: list[str],
+    start_time,
+    duration: int,
+) -> dict:
+    """Generate one independent bracket per division, each on its own courts,
+    then create a championship match that both division finals feed into via
+    winner_next_match_id. Advancement, retraction, and settle_bracket all work
+    unchanged because they only follow next-match links."""
+    divisions = body.divisions or []
+    if len(divisions) < 2:
+        raise HTTPException(status_code=422, detail="At least 2 divisions are required")
+
+    all_team_ids = [tid for d in divisions for tid in d.team_ids]
+    if len(set(all_team_ids)) != len(all_team_ids):
+        raise HTTPException(status_code=422, detail="A team cannot be in more than one division")
+    invalid = [tid for tid in all_team_ids if tid not in valid_ids]
+    if invalid:
+        raise HTTPException(status_code=422, detail=f"Teams not found in this sport: {invalid}")
+    for d in divisions:
+        if len(d.team_ids) < 2:
+            raise HTTPException(status_code=422, detail=f"Division '{d.name}' needs at least 2 teams")
+        if not d.name.strip():
+            raise HTTPException(status_code=422, detail="Every division needs a name")
+    names = [d.name.strip() for d in divisions]
+    if len(set(names)) != len(names):
+        raise HTTPException(status_code=422, detail="Division names must be unique")
+
+    all_location_ids = [lid for d in divisions for lid in d.location_ids]
+    if len(set(all_location_ids)) != len(all_location_ids):
+        raise HTTPException(status_code=422, detail="A court cannot be assigned to more than one division")
+    sport_location_set = set(sport_location_ids)
+    bad_locations = [lid for lid in all_location_ids if lid not in sport_location_set]
+    if bad_locations:
+        raise HTTPException(status_code=422, detail=f"Courts not found for this sport: {bad_locations}")
+
+    if body.clear_existing:
+        clear_brackets(sport_id, supabase)
+
+    results = []
+    try:
+        for d in divisions:
+            results.append(persist_bracket(
+                sport_id=sport_id,
+                team_ids=d.team_ids,
+                db=supabase,
+                clear_existing=False,
+                location_ids=d.location_ids,
+                start_time=start_time,
+                match_duration_minutes=duration,
+                division=d.name.strip(),
+            ))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    # Championship: one match in its own finals bracket; each division's root
+    # match advances its winner here. Court is left unassigned (dynamic — the
+    # first division to finish claims its court; admins can PATCH location_id).
+    championship_bracket = supabase.table("brackets").insert({
+        "sport_id": sport_id,
+        "name": "Championship",
+        "phase": "finals",
+    }).execute().data[0]
+
+    championship_round = max(r["max_round"] for r in results) + 1
+    championship = supabase.table("matches").insert({
+        "sport_id": sport_id,
+        "bracket_id": championship_bracket["id"],
+        "match_round": championship_round,
+        "status": "scheduled",
+    }).execute().data[0]
+
+    for r in results:
+        if r.get("final_match_id"):
+            supabase.table("matches").update(
+                {"winner_next_match_id": championship["id"]}
+            ).eq("id", r["final_match_id"]).execute()
+
+    return {
+        "bracket_ids": [bid for r in results for bid in r["bracket_ids"]] + [championship_bracket["id"]],
+        "match_count": sum(r["match_count"] for r in results) + 1,
+        "championship_match_id": championship["id"],
+    }

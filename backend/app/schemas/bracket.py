@@ -7,6 +7,7 @@ class BracketCreate(BaseModel):
     sport_id: UUID
     name: str
     phase: str | None = None  # pool | bracket | heats | finals
+    division: str | None = None  # e.g. "Main Gym" when a sport is split across venues
 
 
 class BracketUpdate(BaseModel):

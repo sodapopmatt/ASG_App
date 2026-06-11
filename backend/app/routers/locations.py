@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from postgrest.exceptions import APIError
 from pydantic import BaseModel
 from uuid import UUID
 from app.database import supabase
@@ -33,8 +34,10 @@ def create_location(body: LocationCreate, _=Depends(require_admin)):
         raise HTTPException(status_code=404, detail="Sport not found")
     try:
         return supabase.table("locations").insert(body.model_dump(mode="json")).execute().data[0]
-    except Exception:
-        raise HTTPException(status_code=409, detail="A location with that name already exists for this sport")
+    except APIError as exc:
+        if getattr(exc, "code", None) == "23505":  # Postgres unique_violation
+            raise HTTPException(status_code=409, detail="A location with that name already exists for this sport")
+        raise HTTPException(status_code=502, detail=f"Database error: {getattr(exc, 'message', exc)}")
 
 
 @router.delete("/{location_id}", status_code=204)

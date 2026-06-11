@@ -186,10 +186,10 @@ function SingleBracketView({
   companyMap: Record<string, Company>
   onMatchClick?: (matchId: string) => void
 }) {
-  const libMatches = useMemo(
-    () => stableSortMatches(matches).map(m => toLibraryMatch(m, teamMap, companyMap)),
-    [matches, teamMap, companyMap],
-  )
+  const libMatches = useMemo(() => {
+    const ids = new Set(matches.map(m => m.id))
+    return stableSortMatches(matches).map(m => toLibraryMatch(m, teamMap, companyMap, ids))
+  }, [matches, teamMap, companyMap])
 
   if (libMatches.length === 0) return <p className="text-center text-gray-500 py-12">No matches yet.</p>
 
@@ -225,9 +225,10 @@ function DoubleBracketView({
   const { upper, lower } = useMemo(() => {
     const upper: MatchType[] = []
     const lower: MatchType[] = []
+    const ids = new Set(matches.map(m => m.id))
     for (const m of stableSortMatches(matches)) {
       const phase = m.bracket_id ? bracketPhaseMap[m.bracket_id] : null
-      const lib = toLibraryMatch(m, teamMap, companyMap)
+      const lib = toLibraryMatch(m, teamMap, companyMap, ids)
       if (phase === 'losers') lower.push(lib)
       else upper.push(lib)
     }
@@ -298,6 +299,19 @@ export default function BracketView() {
     return map
   }, [bracketsQuery.data])
 
+  const bracketDivisionMap = useMemo((): Record<string, string> => {
+    const map: Record<string, string> = {}
+    for (const b of (bracketsQuery.data ?? [])) {
+      if (b.division) map[b.id] = b.division
+    }
+    return map
+  }, [bracketsQuery.data])
+
+  const divisionNames = useMemo(
+    () => [...new Set((bracketsQuery.data ?? []).map(b => b.division).filter((d): d is string => !!d))],
+    [bracketsQuery.data],
+  )
+
   const matchesBySport = useMemo(() => {
     const map = new Map<string, Match[]>()
     for (const m of (matchesQuery.data ?? [])) {
@@ -321,21 +335,51 @@ export default function BracketView() {
   const sportMatches = matchesBySport.get(activeSportId ?? '') ?? []
   const bracketType  = activeSport?.bracket_type
 
+  function renderElimination(matches: Match[]) {
+    if (bracketType === 'single_elimination') {
+      return <SingleBracketView matches={matches} teamMap={teamMap} companyMap={companyMap} />
+    }
+    return (
+      <DoubleBracketView
+        matches={matches}
+        bracketPhaseMap={bracketPhaseMap}
+        teamMap={teamMap}
+        companyMap={companyMap}
+      />
+    )
+  }
+
   function renderContent() {
     if (bracketType === 'heats') {
       return <HeatsStandingsView matches={sportMatches} teamMap={teamMap} companyMap={companyMap} />
     }
-    if (bracketType === 'single_elimination') {
-      return <SingleBracketView matches={sportMatches} teamMap={teamMap} companyMap={companyMap} />
-    }
-    if (bracketType === 'double_elimination') {
+    if (bracketType === 'single_elimination' || bracketType === 'double_elimination') {
+      if (divisionNames.length === 0) {
+        return renderElimination(sportMatches)
+      }
+      // Division mode: one bracket per division plus a cross-division championship
+      const byDivision: Record<string, Match[]> = {}
+      const championship: Match[] = []
+      for (const m of sportMatches) {
+        const div = m.bracket_id ? bracketDivisionMap[m.bracket_id] : undefined
+        if (div) (byDivision[div] ??= []).push(m)
+        else championship.push(m)
+      }
       return (
-        <DoubleBracketView
-          matches={sportMatches}
-          bracketPhaseMap={bracketPhaseMap}
-          teamMap={teamMap}
-          companyMap={companyMap}
-        />
+        <div className="space-y-8">
+          {championship.length > 0 && (
+            <div>
+              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-2">Championship</h3>
+              <FallbackMatchList matches={championship} teamMap={teamMap} companyMap={companyMap} />
+            </div>
+          )}
+          {divisionNames.map(div => (
+            <div key={div}>
+              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-2">{div}</h3>
+              {renderElimination(byDivision[div] ?? [])}
+            </div>
+          ))}
+        </div>
       )
     }
     return <FallbackMatchList matches={sportMatches} teamMap={teamMap} companyMap={companyMap} />

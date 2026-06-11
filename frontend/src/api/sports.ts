@@ -6,10 +6,17 @@ export const getSports = () => apiFetch<Sport[]>('/sports')
 export const resetBrackets = (sportId: string) =>
   apiFetch<void>(`/sports/${sportId}/brackets`, { method: 'DELETE' })
 
+export interface DivisionSpec {
+  name: string
+  team_ids: string[]
+  location_ids: string[]
+}
+
 export function generateBracket(
   sportId: string,
   teamIds: string[],
   clearExisting = false,
+  divisions?: DivisionSpec[],
 ) {
   return apiFetch<unknown>(`/sports/${sportId}/generate-bracket`, {
     method: 'POST',
@@ -17,6 +24,7 @@ export function generateBracket(
     body: JSON.stringify({
       team_ids: teamIds,
       clear_existing: clearExisting,
+      ...(divisions ? { divisions } : {}),
     }),
   })
 }

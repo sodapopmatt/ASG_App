@@ -116,8 +116,13 @@ def generate_double_elimination(teams: list[str | None]) -> list[MatchSlot]:
         all_matches[m_idx].winner_next_idx = gf_idx
 
     # WB R1 losers → LB R1 (two WB losers per LB match)
-    for i, m_idx in enumerate(wb[1]):
-        all_matches[m_idx].loser_next_idx = lb[1][i // 2]
+    if W == 1:
+        # 2-team bracket: no losers bracket exists — the sole WB match doubles
+        # as WB finals, so its loser drops straight into the grand final.
+        all_matches[wb[1][0]].loser_next_idx = gf_idx
+    else:
+        for i, m_idx in enumerate(wb[1]):
+            all_matches[m_idx].loser_next_idx = lb[1][i // 2]
 
     # WB Rk (k=2..W) losers → LB R(2k-2)
     for k in range(2, W + 1):
@@ -137,7 +142,8 @@ def generate_double_elimination(teams: list[str | None]) -> list[MatchSlot]:
             else:
                 all_matches[m_idx].winner_next_idx = lb[next_lr][i // 2]  # reduce
 
-    for m_idx in lb[lb_rounds[-1]]:                  # LB Finals winner → GF
-        all_matches[m_idx].winner_next_idx = gf_idx
+    if lb_rounds:
+        for m_idx in lb[lb_rounds[-1]]:              # LB Finals winner → GF
+            all_matches[m_idx].winner_next_idx = gf_idx
 
     return all_matches

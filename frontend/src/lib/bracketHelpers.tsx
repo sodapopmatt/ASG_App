@@ -36,6 +36,7 @@ export function toLibraryMatch(
   m: Match,
   teamMap: Record<string, Team>,
   companyMap: Record<string, Company>,
+  withinIds?: Set<string>,
 ): MatchType {
   const isDone = m.status === 'completed' || m.status === 'forfeit' || m.status === 'double_forfeit'
 
@@ -46,10 +47,17 @@ export function toLibraryMatch(
   else if (m.status === 'in_progress') state = 'PLAYING'
   else state = 'SCHEDULED'
 
+  // When rendering a subset (e.g. one division), drop next-match links that
+  // leave the subset — the bracket library can't handle dangling references.
+  const winnerNext = m.winner_next_match_id && (!withinIds || withinIds.has(m.winner_next_match_id))
+    ? m.winner_next_match_id : null
+  const loserNext = m.loser_next_match_id && (!withinIds || withinIds.has(m.loser_next_match_id))
+    ? m.loser_next_match_id : null
+
   return {
     id: m.id,
-    nextMatchId: m.winner_next_match_id ?? null,
-    nextLooserMatchId: m.loser_next_match_id ?? undefined,
+    nextMatchId: winnerNext,
+    nextLooserMatchId: loserNext ?? undefined,
     tournamentRoundText: m.match_round != null ? String(m.match_round) : '',
     startTime: [
       formatMatchTime(m.scheduled_at ?? m.estimated_start),
