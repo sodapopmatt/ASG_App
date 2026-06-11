@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 from supabase import Client
 from .types import MatchSlot
-from . import single_elim, double_elim
+from . import single_elim, double_elim, round_robin
 from .single_elim import _next_power_of_2, _seed_positions
 
 _GENERATORS = {
@@ -227,6 +227,8 @@ def persist_bracket(
     start_time: datetime | None = None,
     match_duration_minutes: int = 30,
     division: str | None = None,
+    bracket_type_override: str | None = None,
+    shuffle: bool = True,
 ) -> dict:
     """Generate and save a bracket for a sport.
 
@@ -242,6 +244,12 @@ def persist_bracket(
         division:              Division label (e.g. "Main Gym") when the sport is
                                split across venues; prefixes bracket names and is
                                stored on each bracket row.
+        bracket_type_override: Generate this bracket type regardless of the sport's
+                               own bracket_type — used for the bracket phase of
+                               pool_bracket sports (single elimination after pools).
+        shuffle:               If False, keep team_ids exactly as given (no random
+                               shuffle / same-company swap). Used when seeding comes
+                               from pool standings and must be preserved.
 
     Returns:
         Summary dict with bracket_ids, match_count, final_match_id (the root
@@ -254,7 +262,7 @@ def persist_bracket(
     if not sport_row.data:
         raise ValueError("Sport not found")
 
-    bracket_type: str = sport_row.data[0]["bracket_type"]
+    bracket_type: str = bracket_type_override or sport_row.data[0]["bracket_type"]
     generator = _GENERATORS.get(bracket_type)
     if generator is None:
         raise ValueError(
@@ -262,8 +270,9 @@ def persist_bracket(
             "Enter results and placements manually for this sport."
         )
 
-    company_map = _fetch_company_map(team_ids, db)
-    team_ids = _shuffle_avoiding_same_company(team_ids, company_map)
+    if shuffle:
+        company_map = _fetch_company_map(team_ids, db)
+        team_ids = _shuffle_avoiding_same_company(team_ids, company_map)
 
     slots: list[MatchSlot] = generator(team_ids)
 
@@ -375,6 +384,85 @@ def persist_bracket(
         "match_count": len(slots),
         "final_match_id": final_match_id,
         "max_round": max_round,
+    }
+
+
+def persist_pools(
+    sport_id: str,
+    pools: list[tuple[str, list[str], list[str]]],
+    db: Client,
+    clear_existing: bool = False,
+    start_time: datetime | None = None,
+    match_duration_minutes: int = 30,
+) -> dict:
+    """Generate and save round-robin pool play for a sport.
+
+    Args:
+        sport_id:              UUID of the sport.
+        pools:                 List of (name, team_ids, location_ids) per pool.
+        db:                    Supabase client (service role).
+        clear_existing:        If True, delete existing brackets/matches first.
+        start_time:            Earliest start time for the first match on each court.
+        match_duration_minutes: Minutes per match slot on each court.
+
+    Returns:
+        Summary dict with bracket_ids and match_count.
+    """
+    if clear_existing:
+        clear_brackets(sport_id, db)
+
+    bracket_ids_created: list[str] = []
+    total_matches = 0
+
+    for pool_name, team_ids, pool_location_ids in pools:
+        slots = round_robin.generate_round_robin(team_ids)
+
+        bracket = db.table("brackets").insert({
+            "sport_id": sport_id,
+            "name": pool_name,
+            "phase": "pool",
+        }).execute().data[0]
+        bracket_ids_created.append(bracket["id"])
+
+        # Courts: round-robin over this pool's courts in emission order
+        # (slots are already ordered by round, so courts stay balanced).
+        courts = list(pool_location_ids)
+        assignment: dict[int, str | None] = {}
+        if courts:
+            for pos, _ in enumerate(slots):
+                assignment[pos] = courts[pos % len(courts)]
+
+        scheduled_at_map: dict[int, str] = {}
+        if start_time is not None:
+            scheduled_at_map = _compute_scheduled_times(
+                slots, assignment, start_time, match_duration_minutes
+            )
+
+        rows = []
+        for i, slot in enumerate(slots):
+            row: dict = {
+                "sport_id": sport_id,
+                "bracket_id": bracket["id"],
+                "home_team_id": slot.home_team_id,
+                "away_team_id": slot.away_team_id,
+                "match_round": slot.match_round,
+                "status": "scheduled",
+                "home_slot_state": "tbd",
+                "away_slot_state": "tbd",
+            }
+            court = assignment.get(i)
+            if court is not None:
+                row["location_id"] = court
+            if i in scheduled_at_map:
+                row["scheduled_at"] = scheduled_at_map[i]
+            rows.append(row)
+
+        db.table("matches").insert(rows).execute()
+        total_matches += len(rows)
+
+    return {
+        "bracket_ids": bracket_ids_created,
+        "match_count": total_matches,
     }
 
 

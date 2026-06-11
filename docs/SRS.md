@@ -169,7 +169,7 @@ Match statuses:
   - dynamically assign courts to winner's next match after result posted
   - mark a bracket settled when all matches are resolved
 - Brackets shall update automatically after results are entered
-- Other bracket types (`pool_bracket`, `pool_swiss`, `heats`, `points_based`) are not auto-generated; matches must be created manually
+- `pool_bracket` and `pool_swiss` sports support auto-generated round-robin pool play (see 4.9); `points_based` sports have no matches
 
 #### Seeding Rule
 - No two teams from the same company shall be placed in the same Winners Bracket Round 1 matchup
@@ -184,20 +184,27 @@ The system shall support the following non-elimination sport structures:
 
 | Type | Behavior |
 |------|----------|
-| `pool_bracket` | Pool play (manual match creation) followed by bracket phase |
-| `pool_swiss` | Swiss-style matching (manual match creation) |
+| `pool_bracket` | Auto-generated round-robin pool play, followed by an admin-triggered single-elimination bracket phase seeded from pool standings |
+| `pool_swiss` | Auto-generated round-robin pool play; Swiss championship rounds not yet supported (manual match creation) |
 | `heats` | Timed/sequential heats; `notes` field used for heat metadata |
 | `points_based` | No match structure; placement awarded directly via scoring workflow |
 
+#### Pool Play
+- Admins assign teams to named pools (auto snake-split with manual override in the UI); each pool plays a single round robin generated via the circle method
+- Each pool is stored as a `brackets` row with `phase = 'pool'`; pool matches have no advancement links
+- Pool standings (`GET /sports/{id}/standings`) are computed from terminal matches: completed/forfeit = win for `winner_id`, loss for the opponent; double forfeit = loss for both
+- Standings rank by wins desc, then losses asc; teams with identical records share a rank — **no score-based tiebreakers exist in V1** (no scores in the data model); admins resolve ties from paper score sheets when seeding the bracket phase
+- For `pool_bracket` sports, the admin triggers the bracket phase after pool play: the advancing list is pre-filled from standings (pool winners first, then runners-up, …), the admin reorders to break ties, and a single-elimination bracket is generated with the seed order preserved (no random shuffle); pool matches are kept
+
 Admins shall:
 - enter placements manually via the Scoring page
-- create individual matches manually for pool/heats sports
+- create individual matches manually for heats sports and for Swiss championship rounds
 
 The system shall:
 - apply scoring rules per sport when placement is submitted
 - compute rankings automatically from placements
 
-**Frontend status:** Pool, heats, and points-based sports do not yet have dedicated UI. The Schedule page renders all sports identically regardless of bracket type. The Brackets page labels these sports as "Manual entry."
+**Frontend status:** Pool sports have full UI (pool setup + generation, results entry grouped by pool, public standings tables, bracket-phase generation and rendering). Heats and points-based sports do not yet have dedicated UI beyond heats result entry. The Schedule page renders all sports identically regardless of bracket type.
 
 ---
 
@@ -428,7 +435,9 @@ Constraints:
 ## 10. Open Items
 
 - Leaderboard tie-breaker logic TBD
-- Pool/Swiss/Heats/Points-based sport management UI not yet built
+- Pool standings tie-breakers are manual (no scores in V1 — admin resolves from score sheets when seeding the bracket phase)
+- Swiss championship round generation (Cornhole) not yet built
+- Heats progression / Points-based sport management UI not yet built
 
 ---
 
@@ -450,7 +459,7 @@ Constraints:
 | Soccer | single_elimination | 1 | high_wins | best_placement | ASG default |
 | Tug of War | single_elimination | 1 | high_wins | best_placement | ASG default |
 | Ultimate Frisbee | pool_bracket | 1 | high_wins | best_placement | ASG default |
-| Pickleball | pool_swiss | 2 | high_wins | best_placement | ASG default |
+| Pickleball | pool_bracket | 2 | high_wins | best_placement | ASG default |
 | Cornhole | pool_swiss | 4 | high_wins | best_placement | ASG default |
 | Relay Race | heats | 1 | high_wins | best_placement | ASG default |
 | Human Pyramid | heats | 1 | low_wins | best_placement | ASG default |
@@ -479,13 +488,16 @@ Each sport defines:
 - Auth (Supabase) with admin / team_manager / public roles
 - Match retraction if downstream matches haven't started
 
+### Fully Built (continued)
+- Pool play: round-robin generation per pool, W-L standings endpoint, pool results entry UI, public standings tables, and seeded single-elimination bracket phase for `pool_bracket` sports
+
 ### Partially Built / Admin Workaround Available
-- Pool/Swiss sports — matches can be manually created via POST `/matches`; no pool grouping or standings UI
+- Swiss championship rounds (`pool_swiss`, Cornhole) — pool play is generated; championship matches must be manually created via POST `/matches`
 - Heats — matches can be manually created; `notes` field used for heat metadata; no progression UI
 - Points-based — placement can be awarded via Scoring page; no match structure or score entry UI
 
 ### Not Yet Built
-- Pool group creation and standings calculation UI
+- Swiss round pairing/generation
 - Heat assignment and result tracking UI
 - Points-based event score entry UI
 - Sport-type-aware visualization on the Schedule page (all sports render identically today)

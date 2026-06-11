@@ -1,14 +1,17 @@
 import { useState, useMemo } from 'react'
 import { Link, useParams, Navigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getSports, generateBracket, resetBrackets, updateSport, type DivisionSpec } from '../../api/sports'
+import { getSports, generateBracket, resetBrackets, updateSport, getStandings, type DivisionSpec, type PoolSpec } from '../../api/sports'
 import { getMatches, patchMatch } from '../../api/matches'
 import { getTeams } from '../../api/teams'
 import { getCompanies } from '../../api/companies'
 import { getLocations, createLocation, deleteLocation } from '../../api/locations'
+import { getBrackets } from '../../api/brackets'
 import type { Match, Team, Company } from '../../types'
 
-const GENERATABLE = new Set(['single_elimination', 'double_elimination', 'heats'])
+const GENERATABLE = new Set(['single_elimination', 'double_elimination', 'heats', 'pool_bracket', 'pool_swiss'])
+
+const poolName = (i: number) => `Pool ${String.fromCharCode(65 + i)}`
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [String(item[key]), item]))
@@ -84,6 +87,28 @@ function DivToggle({
   )
 }
 
+function PoolSelect({
+  value,
+  count,
+  onChange,
+}: {
+  value: number
+  count: number
+  onChange: (v: number) => void
+}) {
+  return (
+    <select
+      value={value}
+      onChange={e => onChange(Number(e.target.value))}
+      className="text-xs font-medium rounded-lg border border-gray-200 px-2 py-1 bg-white text-slate-700 shrink-0"
+    >
+      {Array.from({ length: count }, (_, i) => (
+        <option key={i} value={i}>{poolName(i)}</option>
+      ))}
+    </select>
+  )
+}
+
 export default function SportConfigPage() {
   const { sportId } = useParams<{ sportId: string }>()
   const qc = useQueryClient()
@@ -130,6 +155,15 @@ export default function SportConfigPage() {
   const [divNames, setDivNames] = useState<[string, string]>(['Main Gym', 'North Gym'])
   const [teamDiv, setTeamDiv] = useState<Record<string, 0 | 1>>({})
   const [courtDiv, setCourtDiv] = useState<Record<string, 0 | 1>>({})
+
+  // Pool play state (pool_bracket / pool_swiss)
+  const [poolCount, setPoolCount] = useState<number | null>(null)
+  const [teamPool, setTeamPool] = useState<Record<string, number>>({})
+  const [courtPool, setCourtPool] = useState<Record<string, number>>({})
+
+  // Bracket phase state (pool_bracket, after pool play)
+  const [advanceCount, setAdvanceCount] = useState(2)
+  const [advOverride, setAdvOverride] = useState<string[] | null>(null)
 
   // Schedule patch state
   const [scheduleOpen, setScheduleOpen] = useState(false)
@@ -196,8 +230,94 @@ export default function SportConfigPage() {
   const isHeats = sport?.bracket_type === 'heats'
   const isRandomized = sport?.bracket_type === 'double_elimination'
   const isElimination = sport?.bracket_type === 'single_elimination' || sport?.bracket_type === 'double_elimination'
+  const isPool = sport?.bracket_type === 'pool_bracket' || sport?.bracket_type === 'pool_swiss'
+  const isPoolBracket = sport?.bracket_type === 'pool_bracket'
 
   const alreadyGenerated = matches.length > 0
+
+  // ── Pool play setup ─────────────────────────────────────────────────────────
+  const effectivePoolCount = Math.max(1, Math.min(
+    poolCount ?? Math.ceil(sportTeams.length / 8),
+    Math.floor(sportTeams.length / 2) || 1,
+  ))
+
+  // Snake distribution over seed order keeps pools balanced by strength
+  const teamPoolOf = (teamId: string): number => {
+    const override = teamPool[teamId]
+    if (override !== undefined && override < effectivePoolCount) return override
+    const idx = seeds.findIndex(t => t.id === teamId)
+    if (idx < 0) return 0
+    const P = effectivePoolCount
+    const lap = idx % (2 * P)
+    return lap < P ? lap : 2 * P - 1 - lap
+  }
+  // Courts: contiguous blocks per pool
+  const courtPoolOf = (locId: string): number => {
+    const override = courtPool[locId]
+    if (override !== undefined && override < effectivePoolCount) return override
+    const idx = locations.findIndex(l => l.id === locId)
+    if (idx < 0 || locations.length === 0) return 0
+    return Math.min(Math.floor(idx * effectivePoolCount / locations.length), effectivePoolCount - 1)
+  }
+
+  const poolSpecs: PoolSpec[] = Array.from({ length: effectivePoolCount }, (_, i) => ({
+    name: poolName(i),
+    team_ids: seeds.filter(t => teamPoolOf(t.id) === i).map(t => t.id),
+    location_ids: locations.filter(l => courtPoolOf(l.id) === i).map(l => l.id),
+  }))
+  const poolsValid = poolSpecs.every(p => p.team_ids.length >= 2)
+
+  // ── Bracket phase (pool_bracket only) ───────────────────────────────────────
+  const { data: brackets = [] } = useQuery({
+    queryKey: ['brackets', sportId],
+    queryFn: () => getBrackets(sportId!),
+    enabled: !!sportId && isPool,
+  })
+  const hasBracketPhase = isPool && brackets.some(b => b.phase !== 'pool')
+  const showBracketPhaseCard = isPoolBracket && alreadyGenerated && !hasBracketPhase
+
+  const { data: standings = [] } = useQuery({
+    queryKey: ['standings', sportId],
+    queryFn: () => getStandings(sportId!),
+    enabled: !!sportId && showBracketPhaseCard,
+  })
+
+  const pendingPoolCount = useMemo(
+    () => matches.filter(m => m.status === 'scheduled' || m.status === 'in_progress').length,
+    [matches],
+  )
+
+  // Default advancing order: pool winners first, then runners-up, etc.
+  const defaultAdvancing = useMemo(() => {
+    const ids: string[] = []
+    for (let r = 0; r < advanceCount; r++) {
+      for (const pool of standings) {
+        const row = pool.standings[r]
+        if (row) ids.push(row.team_id)
+      }
+    }
+    return ids
+  }, [standings, advanceCount])
+  const advancing = advOverride ?? defaultAdvancing
+
+  const teamRecord = useMemo(() => {
+    const map: Record<string, { wins: number; losses: number }> = {}
+    for (const pool of standings) {
+      for (const row of pool.standings) map[row.team_id] = { wins: row.wins, losses: row.losses }
+    }
+    return map
+  }, [standings])
+
+  // Pools where the last team in and the first team out have identical records
+  const cutLineTies = useMemo(() => {
+    return standings
+      .filter(pool => {
+        const inside = pool.standings[advanceCount - 1]
+        const outside = pool.standings[advanceCount]
+        return inside && outside && inside.wins === outside.wins && inside.losses === outside.losses
+      })
+      .map(pool => pool.name)
+  }, [standings, advanceCount])
 
   // Division assignment with sensible defaults: teams alternate (keeps the top
   // seeds apart), courts split first half / second half (courts at the same
@@ -223,6 +343,7 @@ export default function SportConfigPage() {
 
   const genMutation = useMutation({
     mutationFn: () => {
+      if (isPool) return generateBracket(sportId!, [], false, undefined, poolSpecs)
       if (splitEnabled) return generateBracket(sportId!, [], false, divisionSpecs)
       return isRandomized
         ? generateBracket(sportId!, sportTeams.map(t => t.id), false)
@@ -234,6 +355,16 @@ export default function SportConfigPage() {
       setGenError(null)
     },
     onError: (e) => setGenError(e instanceof Error ? e.message : 'Failed to generate bracket'),
+  })
+
+  const bracketPhaseMutation = useMutation({
+    mutationFn: () => generateBracket(sportId!, advancing, false),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['matches'] })
+      qc.invalidateQueries({ queryKey: ['brackets'] })
+      setGenError(null)
+    },
+    onError: (e) => setGenError(e instanceof Error ? e.message : 'Failed to generate bracket phase'),
   })
 
   const resetMutation = useMutation({
@@ -262,6 +393,14 @@ export default function SportConfigPage() {
     if (swap < 0 || swap >= next.length) return
     ;[next[idx], next[swap]] = [next[swap], next[idx]]
     setSeeds(next)
+  }
+
+  function moveAdvancing(idx: number, dir: -1 | 1) {
+    const next = [...advancing]
+    const swap = idx + dir
+    if (swap < 0 || swap >= next.length) return
+    ;[next[idx], next[swap]] = [next[swap], next[idx]]
+    setAdvOverride(next)
   }
 
   function addCourt() {
@@ -386,12 +525,72 @@ export default function SportConfigPage() {
           </p>
         ) : alreadyGenerated ? (
           <p className="text-sm text-slate-500">
-            Bracket has been generated. To regenerate, reset all brackets &amp; matches below first.
+            {isPool ? 'Pool play has been generated.' : 'Bracket has been generated.'} To regenerate, reset all brackets &amp; matches below first.
           </p>
         ) : isHeats ? (
           <p className="text-sm text-slate-500 italic">
             This will create one entry per team. Each team's ref will record their time separately.
           </p>
+        ) : isPool ? (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-500 italic">
+              Each pool plays a round robin — every team plays every other team in its pool once.
+              {isPoolBracket && ' After pool play, the top teams advance to a single-elimination bracket.'}
+            </p>
+
+            <label className="space-y-1 block">
+              <span className="text-xs text-gray-400">Number of pools</span>
+              <input
+                type="number"
+                min={1}
+                max={Math.floor(sportTeams.length / 2) || 1}
+                value={effectivePoolCount}
+                onChange={e => setPoolCount(Number(e.target.value))}
+                className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+              />
+            </label>
+
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Teams</p>
+            <div className="space-y-1">
+              {seeds.map(team => (
+                <div key={team.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
+                  <span className="flex-1 text-sm text-slate-700 truncate min-w-0">
+                    {companyMap[team.company_id]?.name ?? '—'}
+                    {team.name && <span className="text-gray-400"> · {team.name}</span>}
+                  </span>
+                  <PoolSelect
+                    value={teamPoolOf(team.id)}
+                    count={effectivePoolCount}
+                    onChange={v => setTeamPool(prev => ({ ...prev, [team.id]: v }))}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Courts</p>
+            {locations.length === 0 ? (
+              <p className="text-sm text-slate-400 italic">No courts defined — add courts above to assign them to pools.</p>
+            ) : (
+              <div className="space-y-1">
+                {locations.map(loc => (
+                  <div key={loc.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
+                    <span className="flex-1 text-sm text-slate-700 truncate min-w-0">{loc.name}</span>
+                    <PoolSelect
+                      value={courtPoolOf(loc.id)}
+                      count={effectivePoolCount}
+                      onChange={v => setCourtPool(prev => ({ ...prev, [loc.id]: v }))}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {!poolsValid && (
+              <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                Each pool needs at least 2 teams.
+              </p>
+            )}
+          </div>
         ) : (
           <>
             {isRandomized && (
@@ -513,14 +712,81 @@ export default function SportConfigPage() {
             {genError && <p className="text-sm text-red-600">{genError}</p>}
             <button
               onClick={() => genMutation.mutate()}
-              disabled={genMutation.isPending || sportTeams.length < 2 || (splitEnabled && !splitValid)}
+              disabled={genMutation.isPending || sportTeams.length < 2 || (splitEnabled && !splitValid) || (isPool && !poolsValid)}
               className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
             >
-              {genMutation.isPending ? 'Generating…' : isHeats ? 'Generate Entries' : splitEnabled ? 'Generate Division Brackets' : 'Generate Bracket'}
+              {genMutation.isPending ? 'Generating…' : isHeats ? 'Generate Entries' : isPool ? 'Generate Pool Play' : splitEnabled ? 'Generate Division Brackets' : 'Generate Bracket'}
             </button>
           </>
         )}
       </div>
+
+      {/* Bracket Phase (pool_bracket: seeded from pool standings) */}
+      {showBracketPhaseCard && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-4 space-y-3">
+          <SectionHeading>Generate Bracket Phase</SectionHeading>
+
+          {pendingPoolCount > 0 && (
+            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              {pendingPoolCount} pool match{pendingPoolCount !== 1 ? 'es are' : ' is'} still pending.
+              Standings may change — enter all results before generating the bracket.
+            </p>
+          )}
+
+          <label className="space-y-1 block">
+            <span className="text-xs text-gray-400">Teams advancing per pool</span>
+            <input
+              type="number"
+              min={1}
+              value={advanceCount}
+              onChange={e => { setAdvanceCount(Math.max(1, Number(e.target.value))); setAdvOverride(null) }}
+              className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+            />
+          </label>
+
+          {cutLineTies.length > 0 && (
+            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              Tied records at the cut line in {cutLineTies.join(', ')}. Check score sheets and
+              swap teams below (or adjust the order) before generating.
+            </p>
+          )}
+
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Bracket seeds</p>
+          {advancing.length === 0 ? (
+            <p className="text-sm text-slate-400 italic">No standings yet — enter pool results first.</p>
+          ) : (
+            <div className="space-y-1">
+              {advancing.map((teamId, idx) => {
+                const record = teamRecord[teamId]
+                return (
+                  <div key={teamId} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
+                    <span className="text-xs font-bold text-gray-400 w-5 text-center">{idx + 1}</span>
+                    <span className="flex-1 text-sm text-slate-700 truncate min-w-0">
+                      {teamLabel(teamId, teamMap, companyMap)}
+                    </span>
+                    {record && (
+                      <span className="text-xs text-gray-400 shrink-0">{record.wins}–{record.losses}</span>
+                    )}
+                    <div className="flex gap-0.5">
+                      <button onClick={() => moveAdvancing(idx, -1)} disabled={idx === 0} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><UpIcon /></button>
+                      <button onClick={() => moveAdvancing(idx, 1)} disabled={idx === advancing.length - 1} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><DownIcon /></button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {genError && <p className="text-sm text-red-600">{genError}</p>}
+          <button
+            onClick={() => bracketPhaseMutation.mutate()}
+            disabled={bracketPhaseMutation.isPending || advancing.length < 2}
+            className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
+          >
+            {bracketPhaseMutation.isPending ? 'Generating…' : 'Generate Bracket Phase'}
+          </button>
+        </div>
+      )}
 
       {/* Adjust Match Times */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">

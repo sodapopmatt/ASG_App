@@ -9,6 +9,7 @@ import type { Match, Team, Sport, Company } from '../../types'
 
 const BRACKET_TYPES = new Set(['single_elimination', 'double_elimination'])
 const HEATS_TYPES = new Set(['heats'])
+const POOL_TYPES = new Set(['pool_bracket', 'pool_swiss'])
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [String(item[key]), item]))
@@ -54,6 +55,7 @@ function SportRow({
   const [open, setOpen] = useState(false)
   const isBracket = BRACKET_TYPES.has(sport.bracket_type)
   const isHeats = HEATS_TYPES.has(sport.bracket_type)
+  const isPool = POOL_TYPES.has(sport.bracket_type)
   const pendingCount = matches.filter(
     m => m.status === 'scheduled' || m.status === 'in_progress',
   ).length
@@ -100,6 +102,16 @@ function SportRow({
               className="flex items-center justify-between w-full px-4 py-3 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 active:bg-blue-800 transition-colors"
             >
               Enter Times
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </Link>
+          ) : isPool ? (
+            <Link
+              to={`/manage/results/pools/${sport.id}`}
+              className="flex items-center justify-between w-full px-4 py-3 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 active:bg-blue-800 transition-colors"
+            >
+              Enter Results
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>

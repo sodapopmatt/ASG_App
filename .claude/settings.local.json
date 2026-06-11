@@ -15,7 +15,10 @@
       "Bash(npm run *)",
       "Bash(git rm *)",
       "Bash(git push *)",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "PowerShell(& \"C:\\\\Users\\\\easym\\\\ASG_App\\\\backend\\\\venv\\\\Scripts\\\\python.exe\" -c \"import sys; sys.path.insert\\(0, r'C:\\\\Users\\\\easym\\\\ASG_App\\\\backend'\\); import app.main; print\\('backend imports OK'\\)\")",
+      "PowerShell(Set-Location C:\\\\Users\\\\easym\\\\ASG_App\\\\frontend; Get-Content package.json | Select-String '\"scripts\"' -Context 0,6; git stash --include-untracked; npx tsc --noEmit; $base = $LASTEXITCODE; git stash pop; Write-Output \"baseline tsc exit: $base\")",
+      "PowerShell(npm run build --prefix c:\\\\Users\\\\easym\\\\ASG_App\\\\frontend)"
     ]
   }
 }

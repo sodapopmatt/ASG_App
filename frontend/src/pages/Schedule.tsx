@@ -5,6 +5,7 @@ import { getSports } from '../api/sports'
 import { getTeams } from '../api/teams'
 import { getCompanies } from '../api/companies'
 import type { Match, Sport, Team, Company } from '../types'
+import { compactLabel } from '../lib/bracketHelpers'
 
 type ViewMode = 'by_sport' | 'timeline'
 type StatusFilter = 'all' | 'active' | 'upcoming' | 'live' | 'completed'
@@ -64,19 +65,6 @@ function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [item[key], item]))
 }
 
-function teamLabel(
-  teamId: string | null | undefined,
-  teamMap: Record<string, Team>,
-  companyMap: Record<string, Company>,
-): string {
-  if (!teamId) return 'TBD'
-  const team = teamMap[teamId]
-  if (!team) return '—'
-  const company = companyMap[team.company_id]
-  const base = company?.name ?? 'Unknown'
-  return team.name ? `${base} (${team.name})` : base
-}
-
 function teamShort(
   teamId: string | null | undefined,
   teamMap: Record<string, Team>,
@@ -86,7 +74,7 @@ function teamShort(
   const team = teamMap[teamId]
   if (!team) return '—'
   const company = companyMap[team.company_id]
-  return (company?.name ?? '?').split(' ')[0]
+  return company?.short_id ?? company?.name ?? '?'
 }
 
 function formatTime(iso: string | null | undefined): string {
@@ -237,8 +225,8 @@ function MatchRow({
   companyMap: Record<string, Company>
   bracketType?: string
 }) {
-  const home = teamLabel(match.home_team_id, teamMap, companyMap)
-  const away = teamLabel(match.away_team_id, teamMap, companyMap)
+  const home = compactLabel(match.home_team_id ?? null, teamMap, companyMap)
+  const away = compactLabel(match.away_team_id ?? null, teamMap, companyMap)
   const showTime = match.status !== 'scheduled'
   const time = match.scheduled_at ? formatTime(match.scheduled_at) : null
   const isSingleTeam = bracketType === 'heats'
@@ -392,7 +380,7 @@ function MatchChip({
     : 'bg-blue-100 text-blue-800'
   const label = bracketType === 'heats' ? home : `${home} vs ${away}`
   return (
-    <div className={`text-xs rounded px-1.5 py-0.5 mb-0.5 truncate leading-snug ${cls}`}>
+    <div className={`text-xs rounded px-1.5 py-0.5 mb-0.5 whitespace-nowrap leading-snug ${cls}`}>
       {label}
     </div>
   )
@@ -439,7 +427,7 @@ function TimelineView({
   return (
     <div className="overflow-x-auto rounded-xl border border-gray-200">
       <div
-        style={{ display: 'grid', gridTemplateColumns: `160px repeat(${timelineSlots.length}, minmax(80px, 1fr))` }}
+        style={{ display: 'grid', gridTemplateColumns: `160px repeat(${timelineSlots.length}, minmax(80px, auto))` }}
       >
         {/* Header row */}
         <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs font-medium text-gray-400">

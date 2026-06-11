@@ -1,4 +1,5 @@
 import React from 'react'
+import { TransformWrapper, TransformComponent, useControls } from 'react-zoom-pan-pinch'
 import { createTheme } from '@g-loot/react-tournament-brackets'
 import type { MatchType } from '@g-loot/react-tournament-brackets'
 import type { Match, Team, Company } from '../types'
@@ -123,36 +124,71 @@ export const bracketOptions = {
   },
 }
 
-export function ScrollSvg({ children, bracketWidth, bracketHeight }: {
-  children: React.ReactElement
-  bracketWidth: number
-  bracketHeight: number
-}) {
+function ZoomControls({ fitScale }: { fitScale: number }) {
+  const { zoomIn, zoomOut, centerView } = useControls()
+  const btn = 'w-9 h-9 flex items-center justify-center rounded-full bg-white border border-gray-200 shadow-sm text-slate-600 text-lg font-semibold active:bg-gray-100'
   return (
-    <div
-      className="overflow-auto border border-gray-200 rounded-xl bg-gray-50"
-      style={{ maxHeight: '75vh' }}
-    >
-      <svg width={bracketWidth} height={bracketHeight} style={{ display: 'block' }}>
-        {children}
-      </svg>
+    <div className="absolute bottom-3 right-3 z-10 flex flex-col gap-1.5">
+      <button type="button" aria-label="Zoom in" className={btn} onClick={() => zoomIn()}>+</button>
+      <button type="button" aria-label="Zoom out" className={btn} onClick={() => zoomOut()}>−</button>
+      <button type="button" aria-label="Fit bracket" className={`${btn} text-sm`} onClick={() => centerView(fitScale, 200)}>⤢</button>
     </div>
   )
 }
 
-export function DoubleScrollSvg({ children, bracketWidth, bracketHeight }: {
+export function ZoomableBracket({ children, bracketWidth, bracketHeight }: {
   children: React.ReactElement
   bracketWidth: number
   bracketHeight: number
 }) {
+  const containerRef = React.useRef<HTMLDivElement | null>(null)
+  const [fitScale, setFitScale] = React.useState<number | null>(null)
+
+  React.useLayoutEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const measure = () => {
+      const fit = Math.min(el.clientWidth / bracketWidth, el.clientHeight / bracketHeight, 1)
+      setFitScale(Math.max(fit, 0.15))
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [bracketWidth, bracketHeight])
+
+  const fitsAtFullSize = fitScale !== null && fitScale >= 1
+
   return (
     <div
-      className="overflow-auto border border-gray-200 rounded-xl bg-gray-50"
-      style={{ maxHeight: '75vh' }}
+      ref={containerRef}
+      className="relative overflow-hidden border border-gray-200 rounded-xl bg-gray-50"
+      style={{ height: `min(${bracketHeight + 48}px, 75vh)`, touchAction: 'none' }}
     >
-      <svg width={bracketWidth} height={bracketHeight} style={{ display: 'block' }}>
-        {children}
-      </svg>
+      {fitScale !== null && (
+        <TransformWrapper
+          key={`${bracketWidth}x${bracketHeight}-${fitScale.toFixed(3)}`}
+          minScale={fitScale}
+          maxScale={2.5}
+          initialScale={fitScale < 1 ? Math.max(fitScale, 0.85) : 1}
+          centerOnInit
+          centerZoomedOut
+          doubleClick={{ mode: 'zoomIn' }}
+          wheel={{ step: 0.15 }}
+        >
+          <ZoomControls fitScale={fitScale} />
+          {!fitsAtFullSize && (
+            <span className="absolute bottom-3 left-3 z-10 text-[11px] text-gray-400 bg-white/80 rounded-full px-2.5 py-1 pointer-events-none select-none">
+              Pinch to zoom · drag to pan
+            </span>
+          )}
+          <TransformComponent wrapperStyle={{ width: '100%', height: '100%' }}>
+            <svg width={bracketWidth} height={bracketHeight} style={{ display: 'block' }}>
+              {children}
+            </svg>
+          </TransformComponent>
+        </TransformWrapper>
+      )}
     </div>
   )
 }

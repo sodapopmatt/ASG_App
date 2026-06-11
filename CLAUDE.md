@@ -185,9 +185,9 @@ V1 migration is complete.
 |---|---|---|
 | `single_elimination` | Yes | Full |
 | `double_elimination` | Yes | Full |
-| `pool_bracket` | No (manual) | Partial — matches render on schedule, no pool UI |
-| `pool_swiss` | No (manual) | Partial — matches render on schedule, no standings UI |
-| `heats` | No (manual) | Partial — matches render on schedule, no heat progression UI |
+| `pool_bracket` | Yes — pools + seeded bracket phase | Full — pool setup, standings, results entry, bracket view |
+| `pool_swiss` | Pools only (Swiss rounds manual) | Partial — pool UI works; no Swiss round UI |
+| `heats` | Yes — one entry per team | Partial — result/standings UI, no heat progression |
 | `points_based` | N/A — no matches | Partial — placement entry via Scoring page only |
 
 ### Auto-Generation Rules (elimination only)
@@ -204,11 +204,21 @@ V1 migration is complete.
 - Championship court is unassigned (dynamic claim by first division to finish; admin can PATCH `location_id`)
 - Frontend (public Brackets + BracketResultsPage) renders one bracket per division plus a championship card when any bracket has a non-null `division`
 
+### Pool Play (pool_bracket / pool_swiss)
+- `generate-bracket` accepts optional `pools: [{name, team_ids, location_ids}]` (pool types only, ≥1 pool, ≥2 teams each; teams/courts cannot repeat across pools)
+- Each pool = one `brackets` row with `phase='pool'`; matches are a single round robin (circle method, `bracket_engine/round_robin.py`); odd team counts sit out one round (no bye rows); no advancement links
+- Courts round-robin within each pool's courts; times sequential per court from `schedule_start`
+- `GET /sports/{id}/standings` computes W-L per pool from terminal matches (completed/forfeit → winner W / opponent L; double_forfeit → both L); rank by wins desc, losses asc; identical records share a rank
+- **No score-based tiebreakers** — V1 has no scores; admins break ties manually when seeding the bracket phase
+- Bracket phase (`pool_bracket` only): calling `generate-bracket` again with `team_ids` (no `pools`) generates a single-elimination bracket via `persist_bracket(bracket_type_override="single_elimination", shuffle=False)` — seed order is preserved exactly (frontend pre-fills it from standings: pool winners first, then runners-up); pool matches are kept; `clear_existing=true` is rejected on this path; bracket-phase start time = last scheduled match + one duration slot
+- `pool_swiss`: pools generate the same way; calling with `team_ids` returns 422 (Swiss rounds not built — Cornhole championship is manual)
+
 ### Seeding Constraint
 - No two teams from the same company may meet in **Winners Bracket Round 1**
 - Enforced via exhaustive greedy scan in `_shuffle_avoiding_same_company()` (bracket_engine/generator.py)
 - Same-company matchups in WB R2+, LB rounds, and later stages are accepted as structurally inevitable when companies field multiple teams
 - If no valid swap exists (one company holds more than half the slots), the conflict is left silently
+- Skipped entirely for the pool_bracket bracket phase (`shuffle=False`) — standings seeding takes priority
 
 ### Match Advancement
 - Happens automatically after result or forfeit submission
@@ -238,7 +248,7 @@ V1 migration is complete.
 | Soccer | single_elimination | 1 | high_wins | best_placement | ASG default |
 | Tug of War | single_elimination | 1 | high_wins | best_placement | ASG default |
 | Ultimate Frisbee | pool_bracket | 1 | high_wins | best_placement | ASG default |
-| Pickleball | pool_swiss | 2 | high_wins | best_placement | ASG default |
+| Pickleball | pool_bracket | 2 | high_wins | best_placement | ASG default |
 | Cornhole | pool_swiss | 4 | high_wins | best_placement | ASG default |
 | Relay Race | heats | 1 | high_wins | best_placement | ASG default |
 | Human Pyramid | heats | 1 | low_wins | best_placement | ASG default |
@@ -268,7 +278,8 @@ ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place (floor 0). SQL: 
 | POST | `/` | admin | Create |
 | PATCH | `/{id}` | admin | Update (including scheduling config) |
 | DELETE | `/{id}` | admin | Delete |
-| POST | `/{id}/generate-bracket` | admin | Generate elimination bracket; accepts `team_ids`, `clear_existing`, and optional `divisions` (venue split + auto championship match) |
+| POST | `/{id}/generate-bracket` | admin | Generate bracket; accepts `team_ids`, `clear_existing`, optional `divisions` (venue split + auto championship match), optional `pools` (round-robin pool play); for pool_bracket sports, `team_ids` alone generates the seeded bracket phase |
+| GET | `/{id}/standings` | public | W-L standings per pool (pool types; computed from terminal matches) |
 | DELETE | `/{id}/brackets` | admin | Clear all matches/brackets for a sport |
 
 ### Teams — `/teams`
@@ -335,7 +346,9 @@ ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place (floor 0). SQL: 
 |---|---|---|
 | Schedule | `/schedule` | All matches grouped by sport+round or timeline view. Does NOT vary by `bracket_type`. |
 | BracketsPage | `/manage/brackets` | Generate elimination brackets, set scheduling config, manually adjust match times. Labels non-generatable sports as "Manual entry". |
-| ResultsPage | `/manage/results` | Lists pending matches; links to bracket visualization for elimination sports. |
+| SportConfigPage | `/manage/brackets/:sportId` | Per-sport config: scheduling, courts, bracket/pool generation; pool sports get pool setup (snake auto-split + overrides) and a post-pool "Generate Bracket Phase" card seeded from standings. |
+| ResultsPage | `/manage/results` | Lists pending matches; links to bracket visualization for elimination sports, pool results for pool sports, heats entry for heats. |
+| PoolResultsPage | `/manage/results/pools/:sportId` | Pool matches grouped by pool+round; tap to enter result via shared MatchResultModal; links to bracket phase view. |
 | ScoringPage | `/manage/scoring` | Award placements to companies per sport; calls `/event-points/award-placement`. |
 | TeamsPage | `/manage/teams` | Create/edit/delete teams, grouped by sport+company. |
 | ManageHub | `/manage` | Navigation hub for admin pages. |
@@ -379,7 +392,7 @@ ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place (floor 0). SQL: 
 
 - Accepts seeded team IDs
 - Optional: clear existing data
-- Only valid for elimination brackets
+- Elimination types: full bracket; pool types: `pools` generates round-robin pool play, and (pool_bracket only) `team_ids` alone generates the seeded single-elimination bracket phase
 
 ---
 
@@ -421,7 +434,7 @@ ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place (floor 0). SQL: 
 
 ## Out of Scope (Do Not Build)
 
-- No round-robin scheduling engine
+- No league-style season scheduling engine (pool round-robin generation exists; anything beyond single round-robin pools is out)
 - No third-party bracket integrations
 - No player account system
 - No manual scoring UI

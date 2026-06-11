@@ -7,12 +7,12 @@ import {
 } from '@g-loot/react-tournament-brackets'
 import type { MatchType, MatchComponentProps } from '@g-loot/react-tournament-brackets'
 import { getMatches } from '../api/matches'
-import { getSports } from '../api/sports'
+import { getSports, getStandings } from '../api/sports'
 import { getTeams } from '../api/teams'
 import { getCompanies } from '../api/companies'
 import { getBrackets } from '../api/brackets'
-import type { Match, Team, Company, Sport } from '../types'
-import { toLibraryMatch, stableSortMatches, lightTheme, bracketOptions, ScrollSvg, DoubleScrollSvg, compactLabel } from '../lib/bracketHelpers'
+import type { Match, Team, Company, Sport, Bracket } from '../types'
+import { toLibraryMatch, stableSortMatches, lightTheme, bracketOptions, ZoomableBracket, compactLabel } from '../lib/bracketHelpers'
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [item[key], item]))
@@ -82,6 +82,94 @@ function HeatsStandingsView({
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+// ---- Pool play (standings + matches per pool, optional bracket phase) -------
+
+function PoolPlayView({
+  sportId,
+  matches,
+  brackets,
+  teamMap,
+  companyMap,
+}: {
+  sportId: string
+  matches: Match[]
+  brackets: Bracket[]
+  teamMap: Record<string, Team>
+  companyMap: Record<string, Company>
+}) {
+  const standingsQuery = useQuery({
+    queryKey: ['standings', sportId],
+    queryFn: () => getStandings(sportId),
+  })
+  const standings = standingsQuery.data ?? []
+
+  const poolBracketIds = useMemo(
+    () => new Set(brackets.filter(b => b.phase === 'pool').map(b => b.id)),
+    [brackets],
+  )
+
+  const { poolMatches, bracketPhaseMatches } = useMemo(() => {
+    const poolMatches: Record<string, Match[]> = {}
+    const bracketPhaseMatches: Match[] = []
+    for (const m of matches) {
+      if (m.bracket_id && poolBracketIds.has(m.bracket_id)) {
+        ;(poolMatches[m.bracket_id] ??= []).push(m)
+      } else {
+        bracketPhaseMatches.push(m)
+      }
+    }
+    return { poolMatches, bracketPhaseMatches }
+  }, [matches, poolBracketIds])
+
+  function teamName(teamId: string) {
+    const team = teamMap[teamId]
+    if (!team) return '—'
+    const company = companyMap[team.company_id]
+    const base = company?.name ?? 'Unknown'
+    return team.name ? `${base} · ${team.name}` : base
+  }
+
+  if (standingsQuery.isLoading) return <Skeleton />
+  if (standings.length === 0) {
+    return <FallbackMatchList matches={matches} teamMap={teamMap} companyMap={companyMap} />
+  }
+
+  return (
+    <div className="space-y-8">
+      {bracketPhaseMatches.length > 0 && (
+        <div>
+          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-2">Bracket</h3>
+          <SingleBracketView matches={bracketPhaseMatches} teamMap={teamMap} companyMap={companyMap} />
+        </div>
+      )}
+      {standings.map(pool => (
+        <div key={pool.bracket_id}>
+          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-2">{pool.name}</h3>
+          <div className="rounded-xl border border-gray-200 overflow-hidden mb-3">
+            <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 grid text-xs font-semibold text-gray-400 uppercase tracking-wider"
+              style={{ gridTemplateColumns: '2.5rem 1fr 2rem 2rem' }}>
+              <span>Rank</span><span>Team</span><span className="text-center">W</span><span className="text-center">L</span>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {pool.standings.map(row => (
+                <div key={row.team_id} className="grid items-center px-4 py-3 gap-1" style={{ gridTemplateColumns: '2.5rem 1fr 2rem 2rem' }}>
+                  <span className={`font-bold text-sm text-center ${row.played > 0 ? 'text-slate-700' : 'text-gray-300'}`}>
+                    {row.played > 0 ? row.rank : '—'}
+                  </span>
+                  <span className="text-sm font-medium text-slate-700 truncate">{teamName(row.team_id)}</span>
+                  <span className="text-sm text-slate-700 text-center">{row.wins}</span>
+                  <span className="text-sm text-slate-700 text-center">{row.losses}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <FallbackMatchList matches={poolMatches[pool.bracket_id] ?? []} teamMap={teamMap} companyMap={companyMap} />
+        </div>
+      ))}
     </div>
   )
 }
@@ -202,7 +290,7 @@ function SingleBracketView({
         options={bracketOptions}
         onMatchClick={onMatchClick ? ({ match }) => onMatchClick(String(match.id)) : undefined}
         svgWrapper={({ children, bracketWidth, bracketHeight }) => (
-          <ScrollSvg bracketWidth={bracketWidth} bracketHeight={bracketHeight}>{children}</ScrollSvg>
+          <ZoomableBracket bracketWidth={bracketWidth} bracketHeight={bracketHeight}>{children}</ZoomableBracket>
         )}
       />
     </div>
@@ -246,7 +334,7 @@ function DoubleBracketView({
         options={bracketOptions}
         onMatchClick={onMatchClick ? ({ match }) => onMatchClick(String(match.id)) : undefined}
         svgWrapper={({ children, bracketWidth, bracketHeight }) => (
-          <DoubleScrollSvg bracketWidth={bracketWidth} bracketHeight={bracketHeight}>{children}</DoubleScrollSvg>
+          <ZoomableBracket bracketWidth={bracketWidth} bracketHeight={bracketHeight}>{children}</ZoomableBracket>
         )}
       />
     </div>
@@ -352,6 +440,17 @@ export default function BracketView() {
   function renderContent() {
     if (bracketType === 'heats') {
       return <HeatsStandingsView matches={sportMatches} teamMap={teamMap} companyMap={companyMap} />
+    }
+    if (bracketType === 'pool_bracket' || bracketType === 'pool_swiss') {
+      return (
+        <PoolPlayView
+          sportId={activeSportId!}
+          matches={sportMatches}
+          brackets={bracketsQuery.data ?? []}
+          teamMap={teamMap}
+          companyMap={companyMap}
+        />
+      )
     }
     if (bracketType === 'single_elimination' || bracketType === 'double_elimination') {
       if (divisionNames.length === 0) {
