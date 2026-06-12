@@ -85,7 +85,7 @@ export default function BottomNav() {
         <NavLink
           key={to}
           to={to}
-          end={to !== '/brackets'}
+          end={to !== '/brackets' && to !== '/teams'}
           className={({ isActive }) =>
             `flex flex-col items-center gap-1 py-2 px-4 text-xs font-medium transition-colors ${
               isActive ? 'text-blue-600' : 'text-gray-500'
