@@ -65,8 +65,10 @@ export default function TeamsPage() {
               {company.logo_url ? (
                 <img src={company.logo_url} alt="" className="w-10 h-10 rounded-lg object-contain bg-gray-50 shrink-0" />
               ) : (
-                <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-sm font-bold text-gray-400 shrink-0">
-                  {company.name.charAt(0).toUpperCase()}
+                <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
+                  <span className="text-[9px] font-bold text-gray-400 leading-none text-center whitespace-nowrap overflow-hidden">
+                    {company.short_id ?? company.name.charAt(0).toUpperCase()}
+                  </span>
                 </div>
               )}
               <div className="flex-1 min-w-0">
