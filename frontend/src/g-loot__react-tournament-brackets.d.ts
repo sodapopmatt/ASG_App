@@ -32,10 +32,22 @@ declare module '@g-loot/react-tournament-brackets' {
     match: MatchType
     topWon: boolean
     bottomWon: boolean
+    event?: unknown
+  }
+
+  export interface MatchComponentProps {
+    match: MatchType
+    topWon: boolean
+    bottomWon: boolean
+    onMatchClick: (args: MatchClickArgs) => void
+    onPartyClick?: (party: ParticipantType, partyWon: boolean) => void
+    topText?: string
+    bottomText?: string
+    [key: string]: unknown
   }
 
   export interface CommonProps {
-    matchComponent: ComponentType<unknown>
+    matchComponent: ComponentType<any>
     svgWrapper?: (props: SvgWrapperProps) => ReactElement
     theme?: ThemeType
     options?: { style: unknown }
@@ -63,7 +75,7 @@ declare module '@g-loot/react-tournament-brackets' {
 
   export const SingleEliminationBracket: ComponentType<SingleElimProps>
   export const DoubleEliminationBracket: ComponentType<DoubleElimProps>
-  export const Match: ComponentType<unknown>
+  export const Match: ComponentType<any>
   export const SVGViewer: ComponentType<SVGViewerProps>
   export type ThemeType = Record<string, unknown>
   export const MATCH_STATES: Record<string, string>

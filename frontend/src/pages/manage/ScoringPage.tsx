@@ -4,7 +4,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getSports } from '../../api/sports'
 import { getCompanies } from '../../api/companies'
 import { getEventPoints, awardPlacement } from '../../api/event_points'
-import { getLeaderboard } from '../../api/leaderboard'
 import type { Sport, Company, EventPoints } from '../../types'
 
 const PLACEMENTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
