@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -139,40 +139,45 @@ function PoolPlayView({
     return <FallbackMatchList matches={matches} teamMap={teamMap} companyMap={companyMap} />
   }
 
-  return (
-    <div className="space-y-8">
-      {bracketPhaseMatches.length > 0 && (
-        <div>
-          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-2">Bracket</h3>
-          <SingleBracketView matches={bracketPhaseMatches} teamMap={teamMap} companyMap={companyMap} />
-        </div>
-      )}
-      {standings.map(pool => (
-        <div key={pool.bracket_id}>
-          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-2">{pool.name}</h3>
-          <div className="rounded-xl border border-gray-200 overflow-hidden mb-3">
-            <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 grid text-xs font-semibold text-gray-400 uppercase tracking-wider"
-              style={{ gridTemplateColumns: '2.5rem 1fr 2rem 2rem' }}>
-              <span>Rank</span><span>Team</span><span className="text-center">W</span><span className="text-center">L</span>
-            </div>
-            <div className="divide-y divide-gray-100">
-              {pool.standings.map(row => (
-                <div key={row.team_id} className="grid items-center px-4 py-3 gap-1" style={{ gridTemplateColumns: '2.5rem 1fr 2rem 2rem' }}>
-                  <span className={`font-bold text-sm text-center ${row.played > 0 ? 'text-slate-700' : 'text-gray-300'}`}>
-                    {row.played > 0 ? row.rank : '—'}
-                  </span>
-                  <span className="text-sm font-medium text-slate-700 truncate">{teamName(row.team_id)}</span>
-                  <span className="text-sm text-slate-700 text-center">{row.wins}</span>
-                  <span className="text-sm text-slate-700 text-center">{row.losses}</span>
-                </div>
-              ))}
-            </div>
+  // One pool (or the bracket phase) per view, selected via tabs — same layout
+  // as venue-split elimination sports.
+  const sections: { key: string; title: string; content: React.ReactNode }[] = standings.map(pool => ({
+    key: pool.bracket_id,
+    title: pool.name,
+    content: (
+      <div>
+        <div className="rounded-xl border border-gray-200 overflow-hidden mb-3">
+          <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 grid text-xs font-semibold text-gray-400 uppercase tracking-wider"
+            style={{ gridTemplateColumns: '2.5rem 1fr 2rem 2rem' }}>
+            <span>Rank</span><span>Team</span><span className="text-center">W</span><span className="text-center">L</span>
           </div>
-          <FallbackMatchList matches={poolMatches[pool.bracket_id] ?? []} teamMap={teamMap} companyMap={companyMap} />
+          <div className="divide-y divide-gray-100">
+            {pool.standings.map(row => (
+              <div key={row.team_id} className="grid items-center px-4 py-3 gap-1" style={{ gridTemplateColumns: '2.5rem 1fr 2rem 2rem' }}>
+                <span className={`font-bold text-sm text-center ${row.played > 0 ? 'text-slate-700' : 'text-gray-300'}`}>
+                  {row.played > 0 ? row.rank : '—'}
+                </span>
+                <span className="text-sm font-medium text-slate-700 truncate">{teamName(row.team_id)}</span>
+                <span className="text-sm text-slate-700 text-center">{row.wins}</span>
+                <span className="text-sm text-slate-700 text-center">{row.losses}</span>
+              </div>
+            ))}
+          </div>
         </div>
-      ))}
-    </div>
-  )
+        <FallbackMatchList matches={poolMatches[pool.bracket_id] ?? []} teamMap={teamMap} companyMap={companyMap} />
+      </div>
+    ),
+  }))
+
+  if (bracketPhaseMatches.length > 0) {
+    sections.push({
+      key: '__bracket',
+      title: 'Bracket',
+      content: <SingleBracketView matches={bracketPhaseMatches} teamMap={teamMap} companyMap={companyMap} />,
+    })
+  }
+
+  return <DivisionTabs sections={sections} />
 }
 
 // ---- Fallback list for pool/swiss/manual -----------------------------------
@@ -342,6 +347,41 @@ function DoubleBracketView({
   )
 }
 
+// ---- Division selector (one bracket per view) ------------------------------
+
+function DivisionTabs({
+  sections,
+}: {
+  sections: { key: string; title: string; content: React.ReactNode }[]
+}) {
+  // One bracket on screen at a time; pick which via the tab bar. Avoids a long
+  // page of stacked brackets and keeps each view focused on a single venue.
+  const [active, setActive] = useState<string>(sections[0]?.key ?? '')
+  const current = sections.find(s => s.key === active) ?? sections[0]
+
+  return (
+    <div>
+      <div className="flex gap-2 mb-4 overflow-x-auto -mx-4 px-4 pb-1">
+        {sections.map(({ key, title }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setActive(key)}
+            className={`shrink-0 px-3.5 py-1.5 rounded-full text-sm font-semibold transition-colors ${
+              key === current?.key
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-100 text-slate-600 active:bg-gray-200'
+            }`}
+          >
+            {title}
+          </button>
+        ))}
+      </div>
+      {current?.content}
+    </div>
+  )
+}
+
 // ---- Skeleton --------------------------------------------------------------
 
 function Skeleton() {
@@ -465,22 +505,18 @@ export default function BracketView() {
         if (div) (byDivision[div] ??= []).push(m)
         else championship.push(m)
       }
-      return (
-        <div className="space-y-8">
-          {championship.length > 0 && (
-            <div>
-              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-2">Championship</h3>
-              <FallbackMatchList matches={championship} teamMap={teamMap} companyMap={companyMap} />
-            </div>
-          )}
-          {divisionNames.map(div => (
-            <div key={div}>
-              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-2">{div}</h3>
-              {renderElimination(byDivision[div] ?? [])}
-            </div>
-          ))}
-        </div>
-      )
+      const sections: { key: string; title: string; content: React.ReactNode }[] = []
+      for (const div of divisionNames) {
+        sections.push({ key: div, title: div, content: renderElimination(byDivision[div] ?? []) })
+      }
+      if (championship.length > 0) {
+        sections.push({
+          key: '__final_game',
+          title: 'Final Game',
+          content: <FallbackMatchList matches={championship} teamMap={teamMap} companyMap={companyMap} />,
+        })
+      }
+      return <DivisionTabs sections={sections} />
     }
     return <FallbackMatchList matches={sportMatches} teamMap={teamMap} companyMap={companyMap} />
   }

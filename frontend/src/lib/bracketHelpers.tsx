@@ -96,12 +96,12 @@ export const lightTheme = createTheme({
   disabledColor: '#9ca3af',
   canvasBackground: '#f9fafb',
   roundHeaders: { background: '#f9fafb' },
-  matchBackground: { wonColor: '#f0fdf4', lostColor: '#ffffff' },
-  border: { color: '#e5e7eb', highlightedColor: '#2563eb' },
+  matchBackground: { wonColor: '#bbf7d0', lostColor: '#ffffff' },
+  border: { color: '#94a3b8', highlightedColor: '#2563eb' },
   textColor: {
-    main: '#1e293b',
-    highlighted: '#2563eb',
-    dark: '#0f172a',
+    main: '#0f172a',
+    highlighted: '#1d4ed8',
+    dark: '#020617',
     disabled: '#9ca3af',
   },
   score: {
@@ -114,12 +114,12 @@ export const bracketOptions = {
   style: {
     roundHeader: {
       backgroundColor: '#f9fafb',
-      fontColor: '#94a3b8',
+      fontColor: '#475569',
       fontSize: 11,
       height: 28,
       marginBottom: 8,
     },
-    connectorColor: '#e2e8f0',
+    connectorColor: '#94a3b8',
     connectorColorHighlight: '#2563eb',
   },
 }
