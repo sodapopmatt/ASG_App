@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react'
+import { useMemo } from 'react'
+import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   SingleEliminationBracket,
@@ -356,6 +357,8 @@ function Skeleton() {
 // ---- Main page -------------------------------------------------------------
 
 export default function BracketView() {
+  const { sportId: activeSportId = null } = useParams<{ sportId: string }>()
+
   const matchesQuery   = useQuery({ queryKey: ['matches'],   queryFn: () => getMatches() })
   const sportsQuery    = useQuery({ queryKey: ['sports'],    queryFn: getSports,        staleTime: Infinity })
   const teamsQuery     = useQuery({ queryKey: ['teams'],     queryFn: () => getTeams(), staleTime: Infinity })
@@ -365,8 +368,6 @@ export default function BracketView() {
   const companyMap = useMemo(() => indexBy(companiesQuery.data ?? [], 'id') as Record<string, Company>, [companiesQuery.data])
 
   const sports = sportsQuery.data ?? []
-  const [selectedSportId, setSelectedSportId] = useState<string | null>(null)
-  const activeSportId = selectedSportId ?? sports[0]?.id ?? null
   const activeSport: Sport | undefined = useMemo(
     () => sports.find(s => s.id === activeSportId),
     [sports, activeSportId],
@@ -418,7 +419,7 @@ export default function BracketView() {
     bracketsQuery.isLoading
 
   if (isLoading) return <Skeleton />
-  if (sports.length === 0) return <p className="text-center text-gray-500 py-16">No sports found.</p>
+  if (!activeSport) return <p className="text-center text-gray-500 py-16">Sport not found.</p>
 
   const sportMatches = matchesBySport.get(activeSportId ?? '') ?? []
   const bracketType  = activeSport?.bracket_type
@@ -486,20 +487,9 @@ export default function BracketView() {
 
   return (
     <div className="p-4 mt-2">
-      <div className="flex gap-2 overflow-x-auto pb-2 mb-4 -mx-4 px-4 no-scrollbar">
-        {sports.map(sport => (
-          <button
-            key={sport.id}
-            onClick={() => setSelectedSportId(sport.id)}
-            className={`shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-              activeSportId === sport.id
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            {sport.name}
-          </button>
-        ))}
+      <div className="mb-4">
+        <Link to="/brackets" className="text-blue-600 text-sm">← Matches</Link>
+        <h2 className="text-lg font-bold text-slate-800 mt-1">{activeSport.name}</h2>
       </div>
       {renderContent()}
     </div>

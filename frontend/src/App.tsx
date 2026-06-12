@@ -6,6 +6,8 @@ import Leaderboard from './pages/Leaderboard'
 import Schedule from './pages/Schedule'
 import Account from './pages/Account'
 import BracketView from './pages/Brackets'
+import BracketsSportIndex from './pages/BracketsSportIndex'
+import Teams from './pages/Teams'
 import ManageHub from './pages/manage/ManageHub'
 import TeamsPage from './pages/manage/TeamsPage'
 import RosterPage from './pages/manage/RosterPage'
@@ -25,7 +27,9 @@ export default function App() {
           <Route index element={<Navigate to="/leaderboard" replace />} />
           <Route path="leaderboard" element={<Leaderboard />} />
           <Route path="schedule" element={<Schedule />} />
-          <Route path="brackets" element={<BracketView />} />
+          <Route path="brackets" element={<BracketsSportIndex />} />
+          <Route path="brackets/:sportId" element={<BracketView />} />
+          <Route path="teams" element={<Teams />} />
           <Route path="account" element={<Account />} />
           <Route path="manage" element={<RequireAuth><ManageHub /></RequireAuth>} />
           <Route path="manage/teams" element={<RequireAuth><TeamsPage /></RequireAuth>} />

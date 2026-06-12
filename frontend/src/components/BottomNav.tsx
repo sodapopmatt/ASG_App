@@ -46,6 +46,19 @@ const NAV_ITEMS = [
       </svg>
     ),
   },
+  {
+    to: '/teams',
+    label: 'Teams',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    ),
+  },
 ]
 
 const MANAGE_ITEM = {
@@ -59,24 +72,12 @@ const MANAGE_ITEM = {
   ),
 }
 
-const ACCOUNT_ITEM = {
-  to: '/account',
-  label: 'Account',
-  icon: (
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
-      fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="8" r="4" />
-      <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
-    </svg>
-  ),
-}
-
 export default function BottomNav() {
   const { profile } = useAuth()
   const isManager = profile?.role === 'admin' || profile?.role === 'team_manager'
   const items = isManager
-    ? [...NAV_ITEMS, MANAGE_ITEM, ACCOUNT_ITEM]
-    : [...NAV_ITEMS, ACCOUNT_ITEM]
+    ? [...NAV_ITEMS, MANAGE_ITEM]
+    : [...NAV_ITEMS]
 
   return (
     <nav className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 flex justify-around z-10">
@@ -84,6 +85,7 @@ export default function BottomNav() {
         <NavLink
           key={to}
           to={to}
+          end={to !== '/brackets'}
           className={({ isActive }) =>
             `flex flex-col items-center gap-1 py-2 px-4 text-xs font-medium transition-colors ${
               isActive ? 'text-blue-600' : 'text-gray-500'
