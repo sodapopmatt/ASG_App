@@ -61,7 +61,7 @@ export default function MatchResultModal({
   const switchMode = (next: PanelMode) => { setMode(next); setError(null) }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
       <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl overflow-hidden" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="px-4 pt-4 pb-3 flex items-start justify-between border-b border-gray-100">
