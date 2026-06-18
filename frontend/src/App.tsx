@@ -9,9 +9,11 @@ import BracketView from './pages/Brackets'
 import BracketsSportIndex from './pages/BracketsSportIndex'
 import Teams from './pages/Teams'
 import CompanyTeams from './pages/CompanyTeams'
+import SportTeams from './pages/SportTeams'
 import ManageHub from './pages/manage/ManageHub'
 import TeamsPage from './pages/manage/TeamsPage'
 import ManageCompanyTeams from './pages/manage/ManageCompanyTeams'
+import ManageSportTeams from './pages/manage/ManageSportTeams'
 import BracketsPage from './pages/manage/BracketsPage'
 import ResultsPage from './pages/manage/ResultsPage'
 import BracketResultsPage from './pages/manage/BracketResultsPage'
@@ -32,10 +34,12 @@ export default function App() {
           <Route path="brackets/:sportId" element={<BracketView />} />
           <Route path="teams" element={<Teams />} />
           <Route path="teams/:companyId" element={<CompanyTeams />} />
+          <Route path="teams/sport/:sportId" element={<SportTeams />} />
           <Route path="account" element={<Account />} />
           <Route path="manage" element={<RequireAuth><ManageHub /></RequireAuth>} />
           <Route path="manage/teams" element={<RequireAuth><TeamsPage /></RequireAuth>} />
           <Route path="manage/teams/:companyId" element={<RequireAuth><ManageCompanyTeams /></RequireAuth>} />
+          <Route path="manage/teams/sport/:sportId" element={<RequireAuth><ManageSportTeams /></RequireAuth>} />
           <Route path="manage/brackets" element={<RequireAuth><BracketsPage /></RequireAuth>} />
           <Route path="manage/brackets/:sportId" element={<RequireAuth><SportConfigPage /></RequireAuth>} />
           <Route path="manage/results" element={<RequireAuth><ResultsPage /></RequireAuth>} />

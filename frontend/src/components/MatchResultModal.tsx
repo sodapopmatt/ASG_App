@@ -23,17 +23,23 @@ export default function MatchResultModal({
   teamMap,
   companyMap,
   onClose,
+  showGameScores = false,
 }: {
   match: Match
   teamMap: Record<string, Team>
   companyMap: Record<string, Company>
   onClose: () => void
+  showGameScores?: boolean
 }) {
   const qc = useQueryClient()
   const [mode, setMode] = useState<PanelMode>('result')
   const [error, setError] = useState<string | null>(null)
   const [homeScore, setHomeScore] = useState(match.home_score != null ? String(match.home_score) : '')
   const [awayScore, setAwayScore] = useState(match.away_score != null ? String(match.away_score) : '')
+  const [homeGamesWon, setHomeGamesWon] = useState(match.home_games_won != null ? String(match.home_games_won) : '')
+  const [awayGamesWon, setAwayGamesWon] = useState(match.away_games_won != null ? String(match.away_games_won) : '')
+  const [homePointsTotal, setHomePointsTotal] = useState(match.home_points_total != null ? String(match.home_points_total) : '')
+  const [awayPointsTotal, setAwayPointsTotal] = useState(match.away_points_total != null ? String(match.away_points_total) : '')
 
   const homeLabel = fullLabel(match.home_team_id, teamMap, companyMap)
   const awayLabel = fullLabel(match.away_team_id, teamMap, companyMap)
@@ -48,6 +54,10 @@ export default function MatchResultModal({
     mutationFn: (winnerId: string) => submitResult(match.id, winnerId, {
       home_score: homeScore.trim() === '' ? null : Number(homeScore),
       away_score: awayScore.trim() === '' ? null : Number(awayScore),
+      home_games_won: homeGamesWon.trim() === '' ? null : Number(homeGamesWon),
+      away_games_won: awayGamesWon.trim() === '' ? null : Number(awayGamesWon),
+      home_points_total: homePointsTotal.trim() === '' ? null : Number(homePointsTotal),
+      away_points_total: awayPointsTotal.trim() === '' ? null : Number(awayPointsTotal),
     }),
     onSuccess,
     onError,
@@ -149,6 +159,64 @@ export default function MatchResultModal({
                   />
                 </div>
               </div>
+              {showGameScores && (
+                <>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider pt-1">Games Won (optional)</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1 truncate">{homeLabel}</label>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        value={homeGamesWon}
+                        onChange={e => { setHomeGamesWon(e.target.value); setError(null) }}
+                        placeholder="—"
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-center text-slate-800 tabular-nums"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1 truncate">{awayLabel}</label>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        value={awayGamesWon}
+                        onChange={e => { setAwayGamesWon(e.target.value); setError(null) }}
+                        placeholder="—"
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-center text-slate-800 tabular-nums"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider pt-1">Total Points (optional)</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1 truncate">{homeLabel}</label>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        value={homePointsTotal}
+                        onChange={e => { setHomePointsTotal(e.target.value); setError(null) }}
+                        placeholder="—"
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-center text-slate-800 tabular-nums"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1 truncate">{awayLabel}</label>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        value={awayPointsTotal}
+                        onChange={e => { setAwayPointsTotal(e.target.value); setError(null) }}
+                        placeholder="—"
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-center text-slate-800 tabular-nums"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider pt-1">Who won?</p>
               <div className="grid grid-cols-2 gap-2">
                 <button

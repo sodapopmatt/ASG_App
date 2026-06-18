@@ -40,6 +40,10 @@ export interface Match {
   winner_id: string | null
   home_score: number | null
   away_score: number | null
+  home_games_won: number | null
+  away_games_won: number | null
+  home_points_total: number | null
+  away_points_total: number | null
   status: 'scheduled' | 'in_progress' | 'completed' | 'forfeit' | 'double_forfeit'
   match_round: number | null
   bracket_phase: string | null

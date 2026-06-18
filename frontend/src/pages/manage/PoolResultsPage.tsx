@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getMatches } from '../../api/matches'
-import { getSports } from '../../api/sports'
+import { getSports, getStandings, type TeamStanding } from '../../api/sports'
 import { getTeams } from '../../api/teams'
 import { getCompanies } from '../../api/companies'
 import { getBrackets } from '../../api/brackets'
@@ -104,6 +104,11 @@ export default function PoolResultsPage() {
     queryFn:  () => getBrackets(sportId!),
     enabled:  !!sportId,
   })
+  const standingsQuery = useQuery({
+    queryKey: ['standings', sportId],
+    queryFn:  () => getStandings(sportId!),
+    enabled:  !!sportId,
+  })
 
   const teamMap    = useMemo(() => indexBy(teamsQuery.data    ?? [], 'id') as Record<string, Team>,    [teamsQuery.data])
   const companyMap = useMemo(() => indexBy(companiesQuery.data ?? [], 'id') as Record<string, Company>, [companiesQuery.data])
@@ -133,6 +138,16 @@ export default function PoolResultsPage() {
     [sportMatches, poolBracketIds],
   )
 
+  const standingsByBracket = useMemo(() => {
+    const map: Record<string, TeamStanding[]> = {}
+    for (const pool of standingsQuery.data ?? []) {
+      map[pool.bracket_id] = pool.standings
+    }
+    return map
+  }, [standingsQuery.data])
+
+  const showGameScores = sport?.name === 'Pickleball'
+
   const isLoading =
     matchesQuery.isLoading  ||
     sportsQuery.isLoading   ||
@@ -156,8 +171,7 @@ export default function PoolResultsPage() {
       <div className="p-4 mt-2">
         <Link to="/manage/results" className="text-blue-600 text-sm">← Enter Results</Link>
 
-        <h2 className="text-xl font-bold text-slate-800 mt-3 mb-1">{sport?.name ?? 'Pool Play'}</h2>
-        <p className="text-xs text-gray-400 mb-4">Tap a match to enter the result</p>
+        <h2 className="text-xl font-bold text-slate-800 mt-3 mb-4">{sport?.name ?? 'Pool Play'}</h2>
 
         {hasBracketPhase && (
           <Link
@@ -175,14 +189,65 @@ export default function PoolResultsPage() {
           <p className="text-center text-gray-500 py-12">No pools for this sport yet.</p>
         ) : (
           <div className="space-y-8">
-            {pools.map(pool => (
-              <div key={pool.id}>
-                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-2">{pool.name}</h3>
-                <div className="space-y-3">
-                  {byRound(matchesByBracket[pool.id] ?? []).map(([round, roundMatches]) => (
-                    <div key={round} className="space-y-2">
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Round {round}</p>
-                      {roundMatches.map(m => (
+            {pools.map(pool => {
+              const poolStandings = standingsByBracket[pool.id] ?? []
+              return (
+                <div key={pool.id}>
+                  <h3 className="text-base font-bold text-slate-800 mb-3">{pool.name}</h3>
+
+                  {/* Standings */}
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Standings</p>
+                  {poolStandings.length > 0 ? (
+                    <div className="mb-4 rounded-xl border border-gray-200 overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead className="bg-gray-50 border-b border-gray-200">
+                          <tr>
+                            <th className="text-left px-3 py-2 font-semibold text-gray-500">#</th>
+                            <th className="text-left px-3 py-2 font-semibold text-gray-500">Team</th>
+                            <th className="text-center px-2 py-2 font-semibold text-gray-500">W</th>
+                            <th className="text-center px-2 py-2 font-semibold text-gray-500">L</th>
+                            {showGameScores && (
+                              <>
+                                <th className="text-center px-2 py-2 font-semibold text-gray-500">GW</th>
+                                <th className="text-center px-2 py-2 font-semibold text-gray-500">PD</th>
+                                <th className="text-center px-2 py-2 font-semibold text-gray-500">TP</th>
+                              </>
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {poolStandings.map((row, i) => {
+                            const team = teamMap[row.team_id]
+                            const company = team ? companyMap[team.company_id] : null
+                            const label = team?.name ? `${company?.name ?? '—'} · ${team.name}` : company?.name ?? '—'
+                            return (
+                              <tr key={row.team_id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                                <td className="px-3 py-2 font-bold text-gray-400">{row.rank}</td>
+                                <td className="px-3 py-2 text-slate-700">{label}</td>
+                                <td className="px-2 py-2 text-center font-semibold text-green-700">{row.wins}</td>
+                                <td className="px-2 py-2 text-center text-gray-500">{row.losses}</td>
+                                {showGameScores && (
+                                  <>
+                                    <td className="px-2 py-2 text-center text-slate-600">{row.game_wins}</td>
+                                    <td className="px-2 py-2 text-center text-slate-600">{row.point_diff > 0 ? `+${row.point_diff}` : row.point_diff}</td>
+                                    <td className="px-2 py-2 text-center text-slate-600">{row.total_points}</td>
+                                  </>
+                                )}
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400 italic mb-4">No results yet.</p>
+                  )}
+
+                  {/* Matches */}
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Matches</p>
+                  <div className="space-y-2">
+                    {byRound(matchesByBracket[pool.id] ?? []).map(([, roundMatches]) => (
+                      roundMatches.map(m => (
                         <MatchCard
                           key={m.id}
                           match={m}
@@ -190,12 +255,12 @@ export default function PoolResultsPage() {
                           companyMap={companyMap}
                           onClick={() => setActiveMatch(m)}
                         />
-                      ))}
-                    </div>
-                  ))}
+                      ))
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
@@ -206,6 +271,7 @@ export default function PoolResultsPage() {
           teamMap={teamMap}
           companyMap={companyMap}
           onClose={() => setActiveMatch(null)}
+          showGameScores={showGameScores}
         />
       )}
     </>

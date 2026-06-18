@@ -17,7 +17,14 @@ export function startMatch(matchId: string) {
 export function submitResult(
   matchId: string,
   winnerId: string,
-  scores?: { home_score?: number | null; away_score?: number | null },
+  scores?: {
+    home_score?: number | null
+    away_score?: number | null
+    home_games_won?: number | null
+    away_games_won?: number | null
+    home_points_total?: number | null
+    away_points_total?: number | null
+  },
 ) {
   return apiFetch<Match>(`/matches/${matchId}/result`, {
     method: 'POST',
@@ -26,6 +33,10 @@ export function submitResult(
       winner_id: winnerId,
       home_score: scores?.home_score ?? null,
       away_score: scores?.away_score ?? null,
+      home_games_won: scores?.home_games_won ?? null,
+      away_games_won: scores?.away_games_won ?? null,
+      home_points_total: scores?.home_points_total ?? null,
+      away_points_total: scores?.away_points_total ?? null,
     }),
   })
 }

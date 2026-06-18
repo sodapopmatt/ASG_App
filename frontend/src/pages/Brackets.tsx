@@ -91,12 +91,14 @@ function HeatsStandingsView({
 
 function PoolPlayView({
   sportId,
+  sport,
   matches,
   brackets,
   teamMap,
   companyMap,
 }: {
   sportId: string
+  sport: Sport | undefined
   matches: Match[]
   brackets: Bracket[]
   teamMap: Record<string, Team>
@@ -134,6 +136,8 @@ function PoolPlayView({
     return team.name ? `${base} · ${team.name}` : base
   }
 
+  const showGameScores = sport?.name === 'Pickleball'
+
   if (standingsQuery.isLoading) return <Skeleton />
   if (standings.length === 0) {
     return <FallbackMatchList matches={matches} teamMap={teamMap} companyMap={companyMap} />
@@ -146,24 +150,46 @@ function PoolPlayView({
     title: pool.name,
     content: (
       <div>
-        <div className="rounded-xl border border-gray-200 overflow-hidden mb-3">
-          <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 grid text-xs font-semibold text-gray-400 uppercase tracking-wider"
-            style={{ gridTemplateColumns: '2.5rem 1fr 2rem 2rem' }}>
-            <span>Rank</span><span>Team</span><span className="text-center">W</span><span className="text-center">L</span>
-          </div>
-          <div className="divide-y divide-gray-100">
-            {pool.standings.map(row => (
-              <div key={row.team_id} className="grid items-center px-4 py-3 gap-1" style={{ gridTemplateColumns: '2.5rem 1fr 2rem 2rem' }}>
-                <span className={`font-bold text-sm text-center ${row.played > 0 ? 'text-slate-700' : 'text-gray-300'}`}>
-                  {row.played > 0 ? row.rank : '—'}
-                </span>
-                <span className="text-sm font-medium text-slate-700 truncate">{teamName(row.team_id)}</span>
-                <span className="text-sm text-slate-700 text-center">{row.wins}</span>
-                <span className="text-sm text-slate-700 text-center">{row.losses}</span>
-              </div>
-            ))}
-          </div>
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Standings</p>
+        <div className="rounded-xl border border-gray-200 overflow-hidden mb-4">
+          <table className="w-full text-xs">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="text-left px-3 py-2 font-semibold text-gray-500">#</th>
+                <th className="text-left px-3 py-2 font-semibold text-gray-500">Team</th>
+                <th className="text-center px-2 py-2 font-semibold text-gray-500">W</th>
+                <th className="text-center px-2 py-2 font-semibold text-gray-500">L</th>
+                {showGameScores && (
+                  <>
+                    <th className="text-center px-2 py-2 font-semibold text-gray-500">GW</th>
+                    <th className="text-center px-2 py-2 font-semibold text-gray-500">PD</th>
+                    <th className="text-center px-2 py-2 font-semibold text-gray-500">TP</th>
+                  </>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {pool.standings.map((row, i) => (
+                <tr key={row.team_id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                  <td className="px-3 py-2 font-bold text-gray-400">
+                    {row.played > 0 ? row.rank : '—'}
+                  </td>
+                  <td className="px-3 py-2 text-slate-700">{teamName(row.team_id)}</td>
+                  <td className="px-2 py-2 text-center font-semibold text-green-700">{row.wins}</td>
+                  <td className="px-2 py-2 text-center text-gray-500">{row.losses}</td>
+                  {showGameScores && (
+                    <>
+                      <td className="px-2 py-2 text-center text-slate-600">{row.game_wins}</td>
+                      <td className="px-2 py-2 text-center text-slate-600">{row.point_diff > 0 ? `+${row.point_diff}` : row.point_diff}</td>
+                      <td className="px-2 py-2 text-center text-slate-600">{row.total_points}</td>
+                    </>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Matches</p>
         <FallbackMatchList matches={poolMatches[pool.bracket_id] ?? []} teamMap={teamMap} companyMap={companyMap} />
       </div>
     ),
@@ -482,6 +508,7 @@ export default function BracketView() {
       return (
         <PoolPlayView
           sportId={activeSportId!}
+          sport={activeSport}
           matches={sportMatches}
           brackets={bracketsQuery.data ?? []}
           teamMap={teamMap}

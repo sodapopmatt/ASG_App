@@ -20,6 +20,10 @@ class MatchResult(BaseModel):
     winner_id: UUID
     home_score: int | None = None
     away_score: int | None = None
+    home_games_won: int | None = None
+    away_games_won: int | None = None
+    home_points_total: int | None = None
+    away_points_total: int | None = None
     played_at: datetime | None = None
     notes: str | None = None
 
@@ -58,6 +62,10 @@ class Match(BaseModel):
     winner_id: UUID | None
     home_score: int | None = None
     away_score: int | None = None
+    home_games_won: int | None = None
+    away_games_won: int | None = None
+    home_points_total: int | None = None
+    away_points_total: int | None = None
     status: MatchStatus
     match_round: int | None
     winner_next_match_id: UUID | None

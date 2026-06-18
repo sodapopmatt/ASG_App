@@ -87,25 +87,95 @@ function DivToggle({
   )
 }
 
-function PoolSelect({
-  value,
-  count,
-  onChange,
+function PoolBuckets({
+  poolCount,
+  seeds,
+  locations,
+  teamPoolOf,
+  courtPoolOf,
+  companyMap,
+  onMoveTeam,
+  onMoveCourt,
 }: {
-  value: number
-  count: number
-  onChange: (v: number) => void
+  poolCount: number
+  seeds: Team[]
+  locations: { id: string; name: string; sport_id: string }[]
+  teamPoolOf: (id: string) => number
+  courtPoolOf: (id: string) => number
+  companyMap: Record<string, Company>
+  onMoveTeam: (teamId: string, pool: number) => void
+  onMoveCourt: (locId: string, pool: number) => void
 }) {
+  const [openPool, setOpenPool] = useState<number | null>(0)
+
   return (
-    <select
-      value={value}
-      onChange={e => onChange(Number(e.target.value))}
-      className="text-xs font-medium rounded-lg border border-gray-200 px-2 py-1 bg-white text-slate-700 shrink-0"
-    >
-      {Array.from({ length: count }, (_, i) => (
-        <option key={i} value={i}>{poolName(i)}</option>
-      ))}
-    </select>
+    <div className="space-y-2">
+      {Array.from({ length: poolCount }, (_, i) => {
+        const poolTeams = seeds.filter(t => teamPoolOf(t.id) === i)
+        const poolCourts = locations.filter(l => courtPoolOf(l.id) === i)
+        const isOpen = openPool === i
+        return (
+          <div key={i} className="rounded-xl border border-gray-200 overflow-hidden">
+            <button
+              onClick={() => setOpenPool(isOpen ? null : i)}
+              className="w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 text-left hover:bg-gray-100 transition-colors"
+            >
+              <span className="text-sm font-semibold text-slate-800">{poolName(i)}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">{poolTeams.length} teams</span>
+                {poolCourts.length > 0 && (
+                  <span className="text-xs text-gray-400">· {poolCourts.map(c => c.name).join(', ')}</span>
+                )}
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                  className={`text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </div>
+            </button>
+            {isOpen && (
+              <div className="px-3 py-2.5 space-y-2 bg-white">
+                <div className="flex flex-wrap gap-1.5">
+                  {poolTeams.map(team => (
+                    <div key={team.id} className="flex items-center gap-1 bg-gray-100 rounded-md px-2 py-1 text-xs text-slate-700">
+                      <span>{companyMap[team.company_id]?.name ?? '—'}{team.name ? ` · ${team.name}` : ''}</span>
+                      <select
+                        value={i}
+                        onChange={e => onMoveTeam(team.id, Number(e.target.value))}
+                        className="ml-1 text-[10px] bg-transparent text-gray-400 cursor-pointer border-none outline-none"
+                      >
+                        {Array.from({ length: poolCount }, (_, j) => (
+                          <option key={j} value={j}>{poolName(j)}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                  {poolTeams.length === 0 && <p className="text-xs text-gray-400 italic">No teams assigned</p>}
+                </div>
+                {locations.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pt-1 border-t border-gray-100">
+                    {poolCourts.map(loc => (
+                      <div key={loc.id} className="flex items-center gap-1 bg-blue-50 border border-blue-100 rounded-md px-2 py-1 text-xs text-slate-700">
+                        <span>{loc.name}</span>
+                        <select
+                          value={i}
+                          onChange={e => onMoveCourt(loc.id, Number(e.target.value))}
+                          className="ml-1 text-[10px] bg-transparent text-blue-400 cursor-pointer border-none outline-none"
+                        >
+                          {Array.from({ length: poolCount }, (_, j) => (
+                            <option key={j} value={j}>{poolName(j)}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
@@ -144,6 +214,9 @@ export default function SportConfigPage() {
   // Courts state
   const [newCourtName, setNewCourtName] = useState('')
   const [courtError, setCourtError] = useState<string | null>(null)
+  const [bulkPrefix, setBulkPrefix] = useState('Ct')
+  const [bulkCount, setBulkCount] = useState(1)
+  const [bulkGenerating, setBulkGenerating] = useState(false)
 
   // Generate bracket state
   const [seeds, setSeeds] = useState<Team[]>([])
@@ -274,7 +347,9 @@ export default function SportConfigPage() {
     enabled: !!sportId && isPool,
   })
   const hasBracketPhase = isPool && brackets.some(b => b.phase !== 'pool')
-  const showBracketPhaseCard = isPoolBracket && alreadyGenerated && !hasBracketPhase
+  // Keep the bracket phase card visible even after the first bracket is generated
+  // so pickleball (and any pool_bracket sport) can generate a second bracket (e.g. 13th–20th).
+  const showBracketPhaseCard = isPoolBracket && alreadyGenerated
 
   const { data: standings = [] } = useQuery({
     queryKey: ['standings', sportId],
@@ -301,20 +376,28 @@ export default function SportConfigPage() {
   const advancing = advOverride ?? defaultAdvancing
 
   const teamRecord = useMemo(() => {
-    const map: Record<string, { wins: number; losses: number }> = {}
+    const map: Record<string, { wins: number; losses: number; game_wins: number; point_diff: number; total_points: number }> = {}
     for (const pool of standings) {
-      for (const row of pool.standings) map[row.team_id] = { wins: row.wins, losses: row.losses }
+      for (const row of pool.standings) map[row.team_id] = {
+        wins: row.wins, losses: row.losses,
+        game_wins: row.game_wins, point_diff: row.point_diff, total_points: row.total_points,
+      }
     }
     return map
   }, [standings])
 
-  // Pools where the last team in and the first team out have identical records
+  // Pools where the last team in and the first team out have identical records on all 4 tiebreakers
   const cutLineTies = useMemo(() => {
     return standings
       .filter(pool => {
         const inside = pool.standings[advanceCount - 1]
         const outside = pool.standings[advanceCount]
-        return inside && outside && inside.wins === outside.wins && inside.losses === outside.losses
+        return inside && outside &&
+          inside.wins === outside.wins &&
+          inside.losses === outside.losses &&
+          inside.game_wins === outside.game_wins &&
+          inside.point_diff === outside.point_diff &&
+          inside.total_points === outside.total_points
       })
       .map(pool => pool.name)
   }, [standings, advanceCount])
@@ -386,6 +469,32 @@ export default function SportConfigPage() {
     },
     onError: (e) => setPatchError(e instanceof Error ? e.message : 'Failed to save time'),
   })
+
+  const sortedLocations = useMemo(
+    () => [...locations].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+    ),
+    [locations],
+  )
+
+  async function handleBulkGenerate() {
+    const prefix = bulkPrefix.trim()
+    if (!prefix || bulkCount < 1) return
+    setBulkGenerating(true)
+    setCourtError(null)
+    try {
+      const existing = new Set(locations.map(l => l.name))
+      for (let i = 1; i <= bulkCount; i++) {
+        const name = `${prefix} ${i}`
+        if (!existing.has(name)) await createLocation(sportId!, name)
+      }
+      qc.invalidateQueries({ queryKey: ['locations', sportId] })
+    } catch (e) {
+      setCourtError(e instanceof Error ? e.message : 'Failed to generate courts')
+    } finally {
+      setBulkGenerating(false)
+    }
+  }
 
   function move(idx: number, dir: -1 | 1) {
     const next = [...seeds]
@@ -473,38 +582,81 @@ export default function SportConfigPage() {
       {/* Courts */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-4 space-y-3">
         <SectionHeading>Courts</SectionHeading>
-        {locations.length === 0 && (
+
+        {/* Chip grid */}
+        {sortedLocations.length === 0 ? (
           <p className="text-sm text-slate-400 italic">No courts defined — matches will be unassigned.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {sortedLocations.map(loc => (
+              <div key={loc.id} className="flex items-center gap-1.5 bg-gray-100 border border-gray-200 rounded-lg px-2.5 py-1.5">
+                <span className="text-sm text-slate-700">{loc.name}</span>
+                <button
+                  onClick={() => deleteCourtMutation.mutate(loc.id)}
+                  disabled={deleteCourtMutation.isPending}
+                  className="text-gray-400 hover:text-red-500 disabled:opacity-40 leading-none text-base"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
         )}
-        {locations.map(loc => (
-          <div key={loc.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
-            <span className="flex-1 text-sm text-slate-700">{loc.name}</span>
+
+        {/* Bulk generate */}
+        <div>
+          <p className="text-xs text-gray-400 mb-1.5">Generate courts</p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Prefix (e.g. Ct)"
+              value={bulkPrefix}
+              onChange={e => setBulkPrefix(e.target.value)}
+              className="w-28 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+            />
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={bulkCount}
+              onChange={e => setBulkCount(Math.max(1, Number(e.target.value)))}
+              className="w-20 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+            />
             <button
-              onClick={() => deleteCourtMutation.mutate(loc.id)}
-              disabled={deleteCourtMutation.isPending}
-              className="text-xs text-red-500 hover:text-red-700 disabled:opacity-40 shrink-0"
+              onClick={handleBulkGenerate}
+              disabled={bulkGenerating || !bulkPrefix.trim()}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0"
             >
-              Remove
+              {bulkGenerating ? 'Generating…' : 'Generate'}
             </button>
           </div>
-        ))}
-        <div className="flex gap-2">
-          <input
-            type="text"
-            placeholder="e.g. Court 1"
-            value={newCourtName}
-            onChange={e => setNewCourtName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && addCourt()}
-            className="flex-1 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-          />
-          <button
-            onClick={addCourt}
-            disabled={!newCourtName.trim() || createCourtMutation.isPending}
-            className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0"
-          >
-            Add
-          </button>
+          <p className="text-xs text-gray-400 mt-1">
+            Creates "{bulkPrefix.trim() || 'Ct'} 1" through "{bulkPrefix.trim() || 'Ct'} {bulkCount}" — skips any that already exist.
+          </p>
         </div>
+
+        {/* Single add */}
+        <div>
+          <p className="text-xs text-gray-400 mb-1.5">Add one</p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="e.g. Court 1"
+              value={newCourtName}
+              onChange={e => setNewCourtName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addCourt()}
+              className="flex-1 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+            />
+            <button
+              onClick={addCourt}
+              disabled={!newCourtName.trim() || createCourtMutation.isPending}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+
         {courtError && <p className="text-sm text-red-600">{courtError}</p>}
       </div>
 
@@ -550,40 +702,16 @@ export default function SportConfigPage() {
               />
             </label>
 
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Teams</p>
-            <div className="space-y-1">
-              {seeds.map(team => (
-                <div key={team.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
-                  <span className="flex-1 text-sm text-slate-700 truncate min-w-0">
-                    {companyMap[team.company_id]?.name ?? '—'}
-                    {team.name && <span className="text-gray-400"> · {team.name}</span>}
-                  </span>
-                  <PoolSelect
-                    value={teamPoolOf(team.id)}
-                    count={effectivePoolCount}
-                    onChange={v => setTeamPool(prev => ({ ...prev, [team.id]: v }))}
-                  />
-                </div>
-              ))}
-            </div>
-
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Courts</p>
-            {locations.length === 0 ? (
-              <p className="text-sm text-slate-400 italic">No courts defined — add courts above to assign them to pools.</p>
-            ) : (
-              <div className="space-y-1">
-                {locations.map(loc => (
-                  <div key={loc.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
-                    <span className="flex-1 text-sm text-slate-700 truncate min-w-0">{loc.name}</span>
-                    <PoolSelect
-                      value={courtPoolOf(loc.id)}
-                      count={effectivePoolCount}
-                      onChange={v => setCourtPool(prev => ({ ...prev, [loc.id]: v }))}
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
+            <PoolBuckets
+              poolCount={effectivePoolCount}
+              seeds={seeds}
+              locations={sortedLocations}
+              teamPoolOf={teamPoolOf}
+              courtPoolOf={courtPoolOf}
+              companyMap={companyMap}
+              onMoveTeam={(teamId, pool) => setTeamPool(prev => ({ ...prev, [teamId]: pool }))}
+              onMoveCourt={(locId, pool) => setCourtPool(prev => ({ ...prev, [locId]: pool }))}
+            />
 
             {!poolsValid && (
               <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
@@ -724,7 +852,14 @@ export default function SportConfigPage() {
       {/* Bracket Phase (pool_bracket: seeded from pool standings) */}
       {showBracketPhaseCard && (
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-4 space-y-3">
-          <SectionHeading>Generate Bracket Phase</SectionHeading>
+          <div className="flex items-center justify-between">
+            <SectionHeading>Generate Bracket Phase</SectionHeading>
+            {hasBracketPhase && (
+              <span className="mb-2 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full shrink-0">
+                Additional bracket
+              </span>
+            )}
+          </div>
 
           {pendingPoolCount > 0 && (
             <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
@@ -765,7 +900,12 @@ export default function SportConfigPage() {
                       {teamLabel(teamId, teamMap, companyMap)}
                     </span>
                     {record && (
-                      <span className="text-xs text-gray-400 shrink-0">{record.wins}–{record.losses}</span>
+                      <span className="text-xs text-gray-400 shrink-0">
+                        {record.wins}–{record.losses}
+                        {sport?.name === 'Pickleball' && (
+                          <> · {record.game_wins}GW · {record.point_diff >= 0 ? '+' : ''}{record.point_diff}PD</>
+                        )}
+                      </span>
                     )}
                     <div className="flex gap-0.5">
                       <button onClick={() => moveAdvancing(idx, -1)} disabled={idx === 0} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><UpIcon /></button>

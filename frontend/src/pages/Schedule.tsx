@@ -73,6 +73,7 @@ function teamShort(
   return company?.short_id ?? company?.name ?? '?'
 }
 
+
 function formatTime(iso: string | null | undefined): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
@@ -233,7 +234,7 @@ function MatchRow({
     return (
       <div
         className="grid items-center gap-x-2 px-4 py-2 hover:bg-gray-50 text-sm border-t border-gray-100"
-        style={{ gridTemplateColumns: '5rem 1fr 5.5rem' }}
+        style={{ gridTemplateColumns: '4rem 1fr 5.5rem' }}
       >
         <div className="flex flex-col gap-0.5">
           <span className="text-xs text-gray-400 tabular-nums">{showTime && time ? time : ''}</span>
@@ -248,7 +249,7 @@ function MatchRow({
   return (
     <div
       className="grid items-center gap-x-2 px-4 py-2 hover:bg-gray-50 text-sm border-t border-gray-100"
-      style={{ gridTemplateColumns: '5rem 1fr 3.5rem 1fr 5.5rem' }}
+      style={{ gridTemplateColumns: '4rem 1fr 2rem 1fr 5.5rem' }}
     >
       <div className="flex flex-col gap-0.5">
         <span className="text-xs text-gray-400 tabular-nums">{showTime && time ? time : ''}</span>

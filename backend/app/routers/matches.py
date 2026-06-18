@@ -260,6 +260,10 @@ def post_result(match_id: str, result: MatchResult, _=Depends(require_admin)):
         "status": "completed",
         "home_score": result.home_score,
         "away_score": result.away_score,
+        "home_games_won": result.home_games_won,
+        "away_games_won": result.away_games_won,
+        "home_points_total": result.home_points_total,
+        "away_points_total": result.away_points_total,
         "played_at": result.played_at.isoformat() if result.played_at else _now_iso(),
     }
     if result.notes:

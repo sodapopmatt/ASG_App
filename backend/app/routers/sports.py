@@ -400,9 +400,9 @@ def get_standings(sport_id: str):
     """Win-loss standings per pool, computed from terminal matches.
 
     completed/forfeit count as a win for winner_id and a loss for the other
-    team; double_forfeit counts as a loss for both. Teams are ranked by wins
-    desc then losses asc; teams with identical records share a rank — the
-    admin breaks ties when seeding the bracket phase (no scores exist in V1).
+    team; double_forfeit counts as a loss for both. Teams are ranked by all
+    four tiebreakers in order: match wins → game wins → point differential →
+    total points scored. Teams with identical records on all four share a rank.
     """
     pool_brackets = (
         supabase.table("brackets")
@@ -419,7 +419,10 @@ def get_standings(sport_id: str):
     bracket_ids = [b["id"] for b in pool_brackets]
     matches = (
         supabase.table("matches")
-        .select("bracket_id, home_team_id, away_team_id, winner_id, status")
+        .select(
+            "bracket_id, home_team_id, away_team_id, winner_id, status, "
+            "home_games_won, away_games_won, home_points_total, away_points_total"
+        )
         .in_("bracket_id", bracket_ids)
         .execute()
         .data
@@ -434,7 +437,15 @@ def get_standings(sport_id: str):
         records: dict[str, dict] = {}
 
         def record(team_id: str) -> dict:
-            return records.setdefault(team_id, {"team_id": team_id, "wins": 0, "losses": 0, "played": 0})
+            return records.setdefault(team_id, {
+                "team_id": team_id,
+                "wins": 0,
+                "losses": 0,
+                "played": 0,
+                "game_wins": 0,
+                "point_diff": 0,
+                "total_points": 0,
+            })
 
         for m in by_bracket.get(bracket["id"], []):
             home, away = m["home_team_id"], m["away_team_id"]
@@ -443,6 +454,12 @@ def get_standings(sport_id: str):
                     record(tid)
             if m["status"] not in _TERMINAL_STATUSES or not home or not away:
                 continue
+
+            hgw = m.get("home_games_won") or 0
+            agw = m.get("away_games_won") or 0
+            hpt = m.get("home_points_total") or 0
+            apt = m.get("away_points_total") or 0
+
             if m["status"] == "double_forfeit":
                 for tid in (home, away):
                     record(tid)["losses"] += 1
@@ -454,10 +471,20 @@ def get_standings(sport_id: str):
                 record(loser)["losses"] += 1
                 record(loser)["played"] += 1
 
-        standings = sorted(records.values(), key=lambda r: (-r["wins"], r["losses"]))
+            record(home)["game_wins"] += hgw
+            record(home)["point_diff"] += hpt - apt
+            record(home)["total_points"] += hpt
+            record(away)["game_wins"] += agw
+            record(away)["point_diff"] += apt - hpt
+            record(away)["total_points"] += apt
+
+        standings = sorted(
+            records.values(),
+            key=lambda r: (-r["wins"], -r["game_wins"], -r["point_diff"], -r["total_points"]),
+        )
         prev_key = None
         for i, row in enumerate(standings):
-            key = (row["wins"], row["losses"])
+            key = (row["wins"], row["game_wins"], row["point_diff"], row["total_points"])
             row["rank"] = standings[i - 1]["rank"] if key == prev_key else i + 1
             prev_key = key
 

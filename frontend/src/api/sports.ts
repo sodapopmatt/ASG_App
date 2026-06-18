@@ -24,6 +24,9 @@ export interface TeamStanding {
   losses: number
   played: number
   rank: number
+  game_wins: number
+  point_diff: number
+  total_points: number
 }
 
 export interface PoolStandings {
