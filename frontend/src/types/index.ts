@@ -38,6 +38,8 @@ export interface Match {
   location_id: string | null
   locations: { name: string } | null
   winner_id: string | null
+  home_score: number | null
+  away_score: number | null
   status: 'scheduled' | 'in_progress' | 'completed' | 'forfeit' | 'double_forfeit'
   match_round: number | null
   bracket_phase: string | null

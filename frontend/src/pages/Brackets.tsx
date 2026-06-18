@@ -13,7 +13,7 @@ import { getTeams } from '../api/teams'
 import { getCompanies } from '../api/companies'
 import { getBrackets } from '../api/brackets'
 import type { Match, Team, Company, Sport, Bracket } from '../types'
-import { toLibraryMatch, stableSortMatches, lightTheme, bracketOptions, ZoomableBracket, compactLabel } from '../lib/bracketHelpers'
+import { toLibraryMatch, stableSortMatches, lightTheme, bracketOptions, BracketSvgWrapper, compactLabel } from '../lib/bracketHelpers'
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [item[key], item]))
@@ -250,7 +250,7 @@ function MatchComponent(props: MatchComponentProps) {
   const isPlaying = props.match.state === 'PLAYING'
   return (
     <div style={{ position: 'relative', height: '100%' }}>
-      <LibMatch {...props} topText="" onMatchClick={undefined} />
+      <LibMatch {...props} onMatchClick={undefined} />
       {isPlaying && (
         <span style={{
           position: 'absolute', top: 4, right: 8,
@@ -295,9 +295,7 @@ function SingleBracketView({
         theme={lightTheme}
         options={bracketOptions}
         onMatchClick={onMatchClick ? ({ match }) => onMatchClick(String(match.id)) : undefined}
-        svgWrapper={({ children, bracketWidth, bracketHeight }) => (
-          <ZoomableBracket bracketWidth={bracketWidth} bracketHeight={bracketHeight}>{children}</ZoomableBracket>
-        )}
+        svgWrapper={BracketSvgWrapper}
       />
     </div>
   )
@@ -339,9 +337,7 @@ function DoubleBracketView({
         theme={lightTheme}
         options={bracketOptions}
         onMatchClick={onMatchClick ? ({ match }) => onMatchClick(String(match.id)) : undefined}
-        svgWrapper={({ children, bracketWidth, bracketHeight }) => (
-          <ZoomableBracket bracketWidth={bracketWidth} bracketHeight={bracketHeight}>{children}</ZoomableBracket>
-        )}
+        svgWrapper={BracketSvgWrapper}
       />
     </div>
   )

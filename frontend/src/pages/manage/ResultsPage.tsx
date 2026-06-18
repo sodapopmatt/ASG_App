@@ -5,6 +5,7 @@ import { getMatches } from '../../api/matches'
 import { getTeams } from '../../api/teams'
 import { getSports } from '../../api/sports'
 import { getCompanies } from '../../api/companies'
+import { getSportIcon } from '../../lib/sportIcons'
 import type { Match, Team, Sport, Company } from '../../types'
 
 const BRACKET_TYPES = new Set(['single_elimination', 'double_elimination'])
@@ -60,63 +61,65 @@ function SportRow({
     m => m.status === 'scheduled' || m.status === 'in_progress',
   ).length
 
+  const destination = isBracket
+    ? `/manage/results/brackets/${sport.id}`
+    : isHeats
+    ? `/manage/results/heats/${sport.id}`
+    : isPool
+    ? `/manage/results/pools/${sport.id}`
+    : null
+
+  const summary = (
+    <div className="flex-1 min-w-0">
+      <p className="font-semibold text-slate-800 flex items-center gap-2">
+        <span className="text-xl leading-none shrink-0" aria-hidden="true">{getSportIcon(sport.name)}</span>
+        <span className="truncate">{sport.name}</span>
+      </p>
+      <p className="text-xs text-gray-400 mt-0.5">
+        {pendingCount === 0
+          ? 'No pending matches'
+          : `${pendingCount} pending match${pendingCount !== 1 ? 'es' : ''}`}
+      </p>
+    </div>
+  )
+
+  const countPill = pendingCount > 0 && (
+    <span className="shrink-0 text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
+      {pendingCount}
+    </span>
+  )
+
+  // Sports with a dedicated results page: the whole card is a link.
+  if (destination) {
+    return (
+      <Link
+        to={destination}
+        className="flex items-center gap-3 px-4 py-4 bg-white rounded-xl border border-gray-100 shadow-sm active:bg-gray-50 transition-colors"
+      >
+        {summary}
+        {countPill}
+        <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+      </Link>
+    )
+  }
+
+  // Fallback: sports with no dedicated page expand to an inline match list.
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-      {/* Row header — always visible */}
       <button
         onClick={() => setOpen(o => !o)}
         className="w-full flex items-center gap-3 px-4 py-4 text-left active:bg-gray-50 transition-colors"
       >
-        <div className="flex-1 min-w-0">
-          <p className="font-semibold text-slate-800">{sport.name}</p>
-          <p className="text-xs text-gray-400 mt-0.5">
-            {pendingCount === 0
-              ? 'No pending matches'
-              : `${pendingCount} pending match${pendingCount !== 1 ? 'es' : ''}`}
-          </p>
-        </div>
-        {pendingCount > 0 && (
-          <span className="shrink-0 text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
-            {pendingCount}
-          </span>
-        )}
+        {summary}
+        {countPill}
         <ChevronIcon open={open} />
       </button>
 
-      {/* Expanded panel */}
       {open && (
         <div className="border-t border-gray-100 px-4 py-4">
-          {isBracket ? (
-            <Link
-              to={`/manage/results/brackets/${sport.id}`}
-              className="flex items-center justify-between w-full px-4 py-3 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 active:bg-blue-800 transition-colors"
-            >
-              View Bracket
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </Link>
-          ) : isHeats ? (
-            <Link
-              to={`/manage/results/heats/${sport.id}`}
-              className="flex items-center justify-between w-full px-4 py-3 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 active:bg-blue-800 transition-colors"
-            >
-              Enter Times
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </Link>
-          ) : isPool ? (
-            <Link
-              to={`/manage/results/pools/${sport.id}`}
-              className="flex items-center justify-between w-full px-4 py-3 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 active:bg-blue-800 transition-colors"
-            >
-              Enter Results
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </Link>
-          ) : matches.length === 0 ? (
+          {matches.length === 0 ? (
             <p className="text-sm text-gray-400 text-center py-2">No pending matches.</p>
           ) : (
             <ul className="space-y-2">

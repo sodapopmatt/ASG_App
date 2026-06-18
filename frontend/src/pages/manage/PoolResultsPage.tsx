@@ -39,6 +39,7 @@ function MatchCard({
 }) {
   const isDone = match.status === 'completed' || match.status === 'forfeit' || match.status === 'double_forfeit'
   const isLive = match.status === 'in_progress'
+  const hasScore = match.status === 'completed' && match.home_score != null && match.away_score != null
   return (
     <button
       onClick={onClick}
@@ -46,13 +47,19 @@ function MatchCard({
     >
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <p className={`text-sm truncate ${match.winner_id && match.winner_id === match.home_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'}`}>
-            {teamLabel(match.home_team_id, teamMap, companyMap)}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className={`text-sm truncate flex-1 ${match.winner_id && match.winner_id === match.home_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'}`}>
+              {teamLabel(match.home_team_id, teamMap, companyMap)}
+            </p>
+            {hasScore && <span className="text-sm font-semibold text-slate-600 tabular-nums shrink-0">{match.home_score}</span>}
+          </div>
           <p className="text-xs text-gray-400 my-0.5">vs</p>
-          <p className={`text-sm truncate ${match.winner_id && match.winner_id === match.away_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'}`}>
-            {teamLabel(match.away_team_id, teamMap, companyMap)}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className={`text-sm truncate flex-1 ${match.winner_id && match.winner_id === match.away_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'}`}>
+              {teamLabel(match.away_team_id, teamMap, companyMap)}
+            </p>
+            {hasScore && <span className="text-sm font-semibold text-slate-600 tabular-nums shrink-0">{match.away_score}</span>}
+          </div>
           <p className="text-xs text-gray-400 mt-1">
             {match.locations?.name ? `${match.locations.name} · ` : ''}
             {match.scheduled_at

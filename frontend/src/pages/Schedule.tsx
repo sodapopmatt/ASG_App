@@ -6,14 +6,10 @@ import { getTeams } from '../api/teams'
 import { getCompanies } from '../api/companies'
 import type { Match, Sport, Team, Company } from '../types'
 import { compactLabel } from '../lib/bracketHelpers'
+import { getSportIcon } from '../lib/sportIcons'
 
 type ViewMode = 'by_sport' | 'timeline'
 type StatusFilter = 'all' | 'active' | 'upcoming' | 'live' | 'completed'
-
-const ACCENT_COLORS = [
-  '#3B82F6', '#F97316', '#10B981', '#8B5CF6', '#EF4444',
-  '#F59E0B', '#06B6D4', '#EC4899', '#84CC16', '#6366F1',
-]
 
 function buildTimeSlot(minutes: number): { label: string; minutes: number } {
   const h = Math.floor(minutes / 60)
@@ -231,6 +227,7 @@ function MatchRow({
   const time = match.scheduled_at ? formatTime(match.scheduled_at) : null
   const isSingleTeam = bracketType === 'heats'
   const courtName = match.locations?.name
+  const hasScore = match.status === 'completed' && match.home_score != null && match.away_score != null
 
   if (isSingleTeam) {
     return (
@@ -251,14 +248,20 @@ function MatchRow({
   return (
     <div
       className="grid items-center gap-x-2 px-4 py-2 hover:bg-gray-50 text-sm border-t border-gray-100"
-      style={{ gridTemplateColumns: '5rem 1fr 2rem 1fr 5.5rem' }}
+      style={{ gridTemplateColumns: '5rem 1fr 3.5rem 1fr 5.5rem' }}
     >
       <div className="flex flex-col gap-0.5">
         <span className="text-xs text-gray-400 tabular-nums">{showTime && time ? time : ''}</span>
         {courtName && <span className="text-xs text-gray-500 truncate">{courtName}</span>}
       </div>
       <span className="text-right font-medium text-slate-700 truncate">{home}</span>
-      <span className="text-center text-xs text-gray-400">vs</span>
+      {hasScore ? (
+        <span className="text-center text-xs font-semibold text-slate-600 tabular-nums">
+          {match.home_score}–{match.away_score}
+        </span>
+      ) : (
+        <span className="text-center text-xs text-gray-400">vs</span>
+      )}
       <span className="font-medium text-slate-700 truncate">{away}</span>
       <div className="flex justify-end"><StatusBadge match={match}  /></div>
     </div>
@@ -302,10 +305,9 @@ function StatsStrip({ matches }: { matches: Match[] }) {
 // ── By Sport view ────────────────────────────────────────────────────────────
 
 function SportCard({
-  sport, color, rounds, teamMap, companyMap, expanded, onToggle,
+  sport, rounds, teamMap, companyMap, expanded, onToggle,
 }: {
   sport: Sport
-  color: string
   rounds: { roundKey: string; matches: Match[] }[]
   teamMap: Record<string, Team>
   companyMap: Record<string, Company>
@@ -327,7 +329,7 @@ function SportCard({
         onClick={onToggle}
         className="w-full flex items-center gap-2.5 px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
       >
-        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+        <span className="text-xl leading-none shrink-0" aria-hidden="true">{getSportIcon(sport.name)}</span>
         <span className="font-semibold text-slate-800 flex-1">{sport.name}</span>
         {hasLive && (
           <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Live</span>
@@ -378,7 +380,12 @@ function MatchChip({
     : isResolved(match)
     ? 'bg-gray-100 text-gray-600'
     : 'bg-blue-100 text-blue-800'
-  const label = bracketType === 'heats' ? home : `${home} vs ${away}`
+  const hasScore = match.status === 'completed' && match.home_score != null && match.away_score != null
+  const label = bracketType === 'heats'
+    ? home
+    : hasScore
+    ? `${home} ${match.home_score}–${match.away_score} ${away}`
+    : `${home} vs ${away}`
   return (
     <div className={`text-xs rounded px-1.5 py-0.5 mb-0.5 whitespace-nowrap leading-snug ${cls}`}>
       {label}
@@ -387,11 +394,10 @@ function MatchChip({
 }
 
 function TimelineView({
-  matches, sports, sportColorMap, teamMap, companyMap,
+  matches, sports, teamMap, companyMap,
 }: {
   matches: Match[]
   sports: Sport[]
-  sportColorMap: Record<string, string>
   teamMap: Record<string, Team>
   companyMap: Record<string, Company>
 }) {
@@ -445,12 +451,11 @@ function TimelineView({
         {/* Sport rows */}
         {sportIds.map(sportId => {
           const sport = sportMap[sportId]
-          const color = sportColorMap[sportId]
           const slots = grid[sportId] ?? {}
           return (
             <Fragment key={sportId}>
               <div className="flex items-center gap-2 px-3 py-3 border-b border-gray-100">
-                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                <span className="text-base leading-none shrink-0" aria-hidden="true">{getSportIcon(sport?.name ?? '')}</span>
                 <span className="text-xs font-medium text-slate-700 truncate">{sport?.name}</span>
               </div>
               {timelineSlots.map((_, idx) => (
@@ -480,11 +485,6 @@ export default function Schedule() {
   const [collapsedSports, setCollapsedSports] = useState<Set<string>>(new Set())
 
   const { matches, sports, sportMap, teamMap, companyMap, isLoading, isError } = useScheduleData()
-
-  const sportColorMap = useMemo(() => {
-    const sorted = [...sports].sort((a, b) => a.name.localeCompare(b.name))
-    return Object.fromEntries(sorted.map((s, i) => [s.id, ACCENT_COLORS[i % ACCENT_COLORS.length]]))
-  }, [sports])
 
   const filteredMatches = useMemo(() =>
     matches
@@ -575,7 +575,6 @@ export default function Schedule() {
             <SportCard
               key={sportId}
               sport={sport}
-              color={sportColorMap[sportId] ?? '#6B7280'}
               rounds={rounds}
               teamMap={teamMap}
               companyMap={companyMap}
@@ -590,7 +589,6 @@ export default function Schedule() {
         <TimelineView
           matches={filteredMatches}
           sports={[...sports].sort((a, b) => a.name.localeCompare(b.name))}
-          sportColorMap={sportColorMap}
           teamMap={teamMap}
           companyMap={companyMap}
         />

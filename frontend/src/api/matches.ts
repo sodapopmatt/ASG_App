@@ -14,11 +14,19 @@ export function startMatch(matchId: string) {
   return apiFetch<Match>(`/matches/${matchId}/start`, { method: 'POST' })
 }
 
-export function submitResult(matchId: string, winnerId: string) {
+export function submitResult(
+  matchId: string,
+  winnerId: string,
+  scores?: { home_score?: number | null; away_score?: number | null },
+) {
   return apiFetch<Match>(`/matches/${matchId}/result`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ winner_id: winnerId }),
+    body: JSON.stringify({
+      winner_id: winnerId,
+      home_score: scores?.home_score ?? null,
+      away_score: scores?.away_score ?? null,
+    }),
   })
 }
 

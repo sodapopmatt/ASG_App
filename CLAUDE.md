@@ -51,8 +51,10 @@ Do NOT change these without explicit migration updates.
 ---
 
 #### Scores
-- Scores do not exist in V1
-- No score-based logic anywhere
+- Matches carry optional `home_score` / `away_score` (nullable INT)
+- Supplementary only — admin still explicitly selects `winner_id`; scores do NOT auto-derive the outcome
+- NULL on forfeit / double_forfeit (cleared on those endpoints)
+- No score-based logic in standings/advancement (pool tiebreakers remain manual)
 
 ---
 
@@ -76,8 +78,6 @@ V1 migration is complete.
 
 - `players`
 - `team_rosters`
-- `home_score`
-- `away_score`
 
 ---
 
@@ -158,6 +158,8 @@ V1 migration is complete.
 - `away_team_id` (UUID, FK → teams, nullable)
 - `location_id` (UUID, FK → locations, nullable)
 - `winner_id` (UUID, FK → teams, nullable)
+- `home_score` (INT, nullable) — optional, supplementary to `winner_id`
+- `away_score` (INT, nullable) — optional, supplementary to `winner_id`
 - `winner_next_match_id` (UUID, self-ref → matches, nullable)
 - `loser_next_match_id` (UUID, self-ref → matches, nullable)
 - `status` (TEXT) — see locked decisions above
@@ -361,6 +363,7 @@ ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place (floor 0). SQL: 
 `POST /matches/{id}/result`
 
 - Sets `winner_id`
+- Accepts optional `home_score` / `away_score` (INT); does not validate winner against scores
 - Sets status = `completed`
 - Advances teams automatically
 - Updates downstream matches

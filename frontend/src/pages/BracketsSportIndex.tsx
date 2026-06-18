@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getSports } from '../api/sports'
+import { getSportIcon } from '../lib/sportIcons'
 import type { Sport } from '../types'
 
 const BRACKET_TYPE_LABELS: Record<string, string> = {
@@ -21,7 +22,10 @@ function SportCard({ sport }: { sport: Sport }) {
       onClick={() => navigate(`/brackets/${sport.id}`)}
       className="w-full text-left bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-4 flex items-center justify-between gap-3 active:bg-gray-50 transition-colors"
     >
-      <span className="font-semibold text-slate-800 text-base">{sport.name}</span>
+      <span className="flex items-center gap-2.5 min-w-0">
+        <span className="text-xl leading-none shrink-0" aria-hidden="true">{getSportIcon(sport.name)}</span>
+        <span className="font-semibold text-slate-800 text-base truncate">{sport.name}</span>
+      </span>
       <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full shrink-0">{label}</span>
     </button>
   )

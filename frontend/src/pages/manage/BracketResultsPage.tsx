@@ -13,7 +13,7 @@ import { getTeams } from '../../api/teams'
 import { getCompanies } from '../../api/companies'
 import { getBrackets } from '../../api/brackets'
 import type { Match, Team, Company } from '../../types'
-import { toLibraryMatch, stableSortMatches, lightTheme, bracketOptions, ZoomableBracket } from '../../lib/bracketHelpers'
+import { toLibraryMatch, stableSortMatches, lightTheme, bracketOptions, BracketSvgWrapper } from '../../lib/bracketHelpers'
 import MatchResultModal from '../../components/MatchResultModal'
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
@@ -84,9 +84,7 @@ function SingleBracketView({
       theme={lightTheme}
       options={bracketOptions}
       onMatchClick={({ match }) => onMatchClick(String(match.id))}
-      svgWrapper={({ children, bracketWidth, bracketHeight }) => (
-        <ZoomableBracket bracketWidth={bracketWidth} bracketHeight={bracketHeight}>{children}</ZoomableBracket>
-      )}
+      svgWrapper={BracketSvgWrapper}
     />
   )
 }
@@ -126,9 +124,7 @@ function DoubleBracketView({
       theme={lightTheme}
       options={bracketOptions}
       onMatchClick={({ match }) => onMatchClick(String(match.id))}
-      svgWrapper={({ children, bracketWidth, bracketHeight }) => (
-        <ZoomableBracket bracketWidth={bracketWidth} bracketHeight={bracketHeight}>{children}</ZoomableBracket>
-      )}
+      svgWrapper={BracketSvgWrapper}
     />
   )
 }

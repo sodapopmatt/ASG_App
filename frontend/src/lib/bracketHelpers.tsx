@@ -74,6 +74,7 @@ export function toLibraryMatch(
         resultText:
           m.status === 'double_forfeit' ? 'FF'
           : m.status === 'forfeit' && m.winner_id !== m.home_team_id ? 'FF'
+          : m.status === 'completed' && m.home_score != null ? String(m.home_score)
           : null,
       },
       {
@@ -84,6 +85,7 @@ export function toLibraryMatch(
         resultText:
           m.status === 'double_forfeit' ? 'FF'
           : m.status === 'forfeit' && m.winner_id !== m.away_team_id ? 'FF'
+          : m.status === 'completed' && m.away_score != null ? String(m.away_score)
           : null,
       },
     ],
@@ -133,6 +135,23 @@ function ZoomControls({ fitScale }: { fitScale: number }) {
       <button type="button" aria-label="Zoom out" className={btn} onClick={() => zoomOut()}>−</button>
       <button type="button" aria-label="Fit bracket" className={`${btn} text-sm`} onClick={() => centerView(fitScale, 200)}>⤢</button>
     </div>
+  )
+}
+
+// Stable svgWrapper identity for the bracket library. The library renders
+// svgWrapper as a component (<SvgWrapper>), so passing an inline arrow would be
+// a new component type on every render — remounting the whole bracket (and
+// resetting the pan/zoom TransformWrapper) whenever the page re-renders, e.g.
+// when a result modal opens. Reference this shared component instead.
+export function BracketSvgWrapper({ children, bracketWidth, bracketHeight }: {
+  children: React.ReactElement
+  bracketWidth: number
+  bracketHeight: number
+}) {
+  return (
+    <ZoomableBracket bracketWidth={bracketWidth} bracketHeight={bracketHeight}>
+      {children}
+    </ZoomableBracket>
   )
 }
 

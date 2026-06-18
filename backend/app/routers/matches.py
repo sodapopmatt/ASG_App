@@ -258,6 +258,8 @@ def post_result(match_id: str, result: MatchResult, _=Depends(require_admin)):
     update: dict = {
         "winner_id": winner_id,
         "status": "completed",
+        "home_score": result.home_score,
+        "away_score": result.away_score,
         "played_at": result.played_at.isoformat() if result.played_at else _now_iso(),
     }
     if result.notes:
@@ -306,6 +308,8 @@ def post_forfeit(match_id: str, body: MatchForfeit, _=Depends(require_admin)):
     update: dict = {
         "winner_id": winner_id,
         "status": "forfeit",
+        "home_score": None,
+        "away_score": None,
         "played_at": _now_iso(),
     }
     if body.notes:
@@ -335,6 +339,8 @@ def post_double_forfeit(match_id: str, body: MatchDoubleForfeit | None = None, _
     update: dict = {
         "status": "double_forfeit",
         "winner_id": None,
+        "home_score": None,
+        "away_score": None,
         "played_at": _now_iso(),
     }
     if body and body.notes:
