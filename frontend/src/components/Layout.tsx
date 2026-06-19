@@ -146,7 +146,7 @@ export default function Layout() {
             {/* Links group */}
             <div className="bg-white rounded-2xl overflow-hidden shadow-sm">
               <a
-                href="/rulebook.pdf"
+                href="https://drive.google.com/file/d/10lNmjOK7lt8u7b259H4ctEX1ZNDjCySj/view"
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => setMenuOpen(false)}
