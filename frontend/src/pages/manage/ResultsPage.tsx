@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import BackLink from '../../components/BackLink'
 import { useQuery } from '@tanstack/react-query'
 import { getMatches } from '../../api/matches'
 import { getTeams } from '../../api/teams'
@@ -212,7 +213,7 @@ export default function ResultsPage() {
   return (
     <div className="p-4 mt-2 space-y-3">
       <div className="flex items-center gap-2">
-        <Link to="/manage" className="text-blue-600 text-sm">← Manage</Link>
+        <BackLink to="/manage" label="Manage" />
       </div>
       <h2 className="text-xl font-bold text-slate-800">Enter Results</h2>
 

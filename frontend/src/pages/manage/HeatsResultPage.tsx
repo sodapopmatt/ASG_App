@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import BackLink from '../../components/BackLink'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getSports } from '../../api/sports'
 import { getTeams } from '../../api/teams'
@@ -231,7 +232,7 @@ export default function HeatsResultPage() {
   return (
     <div className="p-4 mt-2 space-y-3">
       <div className="flex items-center gap-2">
-        <Link to="/manage/results" className="text-blue-600 text-sm">← Enter Results</Link>
+        <BackLink to="/manage/results" label="Enter Results" />
       </div>
       <div>
         <h2 className="text-xl font-bold text-slate-800">{sport?.name ?? 'Heats'}</h2>

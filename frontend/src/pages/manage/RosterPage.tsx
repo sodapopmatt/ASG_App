@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import BackLink from '../../components/BackLink'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getTeam } from '../../api/teams'
 import { getRosterEntries, addRosterEntry, removeRosterEntry } from '../../api/roster_entries'
@@ -67,7 +68,7 @@ export default function RosterPage() {
   return (
     <div className="p-4 mt-2 space-y-4">
       <div className="flex items-center gap-2">
-        <Link to="/manage/teams" className="text-blue-600 text-sm">← Teams</Link>
+        <BackLink to="/manage/teams" label="Teams" />
       </div>
 
       <div>

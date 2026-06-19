@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { Link, useParams, Navigate } from 'react-router-dom'
+import BackLink from '../../components/BackLink'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getSports, generateBracket, resetBrackets, updateSport, getStandings, type DivisionSpec, type PoolSpec } from '../../api/sports'
 import { getMatches, patchMatch } from '../../api/matches'
@@ -542,7 +543,7 @@ export default function SportConfigPage() {
     <div className="p-4 mt-2 space-y-5">
       {/* Header */}
       <div>
-        <Link to="/manage/brackets" className="text-blue-600 text-sm">← Matches</Link>
+        <BackLink to="/manage/brackets" label="Matches" />
         <h2 className="text-xl font-bold text-slate-800">{sport.name}</h2>
         <p className="text-xs text-gray-400 mt-0.5">{sport.bracket_type.replace(/_/g, ' ')} · {sportTeams.length} team{sportTeams.length !== 1 ? 's' : ''}</p>
       </div>

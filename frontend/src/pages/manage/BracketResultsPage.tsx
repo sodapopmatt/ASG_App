@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import BackLink from '../../components/BackLink'
 import { useQuery } from '@tanstack/react-query'
 import {
   SingleEliminationBracket,
@@ -316,7 +317,7 @@ export default function BracketResultsPage() {
   return (
     <>
       <div className="p-4 mt-2">
-        <Link to="/manage/results" className="text-blue-600 text-sm">← Enter Results</Link>
+        <BackLink to="/manage/results" label="Enter Results" />
 
         <h2 className="text-xl font-bold text-slate-800 mt-3 mb-1">{sport?.name ?? 'Bracket'}</h2>
         <p className="text-xs text-gray-400 mb-4">Tap a match to enter the result</p>

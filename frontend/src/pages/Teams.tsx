@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { useTabMemory } from '../lib/useTabMemory'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getTeams } from '../api/teams'
@@ -23,7 +24,7 @@ export default function Teams() {
   const { data: sports = [], isLoading: sportsLoading } = useQuery({ queryKey: ['sports'], queryFn: getSports, staleTime: Infinity })
   const { data: teams = [] } = useQuery({ queryKey: ['teams'], queryFn: () => getTeams() })
 
-  const [view, setView] = useState<View>('companies')
+  const [view, setView] = useTabMemory<View>('/teams/view', 'companies')
   const [search, setSearch] = useState('')
 
   const teamsByCompany = useMemo(() => {

@@ -1,4 +1,5 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
 const NAV_ITEMS = [
@@ -74,10 +75,23 @@ const MANAGE_ITEM = {
 
 export default function BottomNav() {
   const { profile } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const lastPaths = useRef<Record<string, string>>({})
+
   const isManager = profile?.role === 'admin' || profile?.role === 'team_manager'
   const items = isManager
     ? [...NAV_ITEMS, MANAGE_ITEM]
     : [...NAV_ITEMS]
+
+  // Keep the remembered path up to date as the user navigates
+  useEffect(() => {
+    for (const { to } of items) {
+      if (location.pathname.startsWith(to)) {
+        lastPaths.current[to] = location.pathname
+      }
+    }
+  })
 
   return (
     <nav className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 flex justify-around z-10">
@@ -85,7 +99,14 @@ export default function BottomNav() {
         <NavLink
           key={to}
           to={to}
-          end={to !== '/brackets' && to !== '/teams'}
+          end={to !== '/brackets' && to !== '/teams' && to !== '/manage'}
+          onClick={(e) => {
+            const remembered = lastPaths.current[to]
+            if (remembered && remembered !== to && location.pathname !== remembered) {
+              e.preventDefault()
+              navigate(remembered)
+            }
+          }}
           className={({ isActive }) =>
             `flex flex-col items-center gap-1 py-2 px-4 text-xs font-medium transition-colors ${
               isActive ? 'text-blue-600' : 'text-gray-500'

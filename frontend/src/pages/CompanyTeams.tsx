@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import BackLink from '../components/BackLink'
 import { useQuery } from '@tanstack/react-query'
 import { getTeams } from '../api/teams'
 import { getSports } from '../api/sports'
@@ -127,7 +128,7 @@ export default function CompanyTeams() {
   return (
     <div className="flex flex-col">
       <div className="sticky top-0 z-10 bg-gray-50 px-4 pt-4 pb-3 space-y-1 border-b border-gray-200">
-        <Link to="/teams" className="text-blue-600 text-sm">← Companies</Link>
+        <BackLink to="/teams" label="Companies" />
         <h2 className="text-lg font-bold text-slate-800">{company?.name ?? 'Company'}</h2>
       </div>
 

@@ -1,4 +1,5 @@
 import { Fragment, useState, useMemo, useEffect } from 'react'
+import { useTabMemory } from '../lib/useTabMemory'
 import { useQuery } from '@tanstack/react-query'
 import { getMatches } from '../api/matches'
 import { getSports } from '../api/sports'
@@ -10,6 +11,14 @@ import { getSportIcon } from '../lib/sportIcons'
 
 type ViewMode = 'by_sport' | 'timeline'
 type StatusFilter = 'all' | 'active' | 'upcoming' | 'live' | 'completed'
+
+function getCompanyIdsForFilter(
+  companyId: string,
+  teams: Team[],
+): Set<string> {
+  if (companyId === 'all') return new Set()
+  return new Set(teams.filter(t => t.company_id === companyId).map(t => t.id))
+}
 
 function buildTimeSlot(minutes: number): { label: string; minutes: number } {
   const h = Math.floor(minutes / 60)
@@ -480,19 +489,30 @@ function TimelineView({
 // ── Main page ────────────────────────────────────────────────────────────────
 
 export default function Schedule() {
-  const [view, setView]               = useState<ViewMode>('by_sport')
-  const [sportFilter, setSportFilter] = useState<string>('all')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
-  const [collapsedSports, setCollapsedSports] = useState<Set<string>>(new Set())
+  const [view, setView]                   = useTabMemory<ViewMode>('/schedule/view', 'by_sport')
+  const [companyFilter, setCompanyFilter] = useState<string>(
+    () => localStorage.getItem('schedule_company_filter') ?? 'all'
+  )
+  const [statusFilter, setStatusFilter]   = useState<StatusFilter>('active')
+  const [expandedSports, setExpandedSports] = useState<Set<string>>(new Set())
 
   const { matches, sports, sportMap, teamMap, companyMap, isLoading, isError } = useScheduleData()
+
+  const teams = useMemo(() => Object.values(teamMap), [teamMap])
+  const companyTeamIds = useMemo(
+    () => getCompanyIdsForFilter(companyFilter, teams),
+    [companyFilter, teams],
+  )
 
   const filteredMatches = useMemo(() =>
     matches
       .filter(m => m.home_team_id !== null || m.away_team_id !== null)
-      .filter(m => sportFilter === 'all' || m.sport_id === sportFilter)
+      .filter(m => {
+        if (companyFilter === 'all') return true
+        return companyTeamIds.has(m.home_team_id ?? '') || companyTeamIds.has(m.away_team_id ?? '')
+      })
       .filter(m => matchesStatusFilter(m, statusFilter)),
-    [matches, sportFilter, statusFilter],
+    [matches, companyFilter, companyTeamIds, statusFilter],
   )
 
   const grouped = useMemo(
@@ -501,7 +521,7 @@ export default function Schedule() {
   )
 
   function toggleSport(sportId: string) {
-    setCollapsedSports(prev => {
+    setExpandedSports(prev => {
       const next = new Set(prev)
       next.has(sportId) ? next.delete(sportId) : next.add(sportId)
       return next
@@ -533,16 +553,19 @@ export default function Schedule() {
         </div>
       </div>
 
-      {/* Toolbar row 2: filters */}
+      {/* Toolbar row 2: company filter */}
       <div className="flex gap-2">
         <select
-          value={sportFilter}
-          onChange={e => setSportFilter(e.target.value)}
+          value={companyFilter}
+          onChange={e => {
+            setCompanyFilter(e.target.value)
+            localStorage.setItem('schedule_company_filter', e.target.value)
+          }}
           className="flex-1 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
         >
-          <option value="all">All sports</option>
-          {[...sports].sort((a, b) => a.name.localeCompare(b.name)).map(s => (
-            <option key={s.id} value={s.id}>{s.name}</option>
+          <option value="all">All companies</option>
+          {[...Object.values(companyMap)].sort((a, b) => a.name.localeCompare(b.name)).map(c => (
+            <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
       </div>
@@ -579,7 +602,7 @@ export default function Schedule() {
               rounds={rounds}
               teamMap={teamMap}
               companyMap={companyMap}
-              expanded={!collapsedSports.has(sportId)}
+              expanded={expandedSports.has(sportId)}
               onToggle={() => toggleSport(sportId)}
             />
           ))}

@@ -1,5 +1,8 @@
 import React from 'react'
 import { TransformWrapper, TransformComponent, useControls } from 'react-zoom-pan-pinch'
+
+// Module-level: persists transform state across navigation
+const savedBracketTransforms: Record<string, { x: number; y: number; scale: number }> = {}
 import { createTheme } from '@g-loot/react-tournament-brackets'
 import type { MatchType } from '@g-loot/react-tournament-brackets'
 import type { Match, Team, Company } from '../types'
@@ -162,6 +165,7 @@ export function ZoomableBracket({ children, bracketWidth, bracketHeight }: {
 }) {
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const [fitScale, setFitScale] = React.useState<number | null>(null)
+  const storageKey = `${bracketWidth}x${bracketHeight}`
 
   React.useLayoutEffect(() => {
     const el = containerRef.current
@@ -177,6 +181,7 @@ export function ZoomableBracket({ children, bracketWidth, bracketHeight }: {
   }, [bracketWidth, bracketHeight])
 
   const fitsAtFullSize = fitScale !== null && fitScale >= 1
+  const saved = fitScale !== null ? savedBracketTransforms[storageKey] : undefined
 
   return (
     <div
@@ -186,14 +191,19 @@ export function ZoomableBracket({ children, bracketWidth, bracketHeight }: {
     >
       {fitScale !== null && (
         <TransformWrapper
-          key={`${bracketWidth}x${bracketHeight}-${fitScale.toFixed(3)}`}
+          key={`${storageKey}-${fitScale.toFixed(3)}`}
           minScale={fitScale}
           maxScale={2.5}
-          initialScale={fitScale < 1 ? Math.max(fitScale, 0.85) : 1}
-          centerOnInit
-          centerZoomedOut
+          initialScale={saved?.scale ?? (fitScale < 1 ? Math.max(fitScale, 0.85) : 1)}
+          initialPositionX={saved?.x}
+          initialPositionY={saved?.y}
+          centerOnInit={!saved}
+          centerZoomedOut={!saved}
           doubleClick={{ mode: 'zoomIn' }}
           wheel={{ step: 0.15 }}
+          onTransform={(_, state) => {
+            savedBracketTransforms[storageKey] = { x: state.positionX, y: state.positionY, scale: state.scale }
+          }}
         >
           <ZoomControls fitScale={fitScale} />
           {!fitsAtFullSize && (

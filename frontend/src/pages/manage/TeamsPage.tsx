@@ -1,5 +1,7 @@
 import { useState, useMemo } from 'react'
+import { useTabMemory } from '../../lib/useTabMemory'
 import { useNavigate, Link } from 'react-router-dom'
+import BackLink from '../../components/BackLink'
 import { useQuery } from '@tanstack/react-query'
 import { getTeams } from '../../api/teams'
 import { getCompanies } from '../../api/companies'
@@ -23,7 +25,7 @@ export default function TeamsPage() {
   const { data: sports = [], isLoading: loadingSports } = useQuery({ queryKey: ['sports'], queryFn: getSports, staleTime: Infinity })
   const { data: teams = [] } = useQuery({ queryKey: ['teams'], queryFn: () => getTeams() })
 
-  const [view, setView] = useState<View>('companies')
+  const [view, setView] = useTabMemory<View>('/manage/teams/view', 'companies')
   const [search, setSearch] = useState('')
 
   const teamsByCompany = useMemo(() => {
@@ -56,7 +58,7 @@ export default function TeamsPage() {
 
   return (
     <div className="p-4 mt-2 space-y-4">
-      <Link to="/manage" className="text-blue-600 text-sm">← Manage</Link>
+      <BackLink to="/manage" label="Manage" />
       <h2 className="text-xl font-bold text-slate-800">Teams</h2>
 
       {/* View toggle */}

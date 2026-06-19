@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import BackLink from '../../components/BackLink'
 import { useQuery } from '@tanstack/react-query'
 import { getMatches } from '../../api/matches'
 import { getSports, getStandings, type TeamStanding } from '../../api/sports'
@@ -169,7 +170,7 @@ export default function PoolResultsPage() {
   return (
     <>
       <div className="p-4 mt-2">
-        <Link to="/manage/results" className="text-blue-600 text-sm">← Enter Results</Link>
+        <BackLink to="/manage/results" label="Enter Results" />
 
         <h2 className="text-xl font-bold text-slate-800 mt-3 mb-4">{sport?.name ?? 'Pool Play'}</h2>
 

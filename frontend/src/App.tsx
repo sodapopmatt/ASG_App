@@ -27,7 +27,7 @@ export default function App() {
     <AuthProvider>
       <Routes>
         <Route element={<Layout />}>
-          <Route index element={<Navigate to="/leaderboard" replace />} />
+          <Route index element={<Navigate to="/brackets" replace />} />
           <Route path="leaderboard" element={<Leaderboard />} />
           <Route path="schedule" element={<Schedule />} />
           <Route path="brackets" element={<BracketsSportIndex />} />

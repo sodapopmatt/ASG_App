@@ -1,5 +1,6 @@
 import { useState, useMemo, type FormEvent } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import BackLink from '../../components/BackLink'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getTeams, createTeam, updateTeam, deleteTeam } from '../../api/teams'
 import { getSports } from '../../api/sports'
@@ -429,7 +430,7 @@ export default function ManageCompanyTeams() {
 
   return (
     <div className="p-4 mt-2 space-y-4">
-      <Link to="/manage/teams" className="text-blue-600 text-sm">← Teams</Link>
+      <BackLink to="/manage/teams" label="Teams" />
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-xl font-bold text-slate-800">{company?.name ?? 'Company'}</h2>
         {isAdmin && !showAddForm && (

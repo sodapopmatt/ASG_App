@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import BackLink from '../../components/BackLink'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getSports } from '../../api/sports'
 import { getCompanies } from '../../api/companies'
@@ -88,7 +89,7 @@ export default function ScoringPage() {
   return (
     <div className="p-4 mt-2 space-y-6">
       <div className="flex items-center gap-2">
-        <Link to="/manage" className="text-blue-600 text-sm">← Manage</Link>
+        <BackLink to="/manage" label="Manage" />
       </div>
       <h2 className="text-xl font-bold text-slate-800">Award Placements</h2>
 

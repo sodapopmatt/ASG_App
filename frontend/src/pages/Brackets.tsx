@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react'
+import { useTabMemory } from '../lib/useTabMemory'
 import { useParams, Link } from 'react-router-dom'
+import BackLink from '../components/BackLink'
 import { useQuery } from '@tanstack/react-query'
 import {
   SingleEliminationBracket,
@@ -203,7 +205,7 @@ function PoolPlayView({
     })
   }
 
-  return <DivisionTabs sections={sections} />
+  return <DivisionTabs sections={sections} storageKey={`pool-tabs-${sportId}`} />
 }
 
 // ---- Fallback list for pool/swiss/manual -----------------------------------
@@ -373,12 +375,12 @@ function DoubleBracketView({
 
 function DivisionTabs({
   sections,
+  storageKey,
 }: {
   sections: { key: string; title: string; content: React.ReactNode }[]
+  storageKey?: string
 }) {
-  // One bracket on screen at a time; pick which via the tab bar. Avoids a long
-  // page of stacked brackets and keeps each view focused on a single venue.
-  const [active, setActive] = useState<string>(sections[0]?.key ?? '')
+  const [active, setActive] = useTabMemory<string>(storageKey ?? 'division-tabs', sections[0]?.key ?? '')
   const current = sections.find(s => s.key === active) ?? sections[0]
 
   return (
@@ -539,7 +541,7 @@ export default function BracketView() {
           content: <FallbackMatchList matches={championship} teamMap={teamMap} companyMap={companyMap} />,
         })
       }
-      return <DivisionTabs sections={sections} />
+      return <DivisionTabs sections={sections} storageKey={`division-tabs-${activeSportId}`} />
     }
     return <FallbackMatchList matches={sportMatches} teamMap={teamMap} companyMap={companyMap} />
   }
@@ -547,7 +549,7 @@ export default function BracketView() {
   return (
     <div className="p-4 mt-2">
       <div className="mb-4">
-        <Link to="/brackets" className="text-blue-600 text-sm">← Matches</Link>
+        <BackLink to="/brackets" label="Matches" />
         <h2 className="text-lg font-bold text-slate-800 mt-1">{activeSport.name}</h2>
       </div>
       {renderContent()}
