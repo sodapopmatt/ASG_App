@@ -176,6 +176,14 @@ export default function Layout() {
               </a>
             </div>
           </div>
+
+          {/* Footer */}
+          <div className="mt-auto px-6 pb-10 pt-8 text-center space-y-1">
+            <p className="text-sm text-blue-600">info@aerospacesummergames.com</p>
+            <p className="text-xs text-gray-400">© 2026 Aerospace Summer Games, Inc. All Rights Reserved.</p>
+            <p className="text-xs text-gray-400">Aerospace Summer Games, Inc. is a California nonprofit organization with 501(c)(3) tax‑exempt status.</p>
+            <p className="text-xs text-gray-300 pt-1">v{__APP_VERSION__}</p>
+          </div>
         </div>
       )}
     </div>
