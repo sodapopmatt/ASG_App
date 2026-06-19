@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { useParams, Link } from 'react-router-dom'
+﻿import { useState, useMemo } from 'react'
+import { useParams } from 'react-router-dom'
 import BackLink from '../components/BackLink'
 import { useQuery } from '@tanstack/react-query'
 import { getTeams } from '../api/teams'

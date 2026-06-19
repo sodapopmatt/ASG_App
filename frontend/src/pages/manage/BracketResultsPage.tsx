@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react'
-import { useParams, Link } from 'react-router-dom'
+﻿import React, { useState, useMemo } from 'react'
+import { useParams } from 'react-router-dom'
 import BackLink from '../../components/BackLink'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -31,10 +31,10 @@ function fullLabel(
   if (!team) return 'Unknown'
   const company = companyMap[team.company_id]
   const base = company?.name ?? 'Unknown'
-  return team.name ? `${base} · ${team.name}` : base
+  return team.name ? `${base} Â· ${team.name}` : base
 }
 
-// ─── Custom match component ───────────────────────────────────────────────────
+// â”€â”€â”€ Custom match component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function MatchComponent(props: MatchComponentProps) {
   const isPlaying = props.match.state === 'PLAYING'
@@ -58,7 +58,7 @@ function MatchComponent(props: MatchComponentProps) {
   )
 }
 
-// ─── Bracket views ────────────────────────────────────────────────────────────
+// â”€â”€â”€ Bracket views â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function SingleBracketView({
   matches,
@@ -182,7 +182,7 @@ function Skeleton() {
   )
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function BracketResultsPage() {
   const { sportId } = useParams<{ sportId: string }>()

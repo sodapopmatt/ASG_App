@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { Link, useParams } from 'react-router-dom'
+﻿import { useState, useMemo } from 'react'
+import { useParams } from 'react-router-dom'
 import BackLink from '../../components/BackLink'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getSports } from '../../api/sports'
@@ -28,7 +28,7 @@ function parseTimeInputs(mm: string, ss: string, ms: string): number | null {
 function teamDisplayName(team: Team, companyMap: Record<string, Company>): string {
   const company = companyMap[team.company_id]
   const base = company?.name ?? 'Unknown'
-  return team.name ? `${base} · ${team.name}` : base
+  return team.name ? `${base} Â· ${team.name}` : base
 }
 
 function TeamRow({
@@ -75,7 +75,7 @@ function TeamRow({
     if (!match) return
     const total = parseTimeInputs(mm, ss, ms)
     if (total === null || total <= 0) {
-      setError('Enter a valid time (seconds must be 0–59, ms 0–999)')
+      setError('Enter a valid time (seconds must be 0â€“59, ms 0â€“999)')
       return
     }
     setError(null)
@@ -109,7 +109,7 @@ function TeamRow({
 
       {hasNoMatch ? (
         <p className="text-sm text-gray-400 italic">
-          No entry found — generate entries from the Matches page first.
+          No entry found â€” generate entries from the Matches page first.
         </p>
       ) : (
         <>
@@ -161,7 +161,7 @@ function TeamRow({
                 disabled={mutation.isPending}
                 className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50"
               >
-                {mutation.isPending ? 'Saving…' : 'Save'}
+                {mutation.isPending ? 'Savingâ€¦' : 'Save'}
               </button>
               <button
                 onClick={handleForfeit}

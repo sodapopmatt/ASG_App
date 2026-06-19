@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { Link, useParams, Navigate } from 'react-router-dom'
+﻿import { useState, useMemo } from 'react'
+import { useParams, Navigate } from 'react-router-dom'
 import BackLink from '../../components/BackLink'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getSports, generateBracket, resetBrackets, updateSport, getStandings, type DivisionSpec, type PoolSpec } from '../../api/sports'
@@ -32,10 +32,10 @@ function teamLabel(
 ): string {
   if (!teamId) return 'TBD'
   const team = teamMap[teamId]
-  if (!team) return '—'
+  if (!team) return 'â€”'
   const company = companyMap[team.company_id]
   const base = company?.name ?? 'Unknown'
-  return team.name ? `${base} · ${team.name}` : base
+  return team.name ? `${base} Â· ${team.name}` : base
 }
 
 function UpIcon() {
@@ -125,7 +125,7 @@ function PoolBuckets({
               <div className="flex items-center gap-2">
                 <span className="text-xs text-gray-500">{poolTeams.length} teams</span>
                 {poolCourts.length > 0 && (
-                  <span className="text-xs text-gray-400">· {poolCourts.map(c => c.name).join(', ')}</span>
+                  <span className="text-xs text-gray-400">Â· {poolCourts.map(c => c.name).join(', ')}</span>
                 )}
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                   fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
@@ -139,7 +139,7 @@ function PoolBuckets({
                 <div className="flex flex-wrap gap-1.5">
                   {poolTeams.map(team => (
                     <div key={team.id} className="flex items-center gap-1 bg-gray-100 rounded-md px-2 py-1 text-xs text-slate-700">
-                      <span>{companyMap[team.company_id]?.name ?? '—'}{team.name ? ` · ${team.name}` : ''}</span>
+                      <span>{companyMap[team.company_id]?.name ?? 'â€”'}{team.name ? ` Â· ${team.name}` : ''}</span>
                       <select
                         value={i}
                         onChange={e => onMoveTeam(team.id, Number(e.target.value))}
@@ -309,7 +309,7 @@ export default function SportConfigPage() {
 
   const alreadyGenerated = matches.length > 0
 
-  // ── Pool play setup ─────────────────────────────────────────────────────────
+  // â”€â”€ Pool play setup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const effectivePoolCount = Math.max(1, Math.min(
     poolCount ?? Math.ceil(sportTeams.length / 8),
     Math.floor(sportTeams.length / 2) || 1,
@@ -341,7 +341,7 @@ export default function SportConfigPage() {
   }))
   const poolsValid = poolSpecs.every(p => p.team_ids.length >= 2)
 
-  // ── Bracket phase (pool_bracket only) ───────────────────────────────────────
+  // â”€â”€ Bracket phase (pool_bracket only) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const { data: brackets = [] } = useQuery({
     queryKey: ['brackets', sportId],
     queryFn: () => getBrackets(sportId!),
@@ -349,7 +349,7 @@ export default function SportConfigPage() {
   })
   const hasBracketPhase = isPool && brackets.some(b => b.phase !== 'pool')
   // Keep the bracket phase card visible even after the first bracket is generated
-  // so pickleball (and any pool_bracket sport) can generate a second bracket (e.g. 13th–20th).
+  // so pickleball (and any pool_bracket sport) can generate a second bracket (e.g. 13thâ€“20th).
   const showBracketPhaseCard = isPoolBracket && alreadyGenerated
 
   const { data: standings = [] } = useQuery({
@@ -545,7 +545,7 @@ export default function SportConfigPage() {
       <div>
         <BackLink to="/manage/brackets" label="Matches" />
         <h2 className="text-xl font-bold text-slate-800">{sport.name}</h2>
-        <p className="text-xs text-gray-400 mt-0.5">{sport.bracket_type.replace(/_/g, ' ')} · {sportTeams.length} team{sportTeams.length !== 1 ? 's' : ''}</p>
+        <p className="text-xs text-gray-400 mt-0.5">{sport.bracket_type.replace(/_/g, ' ')} Â· {sportTeams.length} team{sportTeams.length !== 1 ? 's' : ''}</p>
       </div>
 
       {/* Schedule Config */}
@@ -576,7 +576,7 @@ export default function SportConfigPage() {
           disabled={configMutation.isPending}
           className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
         >
-          {configMutation.isPending ? 'Saving…' : configMutation.isSuccess ? 'Saved' : 'Save'}
+          {configMutation.isPending ? 'Savingâ€¦' : configMutation.isSuccess ? 'Saved' : 'Save'}
         </button>
       </div>
 
@@ -586,7 +586,7 @@ export default function SportConfigPage() {
 
         {/* Chip grid */}
         {sortedLocations.length === 0 ? (
-          <p className="text-sm text-slate-400 italic">No courts defined — matches will be unassigned.</p>
+          <p className="text-sm text-slate-400 italic">No courts defined â€” matches will be unassigned.</p>
         ) : (
           <div className="flex flex-wrap gap-2">
             {sortedLocations.map(loc => (
@@ -597,7 +597,7 @@ export default function SportConfigPage() {
                   disabled={deleteCourtMutation.isPending}
                   className="text-gray-400 hover:text-red-500 disabled:opacity-40 leading-none text-base"
                 >
-                  ×
+                  Ã—
                 </button>
               </div>
             ))}
@@ -628,11 +628,11 @@ export default function SportConfigPage() {
               disabled={bulkGenerating || !bulkPrefix.trim()}
               className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0"
             >
-              {bulkGenerating ? 'Generating…' : 'Generate'}
+              {bulkGenerating ? 'Generatingâ€¦' : 'Generate'}
             </button>
           </div>
           <p className="text-xs text-gray-400 mt-1">
-            Creates "{bulkPrefix.trim() || 'Ct'} 1" through "{bulkPrefix.trim() || 'Ct'} {bulkCount}" — skips any that already exist.
+            Creates "{bulkPrefix.trim() || 'Ct'} 1" through "{bulkPrefix.trim() || 'Ct'} {bulkCount}" â€” skips any that already exist.
           </p>
         </div>
 
@@ -687,7 +687,7 @@ export default function SportConfigPage() {
         ) : isPool ? (
           <div className="space-y-3">
             <p className="text-sm text-slate-500 italic">
-              Each pool plays a round robin — every team plays every other team in its pool once.
+              Each pool plays a round robin â€” every team plays every other team in its pool once.
               {isPoolBracket && ' After pool play, the top teams advance to a single-elimination bracket.'}
             </p>
 
@@ -742,7 +742,7 @@ export default function SportConfigPage() {
                 <span className="text-sm text-slate-700">
                   Split into two divisions
                   <span className="block text-xs text-gray-400">
-                    Separate brackets per venue — the two division winners meet in a championship match.
+                    Separate brackets per venue â€” the two division winners meet in a championship match.
                   </span>
                 </span>
               </label>
@@ -771,8 +771,8 @@ export default function SportConfigPage() {
                     <div key={team.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
                       {!isRandomized && <span className="text-xs font-bold text-gray-400 w-5 text-center">{idx + 1}</span>}
                       <span className="flex-1 text-sm text-slate-700 truncate min-w-0">
-                        {companyMap[team.company_id]?.name ?? '—'}
-                        {team.name && <span className="text-gray-400"> · {team.name}</span>}
+                        {companyMap[team.company_id]?.name ?? 'â€”'}
+                        {team.name && <span className="text-gray-400"> Â· {team.name}</span>}
                       </span>
                       <DivToggle
                         value={teamDivOf(team.id)}
@@ -791,7 +791,7 @@ export default function SportConfigPage() {
 
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Courts</p>
                 {locations.length === 0 ? (
-                  <p className="text-sm text-slate-400 italic">No courts defined — add courts above to assign them to divisions.</p>
+                  <p className="text-sm text-slate-400 italic">No courts defined â€” add courts above to assign them to divisions.</p>
                 ) : (
                   <div className="space-y-1">
                     {locations.map(loc => (
@@ -821,8 +821,8 @@ export default function SportConfigPage() {
                     <div key={team.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
                       <span className="text-xs font-bold text-gray-400 w-5 text-center">{idx + 1}</span>
                       <span className="flex-1 text-sm text-slate-700">
-                        {companyMap[team.company_id]?.name ?? '—'}
-                        {team.name && <span className="text-gray-400"> · {team.name}</span>}
+                        {companyMap[team.company_id]?.name ?? 'â€”'}
+                        {team.name && <span className="text-gray-400"> Â· {team.name}</span>}
                       </span>
                       <div className="flex gap-0.5">
                         <button onClick={() => move(idx, -1)} disabled={idx === 0} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><UpIcon /></button>
@@ -844,7 +844,7 @@ export default function SportConfigPage() {
               disabled={genMutation.isPending || sportTeams.length < 2 || (splitEnabled && !splitValid) || (isPool && !poolsValid)}
               className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
             >
-              {genMutation.isPending ? 'Generating…' : isHeats ? 'Generate Entries' : isPool ? 'Generate Pool Play' : splitEnabled ? 'Generate Division Brackets' : 'Generate Bracket'}
+              {genMutation.isPending ? 'Generatingâ€¦' : isHeats ? 'Generate Entries' : isPool ? 'Generate Pool Play' : splitEnabled ? 'Generate Division Brackets' : 'Generate Bracket'}
             </button>
           </>
         )}
@@ -865,7 +865,7 @@ export default function SportConfigPage() {
           {pendingPoolCount > 0 && (
             <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
               {pendingPoolCount} pool match{pendingPoolCount !== 1 ? 'es are' : ' is'} still pending.
-              Standings may change — enter all results before generating the bracket.
+              Standings may change â€” enter all results before generating the bracket.
             </p>
           )}
 
@@ -889,7 +889,7 @@ export default function SportConfigPage() {
 
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Bracket seeds</p>
           {advancing.length === 0 ? (
-            <p className="text-sm text-slate-400 italic">No standings yet — enter pool results first.</p>
+            <p className="text-sm text-slate-400 italic">No standings yet â€” enter pool results first.</p>
           ) : (
             <div className="space-y-1">
               {advancing.map((teamId, idx) => {
@@ -902,9 +902,9 @@ export default function SportConfigPage() {
                     </span>
                     {record && (
                       <span className="text-xs text-gray-400 shrink-0">
-                        {record.wins}–{record.losses}
+                        {record.wins}â€“{record.losses}
                         {sport?.name === 'Pickleball' && (
-                          <> · {record.game_wins}GW · {record.point_diff >= 0 ? '+' : ''}{record.point_diff}PD</>
+                          <> Â· {record.game_wins}GW Â· {record.point_diff >= 0 ? '+' : ''}{record.point_diff}PD</>
                         )}
                       </span>
                     )}
@@ -924,7 +924,7 @@ export default function SportConfigPage() {
             disabled={bracketPhaseMutation.isPending || advancing.length < 2}
             className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
           >
-            {bracketPhaseMutation.isPending ? 'Generating…' : 'Generate Bracket Phase'}
+            {bracketPhaseMutation.isPending ? 'Generatingâ€¦' : 'Generate Bracket Phase'}
           </button>
         </div>
       )}
@@ -966,7 +966,7 @@ export default function SportConfigPage() {
                           <span className="flex-1 text-sm text-slate-700 truncate min-w-0">
                             {label}
                             {match.locations?.name && (
-                              <span className="text-gray-400"> · {match.locations.name}</span>
+                              <span className="text-gray-400"> Â· {match.locations.name}</span>
                             )}
                           </span>
                           <input
@@ -1006,7 +1006,7 @@ export default function SportConfigPage() {
           disabled={resetMutation.isPending}
           className="w-full py-2 rounded-lg border border-red-200 text-red-600 font-semibold text-sm hover:bg-red-50 disabled:opacity-50"
         >
-          {resetMutation.isPending ? 'Resetting…' : 'Reset All Brackets & Matches'}
+          {resetMutation.isPending ? 'Resettingâ€¦' : 'Reset All Brackets & Matches'}
         </button>
       </div>
     </div>

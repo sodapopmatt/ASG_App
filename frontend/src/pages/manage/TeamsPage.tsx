@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react'
+﻿import { useState, useMemo } from 'react'
 import { useTabMemory } from '../../lib/useTabMemory'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import BackLink from '../../components/BackLink'
 import { useQuery } from '@tanstack/react-query'
 import { getTeams } from '../../api/teams'
@@ -80,7 +80,7 @@ export default function TeamsPage() {
         type="search"
         value={search}
         onChange={e => setSearch(e.target.value)}
-        placeholder={view === 'companies' ? 'Search company…' : 'Search sport…'}
+        placeholder={view === 'companies' ? 'Search companyâ€¦' : 'Search sportâ€¦'}
         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
 

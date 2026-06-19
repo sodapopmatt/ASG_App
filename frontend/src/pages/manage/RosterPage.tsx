@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from 'react'
-import { useParams, Link } from 'react-router-dom'
+﻿import { useState, type FormEvent } from 'react'
+import { useParams } from 'react-router-dom'
 import BackLink from '../../components/BackLink'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getTeam } from '../../api/teams'
@@ -62,8 +62,8 @@ export default function RosterPage() {
     addMutation.mutate(trimmed)
   }
 
-  const sportName   = sports.find(s => s.id === team?.sport_id)?.name ?? '—'
-  const companyName = companies.find(c => c.id === team?.company_id)?.name ?? '—'
+  const sportName   = sports.find(s => s.id === team?.sport_id)?.name ?? 'â€”'
+  const companyName = companies.find(c => c.id === team?.company_id)?.name ?? 'â€”'
 
   return (
     <div className="p-4 mt-2 space-y-4">
@@ -73,7 +73,7 @@ export default function RosterPage() {
 
       <div>
         <h2 className="text-xl font-bold text-slate-800">
-          {companyName}{team?.name ? ` · ${team.name}` : ''}
+          {companyName}{team?.name ? ` Â· ${team.name}` : ''}
         </h2>
         <p className="text-sm text-gray-400">{sportName} roster</p>
       </div>
