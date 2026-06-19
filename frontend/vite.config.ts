@@ -13,6 +13,7 @@ export default defineConfig({
         description: 'Live scores, brackets, and standings for the Aerospace Summer Games',
         theme_color: '#0f172a',
         background_color: '#b08040',
+        start_url: '/',
         display: 'standalone',
         orientation: 'portrait',
         icons: [
