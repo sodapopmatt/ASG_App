@@ -161,7 +161,7 @@ function TeamCard({ team, isAdmin }: { team: Team; isAdmin: boolean }) {
             disabled={updateMutation.isPending}
             className="flex-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg py-1.5 disabled:opacity-50"
           >
-            {updateMutation.isPending ? 'Savingâ€¦' : 'Save'}
+            {updateMutation.isPending ? 'Saving…' : 'Save'}
           </button>
         </div>
       </div>
@@ -299,7 +299,7 @@ function CompanySection({
                     disabled={createMutation.isPending}
                     className="flex-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg py-1.5 disabled:opacity-50"
                   >
-                    {createMutation.isPending ? 'Creatingâ€¦' : 'Create'}
+                    {createMutation.isPending ? 'Creating…' : 'Create'}
                   </button>
                 </div>
               </form>
@@ -362,7 +362,7 @@ function AddTeamForNewCompany({
           required
           className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
-          <option value="">Select companyâ€¦</option>
+          <option value="">Select company…</option>
           {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
       </div>
@@ -386,7 +386,7 @@ function AddTeamForNewCompany({
         </button>
         <button type="submit" disabled={createMutation.isPending}
           className="flex-1 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg py-2 disabled:opacity-50">
-          {createMutation.isPending ? 'Creatingâ€¦' : 'Create'}
+          {createMutation.isPending ? 'Creating…' : 'Create'}
         </button>
       </div>
     </form>

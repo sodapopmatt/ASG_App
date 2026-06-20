@@ -101,7 +101,7 @@ export default function ScoringPage() {
           onChange={e => { setSportId(e.target.value); setCompanyId(''); setPlacement('') }}
           className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 bg-white"
         >
-          <option value="">Select sportâ€¦</option>
+          <option value="">Select sport…</option>
           {sports.map(s => (
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
@@ -121,7 +121,7 @@ export default function ScoringPage() {
                 onChange={e => { setCompanyId(e.target.value); setSaved(false) }}
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 bg-white"
               >
-                <option value="">Select companyâ€¦</option>
+                <option value="">Select company…</option>
                 {companies.map(c => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
@@ -136,7 +136,7 @@ export default function ScoringPage() {
                 onChange={e => { setPlacement(e.target.value); setTiedThrough(''); setSaved(false) }}
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 bg-white"
               >
-                <option value="">Select placementâ€¦</option>
+                <option value="">Select placement…</option>
                 {PLACEMENTS.map(p => (
                   <option key={p} value={p}>{ordinal(p)}</option>
                 ))}
@@ -176,7 +176,7 @@ export default function ScoringPage() {
               disabled={mutation.isPending || !companyId || !placement}
               className="w-full py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold disabled:opacity-40 hover:bg-blue-700 transition-colors"
             >
-              {mutation.isPending ? 'Savingâ€¦' : saved ? 'Saved!' : 'Award Placement'}
+              {mutation.isPending ? 'Saving…' : saved ? 'Saved!' : 'Award Placement'}
             </button>
           </form>
 

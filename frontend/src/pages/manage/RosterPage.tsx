@@ -62,8 +62,8 @@ export default function RosterPage() {
     addMutation.mutate(trimmed)
   }
 
-  const sportName   = sports.find(s => s.id === team?.sport_id)?.name ?? 'â€”'
-  const companyName = companies.find(c => c.id === team?.company_id)?.name ?? 'â€”'
+  const sportName   = sports.find(s => s.id === team?.sport_id)?.name ?? '—'
+  const companyName = companies.find(c => c.id === team?.company_id)?.name ?? '—'
 
   return (
     <div className="p-4 mt-2 space-y-4">
@@ -73,7 +73,7 @@ export default function RosterPage() {
 
       <div>
         <h2 className="text-xl font-bold text-slate-800">
-          {companyName}{team?.name ? ` Â· ${team.name}` : ''}
+          {companyName}{team?.name ? ` · ${team.name}` : ''}
         </h2>
         <p className="text-sm text-gray-400">{sportName} roster</p>
       </div>

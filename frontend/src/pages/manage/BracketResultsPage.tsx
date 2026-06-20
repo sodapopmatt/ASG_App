@@ -31,7 +31,7 @@ function fullLabel(
   if (!team) return 'Unknown'
   const company = companyMap[team.company_id]
   const base = company?.name ?? 'Unknown'
-  return team.name ? `${base} Â· ${team.name}` : base
+  return team.name ? `${base} · ${team.name}` : base
 }
 
 // â”€â”€â”€ Custom match component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

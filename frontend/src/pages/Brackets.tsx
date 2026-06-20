@@ -56,12 +56,12 @@ function HeatsStandingsView({
   }, [matches])
 
   function teamName(teamId: string | null | undefined) {
-    if (!teamId) return 'â€”'
+    if (!teamId) return '—'
     const team = teamMap[teamId]
-    if (!team) return 'â€”'
+    if (!team) return '—'
     const company = companyMap[team.company_id]
     const base = company?.name ?? 'Unknown'
-    return team.name ? `${base} Â· ${team.name}` : base
+    return team.name ? `${base} · ${team.name}` : base
   }
 
   if (rows.length === 0) return <p className="text-center text-gray-500 py-12">No results yet.</p>
@@ -76,7 +76,7 @@ function HeatsStandingsView({
         {rows.map(({ match, rank, ms, state }) => (
           <div key={match.id} className="grid items-center px-4 py-3 gap-3" style={{ gridTemplateColumns: '2.5rem 1fr auto' }}>
             <span className={`font-bold text-sm text-center ${state === 'done' ? 'text-slate-700' : 'text-gray-300'}`}>
-              {state === 'done' ? rank : 'â€”'}
+              {state === 'done' ? rank : '—'}
             </span>
             <span className="text-sm font-medium text-slate-700 truncate">{teamName(match.home_team_id)}</span>
             {state === 'done' && <span className="font-mono text-sm text-slate-700">{formatHeatTime(ms!)}</span>}
@@ -132,10 +132,10 @@ function PoolPlayView({
 
   function teamName(teamId: string) {
     const team = teamMap[teamId]
-    if (!team) return 'â€”'
+    if (!team) return '—'
     const company = companyMap[team.company_id]
     const base = company?.name ?? 'Unknown'
-    return team.name ? `${base} Â· ${team.name}` : base
+    return team.name ? `${base} · ${team.name}` : base
   }
 
   const showGameScores = sport?.name === 'Pickleball'
@@ -145,7 +145,7 @@ function PoolPlayView({
     return <FallbackMatchList matches={matches} teamMap={teamMap} companyMap={companyMap} />
   }
 
-  // One pool (or the bracket phase) per view, selected via tabs â€” same layout
+  // One pool (or the bracket phase) per view, selected via tabs — same layout
   // as venue-split elimination sports.
   const sections: { key: string; title: string; content: React.ReactNode }[] = standings.map(pool => ({
     key: pool.bracket_id,
@@ -174,7 +174,7 @@ function PoolPlayView({
               {pool.standings.map((row, i) => (
                 <tr key={row.team_id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
                   <td className="px-3 py-2 font-bold text-gray-400">
-                    {row.played > 0 ? row.rank : 'â€”'}
+                    {row.played > 0 ? row.rank : '—'}
                   </td>
                   <td className="px-3 py-2 text-slate-700">{teamName(row.team_id)}</td>
                   <td className="px-2 py-2 text-center font-semibold text-green-700">{row.wins}</td>
