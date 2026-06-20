@@ -20,7 +20,7 @@ The system supports:
 
 The system does not support:
 - Multiple events or years
-- Notifications
+- Push notifications (web push / OS-level); in-app banner alerts are supported — see 4.13
 - Player eligibility enforcement
 - Gender rules
 - Advanced scheduling automation
@@ -300,6 +300,21 @@ Team managers shall:
 
 ---
 
+### 4.13 Broadcast Alerts
+
+- Admins shall be able to issue broadcast alert messages that appear as a dismissable banner across the app for all users.
+- Each alert shall include:
+  - `message` (1–500 chars)
+  - `severity` (`info` | `warning` | `critical`)
+  - `active` flag
+  - optional `expires_at` timestamp (alerts auto-hide once past this time)
+- Only admins may create, edit, deactivate, or delete alerts.
+- Public clients shall fetch active, non-expired alerts via `GET /alerts/active` and the frontend shall poll this endpoint every 30 seconds.
+- Dismissals are client-side only (stored in `localStorage`) so an alert remains visible on other devices/sessions until deactivated or expired.
+- This is an in-app banner only — no web push or OS-level notifications.
+
+---
+
 ## 5. Data Requirements
 
 ### companies
@@ -374,6 +389,15 @@ Team managers shall:
 - `id` (UUID, PK)
 - `name` (TEXT)
 
+### alerts
+- `id` (UUID, PK)
+- `message` (TEXT, 1–500 chars)
+- `severity` (TEXT) — `info` | `warning` | `critical`
+- `active` (BOOLEAN, default true)
+- `expires_at` (TIMESTAMPTZ, nullable)
+- `created_by` (UUID, nullable, FK → auth.users)
+- `created_at` (TIMESTAMPTZ)
+
 ### user_profiles
 - `id` (UUID, PK, FK → auth.users)
 - `company_id` (UUID, FK → companies, nullable)
@@ -424,7 +448,7 @@ Constraints:
 ## 9. Constraints & Assumptions
 
 - Single event (2026 only)
-- No notifications
+- No push notifications (in-app banner alerts only — see 4.13)
 - No gender rules
 - No player validation
 - No archive/deactivation

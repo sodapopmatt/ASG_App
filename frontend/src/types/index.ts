@@ -92,3 +92,13 @@ export interface EventPoints {
   placement: number
   points: number
 }
+
+export interface Alert {
+  id: string
+  message: string
+  severity: 'info' | 'warning' | 'critical'
+  active: boolean
+  expires_at: string | null
+  created_by: string | null
+  created_at: string
+}

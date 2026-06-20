@@ -171,6 +171,19 @@ V1 migration is complete.
 
 ---
 
+### alerts
+- `id` (UUID)
+- `message` (TEXT, 1–500 chars)
+- `severity` (TEXT) — `info` | `warning` | `critical`
+- `active` (BOOL, default true)
+- `expires_at` (TIMESTAMPTZ, nullable) — alerts auto-hide once past this time
+- `created_by` (UUID, nullable FK → auth.users)
+- `created_at` (TIMESTAMPTZ)
+
+Admin-issued broadcast banners. Public can read active+unexpired via `GET /alerts/active`; the frontend polls this every 30s and renders dismissable banners at the top of every page (dismissal is client-side, stored in `localStorage`). Admin-only writes.
+
+---
+
 ### event_points
 - `company_id` (UUID, FK → companies)
 - `sport_id` (UUID, FK → sports)
@@ -333,6 +346,15 @@ ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place (floor 0). SQL: 
 | POST | `/` | team_manager | Add player name |
 | DELETE | `/{id}` | team_manager | Remove player |
 
+### Alerts — `/alerts`
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/active` | public | Active, non-expired alerts (used by the global banner) |
+| GET | `/` | admin | List all (active + past) |
+| POST | `/` | admin | Create alert |
+| PATCH | `/{id}` | admin | Update `message`, `severity`, `active`, `expires_at` |
+| DELETE | `/{id}` | admin | Delete alert |
+
 ### Locations — `/locations`
 | Method | Path | Auth | Description |
 |---|---|---|---|
@@ -354,6 +376,7 @@ ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place (floor 0). SQL: 
 | ScoringPage | `/manage/scoring` | Award placements to companies per sport; calls `/event-points/award-placement`. |
 | TeamsPage | `/manage/teams` | Create/edit/delete teams, grouped by sport+company. |
 | ManageHub | `/manage` | Navigation hub for admin pages. |
+| AlertsPage | `/manage/alerts` | Compose, deactivate, and delete broadcast banner alerts. |
 
 ---
 
@@ -441,7 +464,7 @@ ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place (floor 0). SQL: 
 - No third-party bracket integrations
 - No player account system
 - No manual scoring UI
-- No notification system
+- No push notifications (web push / OS-level); in-app banner alerts only — see Alerts section
 - No multi-event support
 
 ---

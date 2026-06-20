@@ -1,6 +1,7 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useState, useRef, useEffect } from 'react'
 import BottomNav from './BottomNav'
+import AlertBanner from './AlertBanner'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function Layout() {
@@ -77,6 +78,7 @@ export default function Layout() {
       </header>
 
       <main ref={mainRef} className="flex-1 overflow-auto pb-20">
+        <AlertBanner />
         <Outlet />
       </main>
 
