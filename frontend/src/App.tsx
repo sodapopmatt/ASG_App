@@ -5,6 +5,7 @@ import RequireAuth from './components/RequireAuth'
 import Leaderboard from './pages/Leaderboard'
 import Schedule from './pages/Schedule'
 import Account from './pages/Account'
+import Notifications from './pages/Notifications'
 import BracketView from './pages/Brackets'
 import BracketsSportIndex from './pages/BracketsSportIndex'
 import Teams from './pages/Teams'
@@ -37,6 +38,7 @@ export default function App() {
           <Route path="teams/:companyId" element={<CompanyTeams />} />
           <Route path="teams/sport/:sportId" element={<SportTeams />} />
           <Route path="account" element={<Account />} />
+          <Route path="notifications" element={<Notifications />} />
           <Route path="manage" element={<RequireAuth><ManageHub /></RequireAuth>} />
           <Route path="manage/teams" element={<RequireAuth><TeamsPage /></RequireAuth>} />
           <Route path="manage/teams/:companyId" element={<RequireAuth><ManageCompanyTeams /></RequireAuth>} />

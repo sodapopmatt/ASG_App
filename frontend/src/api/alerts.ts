@@ -11,6 +11,10 @@ export function getAllAlerts(): Promise<Alert[]> {
   return apiFetch<Alert[]>('/alerts/')
 }
 
+export function getAlertLog(): Promise<Alert[]> {
+  return apiFetch<Alert[]>('/alerts/log')
+}
+
 export function createAlert(input: {
   message: string
   severity: AlertSeverity

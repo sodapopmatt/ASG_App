@@ -34,6 +34,19 @@ class Alert(BaseModel):
     created_at: datetime
 
 
+@router.get("/log", response_model=list[Alert])
+def list_alert_log():
+    """Public alert history — all alerts ordered newest first. Used by the notifications log page."""
+    return (
+        supabase.table("alerts")
+        .select("*")
+        .order("created_at", desc=True)
+        .limit(100)
+        .execute()
+        .data
+    )
+
+
 @router.get("/active", response_model=list[Alert])
 def list_active_alerts():
     now_iso = datetime.utcnow().isoformat()

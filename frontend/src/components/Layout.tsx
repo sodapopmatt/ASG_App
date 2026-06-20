@@ -2,6 +2,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useState, useRef, useEffect } from 'react'
 import BottomNav from './BottomNav'
 import AlertBanner from './AlertBanner'
+import { useUnseenAlertCount } from '../lib/seenAlerts'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function Layout() {
@@ -9,6 +10,7 @@ export default function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
   const { user, profile, signOut } = useAuth()
+  const unseenCount = useUnseenAlertCount()
   const mainRef = useRef<HTMLElement>(null)
   const scrollPositions = useRef<Record<string, number>>({})
 
@@ -65,7 +67,7 @@ export default function Layout() {
         <button
           onClick={() => setMenuOpen(true)}
           className="relative p-2 rounded-full transition-colors text-white/70 hover:text-white"
-          aria-label="Open menu"
+          aria-label={unseenCount > 0 ? `Open menu (${unseenCount} unread notifications)` : 'Open menu'}
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
@@ -74,6 +76,11 @@ export default function Layout() {
             <line x1="3" y1="12" x2="21" y2="12" />
             <line x1="3" y1="18" x2="21" y2="18" />
           </svg>
+          {unseenCount > 0 && (
+            <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-white/40">
+              {unseenCount > 9 ? '9+' : unseenCount}
+            </span>
+          )}
         </button>
       </header>
 
@@ -147,6 +154,25 @@ export default function Layout() {
 
             {/* Links group */}
             <div className="bg-white rounded-2xl overflow-hidden shadow-sm">
+              <button
+                onClick={() => { setMenuOpen(false); navigate('/notifications') }}
+                className="w-full flex items-center justify-between px-4 py-4 text-base text-slate-800 hover:bg-gray-50 active:bg-gray-100"
+              >
+                <span className="flex items-center gap-2">
+                  Notifications
+                  {unseenCount > 0 && (
+                    <span className="min-w-[20px] h-[20px] px-1.5 rounded-full bg-red-500 text-white text-[11px] font-bold flex items-center justify-center">
+                      {unseenCount > 9 ? '9+' : unseenCount}
+                    </span>
+                  )}
+                </span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                  className="text-gray-300">
+                  <polyline points="9 18 15 12 9 6" />
+                </svg>
+              </button>
+              <div className="border-t border-gray-100 mx-4" />
               <a
                 href="https://drive.google.com/file/d/10lNmjOK7lt8u7b259H4ctEX1ZNDjCySj/view"
                 target="_blank"
