@@ -63,6 +63,11 @@ export default function ScoringPage() {
     [eventPoints, sportId],
   )
 
+  const placementSports = useMemo(
+    () => sports.filter(s => s.scoring_mode !== 'donation_count'),
+    [sports],
+  )
+
   const mutation = useMutation({
     mutationFn: () => awardPlacement(companyId, sportId, Number(placement), tiedThrough ? Number(tiedThrough) : undefined),
     onSuccess: () => {
@@ -102,7 +107,7 @@ export default function ScoringPage() {
           className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 bg-white"
         >
           <option value="">Select sport…</option>
-          {sports.map(s => (
+          {placementSports.map(s => (
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </select>

@@ -14,11 +14,86 @@ import { getSports, getStandings } from '../api/sports'
 import { getTeams } from '../api/teams'
 import { getCompanies } from '../api/companies'
 import { getBrackets } from '../api/brackets'
-import type { Match, Team, Company, Sport, Bracket } from '../types'
+import { getDonationCounts } from '../api/donation_counts'
+import type { Match, Team, Company, Sport, Bracket, DonationCount } from '../types'
 import { toLibraryMatch, stableSortMatches, lightTheme, bracketOptions, BracketSvgWrapper, compactLabel } from '../lib/bracketHelpers'
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [item[key], item]))
+}
+
+// ---- Donation counts view --------------------------------------------------
+
+function donationPointsFor(counts: number[]): Record<number, number> {
+  const distinct = Array.from(new Set(counts)).sort((a, b) => b - a)
+  const map: Record<number, number> = {}
+  distinct.forEach((c, i) => {
+    if (i === 0) map[c] = 15
+    else if (i === 1) map[c] = 10
+    else if (c >= 10) map[c] = 5
+    else map[c] = 0
+  })
+  return map
+}
+
+function DonationCountsView({
+  sportId,
+  companyMap,
+}: {
+  sportId: string
+  companyMap: Record<string, Company>
+}) {
+  const { data: donations = [], isLoading } = useQuery<DonationCount[]>({
+    queryKey: ['donation-counts', sportId],
+    queryFn: () => getDonationCounts({ sport_id: sportId }),
+  })
+
+  const rows = useMemo(() => {
+    const ptMap = donationPointsFor(donations.map(d => d.item_count))
+    const distinctDesc = Object.keys(ptMap).map(Number).sort((a, b) => b - a)
+    const rankFor: Record<number, number> = {}
+    distinctDesc.forEach((c, i) => { rankFor[c] = i + 1 })
+    return [...donations]
+      .sort((a, b) => b.item_count - a.item_count)
+      .map(d => ({
+        donation: d,
+        rank: rankFor[d.item_count],
+        points: ptMap[d.item_count] ?? 0,
+      }))
+  }, [donations])
+
+  if (isLoading) return <p className="text-center text-gray-400 py-12">Loading…</p>
+  if (rows.length === 0) {
+    return <p className="text-center text-gray-500 py-12">No donations recorded yet.</p>
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-200 overflow-hidden">
+      <table className="w-full text-sm">
+        <thead className="bg-gray-50 border-b border-gray-200">
+          <tr>
+            <th className="text-left px-3 py-2 font-semibold text-gray-500 w-12">#</th>
+            <th className="text-left px-3 py-2 font-semibold text-gray-500">Company</th>
+            <th className="text-right px-3 py-2 font-semibold text-gray-500">Items</th>
+            <th className="text-right px-3 py-2 font-semibold text-gray-500">Points</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ donation, rank, points }, i) => {
+            const company = companyMap[donation.company_id]
+            return (
+              <tr key={donation.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                <td className="px-3 py-2 font-bold text-gray-400 tabular-nums">{rank}</td>
+                <td className="px-3 py-2 text-slate-800">{company?.name ?? '—'}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-slate-700">{donation.item_count}</td>
+                <td className="px-3 py-2 text-right tabular-nums font-bold text-blue-600">{points}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
 }
 
 // ---- Heats standings -------------------------------------------------------
@@ -503,6 +578,9 @@ export default function BracketView() {
   }
 
   function renderContent() {
+    if (activeSport?.scoring_mode === 'donation_count') {
+      return <DonationCountsView sportId={activeSportId!} companyMap={companyMap} />
+    }
     if (bracketType === 'heats') {
       return <HeatsStandingsView matches={sportMatches} teamMap={teamMap} companyMap={companyMap} />
     }

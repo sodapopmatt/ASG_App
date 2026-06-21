@@ -17,3 +17,11 @@ export function createLocation(sportId: string, name: string): Promise<Location>
 export function deleteLocation(locationId: string): Promise<void> {
   return apiFetch<void>(`/locations/${locationId}`, { method: 'DELETE' })
 }
+
+export function updateLocation(locationId: string, name: string): Promise<Location> {
+  return apiFetch<Location>(`/locations/${locationId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+}

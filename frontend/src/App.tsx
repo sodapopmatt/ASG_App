@@ -20,6 +20,7 @@ import ResultsPage from './pages/manage/ResultsPage'
 import BracketResultsPage from './pages/manage/BracketResultsPage'
 import HeatsResultPage from './pages/manage/HeatsResultPage'
 import PoolResultsPage from './pages/manage/PoolResultsPage'
+import DonationResultsPage from './pages/manage/DonationResultsPage'
 import ScoringPage from './pages/manage/ScoringPage'
 import SportConfigPage from './pages/manage/SportConfigPage'
 import AlertsPage from './pages/manage/AlertsPage'
@@ -49,6 +50,7 @@ export default function App() {
           <Route path="manage/results/brackets/:sportId" element={<RequireAuth><BracketResultsPage /></RequireAuth>} />
           <Route path="manage/results/heats/:sportId" element={<RequireAuth><HeatsResultPage /></RequireAuth>} />
           <Route path="manage/results/pools/:sportId" element={<RequireAuth><PoolResultsPage /></RequireAuth>} />
+          <Route path="manage/results/donations/:sportId" element={<RequireAuth><DonationResultsPage /></RequireAuth>} />
           <Route path="manage/scoring" element={<RequireAuth><ScoringPage /></RequireAuth>} />
           <Route path="manage/alerts" element={<RequireAuth><AlertsPage /></RequireAuth>} />
         </Route>

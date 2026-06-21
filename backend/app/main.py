@@ -11,6 +11,7 @@ from app.routers import (
     roster_entries,
     locations,
     alerts,
+    donation_counts,
 )
 from app.auth import get_current_profile, UserProfile
 
@@ -34,6 +35,7 @@ app.include_router(leaderboard.router,     prefix="/leaderboard",     tags=["lea
 app.include_router(roster_entries.router, prefix="/roster-entries", tags=["roster-entries"])
 app.include_router(locations.router,      prefix="/locations",      tags=["locations"])
 app.include_router(alerts.router,         prefix="/alerts",         tags=["alerts"])
+app.include_router(donation_counts.router, prefix="/donation-counts", tags=["donation-counts"])
 
 
 @app.get("/me")

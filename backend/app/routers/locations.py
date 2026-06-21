@@ -40,6 +40,28 @@ def create_location(body: LocationCreate, _=Depends(require_admin)):
         raise HTTPException(status_code=502, detail=f"Database error: {getattr(exc, 'message', exc)}")
 
 
+class LocationUpdate(BaseModel):
+    name: str
+
+
+@router.patch("/{location_id}", response_model=Location)
+def update_location(location_id: str, body: LocationUpdate, _=Depends(require_admin)):
+    try:
+        result = (
+            supabase.table("locations")
+            .update({"name": body.name})
+            .eq("id", location_id)
+            .execute()
+        )
+    except APIError as exc:
+        if getattr(exc, "code", None) == "23505":
+            raise HTTPException(status_code=409, detail="A location with that name already exists for this sport")
+        raise HTTPException(status_code=502, detail=f"Database error: {getattr(exc, 'message', exc)}")
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Location not found")
+    return result.data[0]
+
+
 @router.delete("/{location_id}", status_code=204)
 def delete_location(location_id: str, _=Depends(require_admin)):
     supabase.table("locations").delete().eq("id", location_id).execute()

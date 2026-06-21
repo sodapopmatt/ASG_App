@@ -14,6 +14,7 @@ BracketType = Literal[
 
 ScoringDirection = Literal["high_wins", "low_wins"]
 MultiTeamRule = Literal["best_placement", "average_score"]
+ScoringMode = Literal["placement", "donation_count"]
 
 
 class SportCreate(BaseModel):
@@ -23,8 +24,10 @@ class SportCreate(BaseModel):
     scoring_direction: ScoringDirection = "high_wins"
     multi_team_rule: MultiTeamRule = "best_placement"
     points_scale: dict | None = None  # None = use ASG scale; e.g. {"1": 15, "2": 10, "default": 5}
+    scoring_mode: ScoringMode = "placement"
     match_duration_minutes: Optional[int] = None
     schedule_start: Optional[datetime] = None
+    schedule_end: Optional[datetime] = None
 
 
 class SportUpdate(BaseModel):
@@ -34,8 +37,10 @@ class SportUpdate(BaseModel):
     scoring_direction: ScoringDirection | None = None
     multi_team_rule: MultiTeamRule | None = None
     points_scale: dict | None = None
+    scoring_mode: ScoringMode | None = None
     match_duration_minutes: Optional[int] = None
     schedule_start: Optional[datetime] = None
+    schedule_end: Optional[datetime] = None
 
 
 class Sport(SportCreate):

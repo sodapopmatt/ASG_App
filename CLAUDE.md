@@ -112,6 +112,7 @@ V1 migration is complete.
 - `scoring_direction` (TEXT) — `high_wins` | `low_wins`
 - `multi_team_rule` (TEXT) — `best_placement` | `average_score`
 - `points_scale` (JSONB, nullable) — NULL = ASG default scale
+- `scoring_mode` (TEXT) — `placement` (default; admin awards via `/event-points/award-placement`) | `donation_count` (admin enters per-company item counts via `/donation-counts`; points derived: top=15, second=10, ≥10 items=5, else=0; ties share points)
 - `match_duration_minutes` (INT, nullable)
 - `schedule_start` (TIMESTAMPTZ, nullable)
 
@@ -193,6 +194,17 @@ Admin-issued broadcast banners. Public can read active+unexpired via `GET /alert
 
 ---
 
+### donation_counts
+- `id` (UUID)
+- `company_id` (UUID, FK → companies)
+- `sport_id` (UUID, FK → sports) — must have `scoring_mode = 'donation_count'`
+- `item_count` (INT, ≥0)
+- UNIQUE(company_id, sport_id)
+
+Per-company donation totals for donation-style sports (Canned Food Drive). Writes to `/donation-counts` automatically recompute `event_points` for the sport using the bucket rules (top=15, second=10, ≥10 items=5, else=0; ties share points). `event_points.placement` is set to a synthetic 1/2/3 corresponding to the bucket.
+
+---
+
 ## Bracket System
 
 ### Supported Types
@@ -268,7 +280,7 @@ Admin-issued broadcast banners. Public can read active+unexpired via `GET /alert
 | Relay Race | heats | 1 | high_wins | best_placement | ASG default |
 | Human Pyramid | heats | 1 | low_wins | best_placement | ASG default |
 | Water Ball Toss | points_based | 5 | high_wins | average_score | ASG default |
-| Canned Food Drive | points_based | 1 | high_wins | best_placement | `{"1":15,"2":10,"default":5}` |
+| Canned Food Drive | points_based | 1 | high_wins | best_placement | n/a (uses `scoring_mode='donation_count'`) |
 
 ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place (floor 0). SQL: `asg_points(placement INTEGER)`.
 
@@ -361,6 +373,14 @@ ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place (floor 0). SQL: 
 | GET | `/` | public | List; filter: `sport_id` |
 | POST | `/` | admin | Create location for a sport |
 | DELETE | `/{id}` | admin | Delete location |
+
+### Donation Counts — `/donation-counts`
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/` | public | List; filters: `sport_id`, `company_id` |
+| PUT | `/` | admin | Upsert `(company_id, sport_id, item_count)`; recomputes `event_points` for the sport |
+| DELETE | `/{id}` | admin | Remove a row; recomputes `event_points` for the sport |
+| POST | `/sports/{sport_id}/recompute` | admin | Force recompute of `event_points` from `donation_counts` |
 
 ---
 

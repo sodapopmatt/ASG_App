@@ -6,9 +6,9 @@ import { getSports, generateBracket, resetBrackets, updateSport, getStandings, t
 import { getMatches, patchMatch } from '../../api/matches'
 import { getTeams } from '../../api/teams'
 import { getCompanies } from '../../api/companies'
-import { getLocations, createLocation, deleteLocation } from '../../api/locations'
+import { getLocations, createLocation, deleteLocation, updateLocation } from '../../api/locations'
 import { getBrackets } from '../../api/brackets'
-import type { Match, Team, Company } from '../../types'
+import type { Match, Team, Company, Location as LocationRow } from '../../types'
 
 const GENERATABLE = new Set(['single_elimination', 'double_elimination', 'heats', 'pool_bracket', 'pool_swiss'])
 
@@ -53,6 +53,122 @@ function DownIcon() {
       fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="6 9 12 15 18 9" />
     </svg>
+  )
+}
+
+function DonationSportConfig({
+  sportId,
+  sportName,
+  scheduleStart,
+  scheduleEnd,
+  locations,
+}: {
+  sportId: string
+  sportName: string
+  scheduleStart: string | null
+  scheduleEnd: string | null
+  locations: LocationRow[]
+}) {
+  const qc = useQueryClient()
+  const [start, setStart] = useState(toDatetimeLocal(scheduleStart))
+  const [end, setEnd] = useState(toDatetimeLocal(scheduleEnd))
+  const [locationName, setLocationName] = useState(locations[0]?.name ?? '')
+  const [scheduleError, setScheduleError] = useState<string | null>(null)
+  const [locationError, setLocationError] = useState<string | null>(null)
+
+  const scheduleMutation = useMutation({
+    mutationFn: () =>
+      updateSport(sportId, {
+        schedule_start: start ? new Date(start).toISOString() : null,
+        schedule_end: end ? new Date(end).toISOString() : null,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sports'] })
+      setScheduleError(null)
+    },
+    onError: e => setScheduleError(e instanceof Error ? e.message : 'Failed to save'),
+  })
+
+  const locationMutation = useMutation({
+    mutationFn: async () => {
+      const name = locationName.trim()
+      const [first, ...rest] = locations
+      if (!name) {
+        for (const loc of locations) await deleteLocation(loc.id)
+        return
+      }
+      if (first) {
+        if (first.name !== name) await updateLocation(first.id, name)
+      } else {
+        await createLocation(sportId, name)
+      }
+      // Clean up any legacy extras so the donation sport only has one location.
+      for (const extra of rest) await deleteLocation(extra.id)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['locations', sportId] })
+      setLocationError(null)
+    },
+    onError: e => setLocationError(e instanceof Error ? e.message : 'Failed to save location'),
+  })
+
+  return (
+    <div className="p-4 mt-2 space-y-5">
+      <div>
+        <BackLink to="/manage/brackets" label="Matches" />
+        <h2 className="text-xl font-bold text-slate-800">{sportName}</h2>
+        <p className="text-xs text-gray-400 mt-0.5">Donation drive · sport-wide event</p>
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-4 space-y-3">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Schedule</p>
+        <label className="space-y-1 block">
+          <span className="text-xs text-gray-400">Start time</span>
+          <input
+            type="datetime-local"
+            value={start}
+            onChange={e => setStart(e.target.value)}
+            className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+          />
+        </label>
+        <label className="space-y-1 block">
+          <span className="text-xs text-gray-400">End time</span>
+          <input
+            type="datetime-local"
+            value={end}
+            onChange={e => setEnd(e.target.value)}
+            className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+          />
+        </label>
+        {scheduleError && <p className="text-sm text-red-600">{scheduleError}</p>}
+        <button
+          onClick={() => scheduleMutation.mutate()}
+          disabled={scheduleMutation.isPending}
+          className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
+        >
+          {scheduleMutation.isPending ? 'Saving…' : scheduleMutation.isSuccess ? 'Saved' : 'Save'}
+        </button>
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-4 space-y-3">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Location</p>
+        <input
+          type="text"
+          value={locationName}
+          onChange={e => setLocationName(e.target.value)}
+          placeholder="e.g. Main Lobby"
+          className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+        />
+        {locationError && <p className="text-sm text-red-600">{locationError}</p>}
+        <button
+          onClick={() => locationMutation.mutate()}
+          disabled={locationMutation.isPending}
+          className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
+        >
+          {locationMutation.isPending ? 'Saving…' : locationMutation.isSuccess ? 'Saved' : 'Save'}
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -536,6 +652,18 @@ export default function SportConfigPage() {
   }
 
   if (!sport) return <Navigate to="/manage/brackets" replace />
+
+  if (sport.scoring_mode === 'donation_count') {
+    return (
+      <DonationSportConfig
+        sportId={sportId!}
+        sportName={sport.name}
+        scheduleStart={sport.schedule_start}
+        scheduleEnd={sport.schedule_end}
+        locations={sortedLocations}
+      />
+    )
+  }
 
   const canGenerate = GENERATABLE.has(sport.bracket_type)
 

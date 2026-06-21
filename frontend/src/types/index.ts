@@ -14,9 +14,20 @@ export interface Sport {
   scoring_direction: 'high_wins' | 'low_wins'
   multi_team_rule: 'best_placement' | 'average_score'
   points_scale: Record<string, number> | null
+  scoring_mode: 'placement' | 'donation_count'
   match_duration_minutes: number | null
   schedule_start: string | null
+  schedule_end: string | null
   created_at: string
+}
+
+export interface DonationCount {
+  id: string
+  company_id: string
+  sport_id: string
+  item_count: number
+  created_at: string
+  updated_at: string
 }
 
 export interface Team {
