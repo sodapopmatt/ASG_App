@@ -688,7 +688,6 @@ export default function Schedule() {
           ['live',      'Live'],
           ['upcoming',  'Upcoming'],
           ['completed', 'Completed'],
-          ['all',       'All'],
         ] as [StatusFilter, string][]).map(([val, label]) => (
           <button
             key={val}
