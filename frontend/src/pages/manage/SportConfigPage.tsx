@@ -597,7 +597,7 @@ export default function SportConfigPage() {
                   disabled={deleteCourtMutation.isPending}
                   className="text-gray-400 hover:text-red-500 disabled:opacity-40 leading-none text-base"
                 >
-                  Ã—
+                  ×
                 </button>
               </div>
             ))}
