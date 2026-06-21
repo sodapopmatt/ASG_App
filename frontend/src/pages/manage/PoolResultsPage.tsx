@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import BackLink from '../../components/BackLink'
+import { useTabMemory } from '../../lib/useTabMemory'
 import { useQuery } from '@tanstack/react-query'
 import { getMatches } from '../../api/matches'
 import { getSports, getStandings, type TeamStanding } from '../../api/sports'
@@ -149,6 +150,13 @@ export default function PoolResultsPage() {
 
   const showGameScores = sport?.name === 'Pickleball'
 
+  const [activePoolId, setActivePoolId] = useTabMemory<string>(
+    `pool-results-tabs-${sportId ?? ''}`,
+    pools[0]?.id ?? '',
+  )
+  const selectedPoolId = pools.some(p => p.id === activePoolId) ? activePoolId : pools[0]?.id ?? ''
+  const visiblePools = pools.filter(p => p.id === selectedPoolId)
+
   const isLoading =
     matchesQuery.isLoading  ||
     sportsQuery.isLoading   ||
@@ -189,8 +197,27 @@ export default function PoolResultsPage() {
         {pools.length === 0 ? (
           <p className="text-center text-gray-500 py-12">No pools for this sport yet.</p>
         ) : (
+          <>
+            {pools.length > 1 && (
+              <div className="flex gap-2 mb-4 overflow-x-auto -mx-4 px-4 pb-1">
+                {pools.map(pool => (
+                  <button
+                    key={pool.id}
+                    type="button"
+                    onClick={() => setActivePoolId(pool.id)}
+                    className={`shrink-0 px-3.5 py-1.5 rounded-full text-sm font-semibold transition-colors ${
+                      pool.id === selectedPoolId
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-slate-600 active:bg-gray-200'
+                    }`}
+                  >
+                    {pool.name}
+                  </button>
+                ))}
+              </div>
+            )}
           <div className="space-y-8">
-            {pools.map(pool => {
+            {visiblePools.map(pool => {
               const poolStandings = standingsByBracket[pool.id] ?? []
               return (
                 <div key={pool.id}>
@@ -263,6 +290,7 @@ export default function PoolResultsPage() {
               )
             })}
           </div>
+          </>
         )}
       </div>
 
