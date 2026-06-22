@@ -116,26 +116,27 @@ export default function Layout() {
             <div className="bg-white rounded-2xl overflow-hidden shadow-sm">
               {user ? (
                 <>
-                  <div className="px-4 py-4 flex flex-col gap-1.5">
-                    <span className="text-xs text-gray-400">Signed in as</span>
-                    <span className="text-base text-slate-800 font-medium">{user.email}</span>
-                    {profile && (
-                      <span className={`self-start text-xs font-medium px-2.5 py-0.5 rounded-full ${
-                        profile.role === 'admin' ? 'bg-red-50 text-red-700' :
-                        profile.role === 'team_manager' ? 'bg-blue-50 text-blue-700' :
-                        'bg-gray-100 text-gray-600'
-                      }`}>
-                        {profile.role.replace('_', ' ')}
-                      </span>
-                    )}
+                  <div className="px-4 py-4 flex items-center justify-between gap-4">
+                    <div className="flex flex-col gap-1.5 min-w-0">
+                      <span className="text-xs text-gray-400">Signed in as</span>
+                      <span className="text-base text-slate-800 font-medium truncate">{user.email}</span>
+                      {profile && (
+                        <span className={`self-start text-xs font-medium px-2.5 py-0.5 rounded-full ${
+                          profile.role === 'admin' ? 'bg-red-50 text-red-700' :
+                          profile.role === 'team_manager' ? 'bg-blue-50 text-blue-700' :
+                          'bg-gray-100 text-gray-600'
+                        }`}>
+                          {profile.role.replace('_', ' ')}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={async () => { setMenuOpen(false); await signOut() }}
+                      className="shrink-0 text-sm text-red-600 font-medium hover:text-red-700 active:text-red-800"
+                    >
+                      Sign out
+                    </button>
                   </div>
-                  <div className="border-t border-gray-100 mx-4" />
-                  <button
-                    onClick={async () => { setMenuOpen(false); await signOut() }}
-                    className="w-full flex items-center justify-between px-4 py-4 text-base text-red-600 hover:bg-gray-50 active:bg-gray-100"
-                  >
-                    <span>Sign out</span>
-                  </button>
                 </>
               ) : (
                 <button
@@ -202,14 +203,34 @@ export default function Layout() {
                   <polyline points="9 18 15 12 9 6" />
                 </svg>
               </a>
+              <div className="border-t border-gray-100 mx-4" />
+              <button
+                onClick={async () => {
+                  const url = 'http://asg-app-1.onrender.com/'
+                  if (navigator.share) {
+                    await navigator.share({ title: 'ASG App', url })
+                  } else {
+                    await navigator.clipboard.writeText(url)
+                    alert('Link copied to clipboard!')
+                  }
+                }}
+                className="w-full flex items-center justify-between px-4 py-4 text-base text-slate-800 hover:bg-gray-50 active:bg-gray-100"
+              >
+                <span>Share App</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                  className="text-gray-300">
+                  <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                </svg>
+              </button>
             </div>
           </div>
 
           {/* Footer */}
           <div className="mt-auto px-6 pb-10 pt-8 text-center space-y-1">
             <p className="text-xs text-gray-400">© 2026 Aerospace Summer Games, Inc. All Rights Reserved.</p>
-            <p className="text-xs text-gray-400">Aerospace Summer Games, Inc. is a California nonprofit organization with 501(c)(3) tax‑exempt status.</p>
-            <p className="text-xs text-gray-300 pt-1">v{__APP_VERSION__}</p>
+<p className="text-xs text-gray-300 pt-1">v{__APP_VERSION__}</p>
           </div>
         </div>
       )}
