@@ -113,7 +113,7 @@ export default function TeamsPage() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-slate-800 truncate">{company.name}</p>
                   <p className="text-xs text-gray-500">
-                    {teamsByCompany[company.id] ?? 0} team{(teamsByCompany[company.id] ?? 0) === 1 ? '' : 's'}
+                    {company.short_id} · {teamsByCompany[company.id] ?? 0} team{(teamsByCompany[company.id] ?? 0) === 1 ? '' : 's'}
                   </p>
                 </div>
                 <ChevronRightIcon />

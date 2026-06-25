@@ -7,7 +7,7 @@ import { getTeams } from '../api/teams'
 import { getCompanies } from '../api/companies'
 import { getLocations } from '../api/locations'
 import type { Match, Sport, Team, Company, Location } from '../types'
-import { compactLabel } from '../lib/bracketHelpers'
+import { compactLabel, buildMultiTeamKeys } from '../lib/bracketHelpers'
 import { getSportIcon } from '../lib/sportIcons'
 
 type ViewMode = 'by_sport' | 'timeline'
@@ -55,9 +55,10 @@ function useScheduleData() {
   const teams     = useQuery({ queryKey: ['teams'],     queryFn: () => getTeams(),  staleTime: Infinity })
   const companies = useQuery({ queryKey: ['companies'], queryFn: getCompanies,      staleTime: Infinity })
 
-  const sportMap   = useMemo(() => indexBy(sports.data   ?? [], 'id') as Record<string, Sport>,   [sports.data])
-  const teamMap    = useMemo(() => indexBy(teams.data    ?? [], 'id') as Record<string, Team>,    [teams.data])
-  const companyMap = useMemo(() => indexBy(companies.data ?? [], 'id') as Record<string, Company>, [companies.data])
+  const sportMap      = useMemo(() => indexBy(sports.data   ?? [], 'id') as Record<string, Sport>,   [sports.data])
+  const teamMap       = useMemo(() => indexBy(teams.data    ?? [], 'id') as Record<string, Team>,    [teams.data])
+  const companyMap    = useMemo(() => indexBy(companies.data ?? [], 'id') as Record<string, Company>, [companies.data])
+  const multiTeamKeys = useMemo(() => buildMultiTeamKeys(teamMap), [teamMap])
 
   return {
     matches:   matches.data   ?? [],
@@ -65,6 +66,7 @@ function useScheduleData() {
     sportMap,
     teamMap,
     companyMap,
+    multiTeamKeys,
     isLoading: matches.isLoading || sports.isLoading || teams.isLoading || companies.isLoading,
     isError:   matches.isError,
   }
@@ -232,15 +234,16 @@ function StatusBadge({ match }: { match: Match }) {
 }
 
 function MatchRow({
-  match, teamMap, companyMap, bracketType,
+  match, teamMap, companyMap, bracketType, multiTeamKeys,
 }: {
   match: Match
   teamMap: Record<string, Team>
   companyMap: Record<string, Company>
   bracketType?: string
+  multiTeamKeys?: Set<string>
 }) {
-  const home = compactLabel(match.home_team_id ?? null, teamMap, companyMap)
-  const away = compactLabel(match.away_team_id ?? null, teamMap, companyMap)
+  const home = compactLabel(match.home_team_id ?? null, teamMap, companyMap, undefined, multiTeamKeys)
+  const away = compactLabel(match.away_team_id ?? null, teamMap, companyMap, undefined, multiTeamKeys)
   const showTime = match.status !== 'scheduled'
   const time = match.scheduled_at ? formatTime(match.scheduled_at) : null
   const isSingleTeam = bracketType === 'heats'
@@ -323,12 +326,13 @@ function StatsStrip({ matches }: { matches: Match[] }) {
 // ── By Sport view ────────────────────────────────────────────────────────────
 
 function SportCard({
-  sport, rounds, teamMap, companyMap, expanded, onToggle,
+  sport, rounds, teamMap, companyMap, multiTeamKeys, expanded, onToggle,
 }: {
   sport: Sport
   rounds: { roundKey: string; matches: Match[] }[]
   teamMap: Record<string, Team>
   companyMap: Record<string, Company>
+  multiTeamKeys: Set<string>
   expanded: boolean
   onToggle: () => void
 }) {
@@ -371,7 +375,7 @@ function SportCard({
                 </span>
               </div>
               {roundMatches.map(match => (
-                <MatchRow key={match.id} match={match} teamMap={teamMap} companyMap={companyMap} bracketType={sport.bracket_type} />
+                <MatchRow key={match.id} match={match} teamMap={teamMap} companyMap={companyMap} bracketType={sport.bracket_type} multiTeamKeys={multiTeamKeys} />
               ))}
             </div>
           ))}
@@ -603,7 +607,7 @@ export default function Schedule() {
   const [statusFilter, setStatusFilter]   = useState<StatusFilter>('active')
   const [expandedSports, setExpandedSports] = useState<Set<string>>(new Set())
 
-  const { matches, sports, sportMap, teamMap, companyMap, isLoading, isError } = useScheduleData()
+  const { matches, sports, sportMap, teamMap, companyMap, multiTeamKeys, isLoading, isError } = useScheduleData()
 
   const teams = useMemo(() => Object.values(teamMap), [teamMap])
   const companyTeamIds = useMemo(
@@ -717,6 +721,7 @@ export default function Schedule() {
               rounds={rounds}
               teamMap={teamMap}
               companyMap={companyMap}
+              multiTeamKeys={multiTeamKeys}
               expanded={expandedSports.has(sportId)}
               onToggle={() => toggleSport(sportId)}
             />

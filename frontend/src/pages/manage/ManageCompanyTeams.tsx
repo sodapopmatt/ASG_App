@@ -41,13 +41,11 @@ const EditIcon = () => (
 
 function CompanyEditForm({ company, onDone }: { company: Company; onDone: () => void }) {
   const qc = useQueryClient()
-  const [name, setName] = useState(company.name)
   const [logoUrl, setLogoUrl] = useState(company.logo_url ?? '')
   const [error, setError] = useState<string | null>(null)
 
   const mutation = useMutation({
     mutationFn: () => updateCompany(company.id, {
-      name: name.trim() || undefined,
       logo_url: logoUrl.trim() || null,
     }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['companies'] }); onDone() },
@@ -56,22 +54,32 @@ function CompanyEditForm({ company, onDone }: { company: Company; onDone: () => 
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    if (!name.trim()) { setError('Name is required'); return }
     setError(null)
     mutation.mutate()
   }
 
   return (
     <form onSubmit={handleSubmit} className="bg-blue-50 rounded-xl border border-blue-200 px-4 py-3 space-y-3">
-      <p className="text-sm font-semibold text-slate-700">Edit Company</p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-semibold text-slate-700">Edit Company</p>
+        <p className="text-xs text-gray-400 text-right">Name and Short ID require<br />a database admin to change.</p>
+      </div>
       <div>
-        <label className="text-xs font-semibold text-slate-600">Name</label>
+        <label className="text-xs font-semibold text-gray-400">Name</label>
         <input
           type="text"
-          value={name}
-          onChange={e => setName(e.target.value)}
-          required
-          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          value={company.name}
+          disabled
+          className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-gray-100 text-gray-400 cursor-not-allowed"
+        />
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-gray-400">Short ID</label>
+        <input
+          type="text"
+          value={company.short_id ?? ''}
+          disabled
+          className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-gray-100 text-gray-400 cursor-not-allowed font-mono"
         />
       </div>
       <div>

@@ -16,7 +16,7 @@ import { getCompanies } from '../api/companies'
 import { getBrackets } from '../api/brackets'
 import { getDonationCounts } from '../api/donation_counts'
 import type { Match, Team, Company, Sport, Bracket, DonationCount } from '../types'
-import { toLibraryMatch, stableSortMatches, lightTheme, bracketOptions, BracketSvgWrapper, compactLabel } from '../lib/bracketHelpers'
+import { toLibraryMatch, stableSortMatches, lightTheme, bracketOptions, BracketSvgWrapper, compactLabel, buildMultiTeamKeys } from '../lib/bracketHelpers'
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [item[key], item]))
@@ -316,6 +316,7 @@ function FallbackMatchList({
     () => [...matches].sort((a, b) => (a.match_round ?? 0) - (b.match_round ?? 0)),
     [matches],
   )
+  const multiTeamKeys = useMemo(() => buildMultiTeamKeys(teamMap), [teamMap])
 
   if (sorted.length === 0) return <p className="text-center text-gray-500 py-12">No matches for this sport yet.</p>
 
@@ -326,8 +327,8 @@ function FallbackMatchList({
         const isLive = m.status === 'in_progress'
         const homeWon = m.winner_id != null && m.winner_id === m.home_team_id
         const awayWon = m.winner_id != null && m.winner_id === m.away_team_id
-        const homeLabel = compactLabel(m.home_team_id, teamMap, companyMap, m.home_slot_state)
-        const awayLabel = compactLabel(m.away_team_id, teamMap, companyMap, m.away_slot_state)
+        const homeLabel = compactLabel(m.home_team_id, teamMap, companyMap, m.home_slot_state, multiTeamKeys)
+        const awayLabel = compactLabel(m.away_team_id, teamMap, companyMap, m.away_slot_state, multiTeamKeys)
         const hasScore = (isLive || isDone) && m.home_score != null && m.away_score != null
 
         return (
@@ -406,7 +407,8 @@ function SingleBracketView({
 }) {
   const libMatches = useMemo(() => {
     const ids = new Set(matches.map(m => m.id))
-    return stableSortMatches(matches).map(m => toLibraryMatch(m, teamMap, companyMap, ids))
+    const multiTeamKeys = buildMultiTeamKeys(teamMap)
+    return stableSortMatches(matches).map(m => toLibraryMatch(m, teamMap, companyMap, ids, multiTeamKeys))
   }, [matches, teamMap, companyMap])
 
   if (libMatches.length === 0) return <p className="text-center text-gray-500 py-12">No matches yet.</p>
@@ -442,9 +444,10 @@ function DoubleBracketView({
     const upper: MatchType[] = []
     const lower: MatchType[] = []
     const ids = new Set(matches.map(m => m.id))
+    const multiTeamKeys = buildMultiTeamKeys(teamMap)
     for (const m of stableSortMatches(matches)) {
       const phase = m.bracket_id ? bracketPhaseMap[m.bracket_id] : null
-      const lib = toLibraryMatch(m, teamMap, companyMap, ids)
+      const lib = toLibraryMatch(m, teamMap, companyMap, ids, multiTeamKeys)
       if (phase === 'losers') lower.push(lib)
       else upper.push(lib)
     }

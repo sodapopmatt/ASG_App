@@ -7,18 +7,29 @@ import { createTheme } from '@g-loot/react-tournament-brackets'
 import type { MatchType } from '@g-loot/react-tournament-brackets'
 import type { Match, Team, Company } from '../types'
 
+export function buildMultiTeamKeys(teamMap: Record<string, Team>): Set<string> {
+  const counts: Record<string, number> = {}
+  for (const t of Object.values(teamMap)) {
+    const k = `${t.company_id}:${t.sport_id}`
+    counts[k] = (counts[k] ?? 0) + 1
+  }
+  return new Set(Object.entries(counts).filter(([, n]) => n > 1).map(([k]) => k))
+}
+
 export function compactLabel(
   teamId: string | null,
   teamMap: Record<string, Team>,
   companyMap: Record<string, Company>,
   slotState?: 'tbd' | 'bye',
+  multiTeamKeys?: Set<string>,
 ): string {
   if (!teamId) return slotState === 'bye' ? 'BYE' : 'TBD'
   const team = teamMap[teamId]
   if (!team) return '—'
   const company = companyMap[team.company_id]
   const label = company?.short_id ?? company?.name ?? '?'
-  return team.name ? `${label} · ${team.name}` : label
+  const showSuffix = team.name && (multiTeamKeys ? multiTeamKeys.has(`${team.company_id}:${team.sport_id}`) : true)
+  return showSuffix ? `${label} · ${team.name}` : label
 }
 
 export function formatMatchTime(iso: string | null | undefined): string {
@@ -41,6 +52,7 @@ export function toLibraryMatch(
   teamMap: Record<string, Team>,
   companyMap: Record<string, Company>,
   withinIds?: Set<string>,
+  multiTeamKeys?: Set<string>,
 ): MatchType {
   const isDone = m.status === 'completed' || m.status === 'forfeit' || m.status === 'double_forfeit' || m.status === 'draw'
 
@@ -71,7 +83,7 @@ export function toLibraryMatch(
     participants: [
       {
         id: m.home_team_id ?? `${m.home_slot_state}-home-${m.id}`,
-        name: compactLabel(m.home_team_id, teamMap, companyMap, m.home_slot_state),
+        name: compactLabel(m.home_team_id, teamMap, companyMap, m.home_slot_state, multiTeamKeys),
         isWinner: m.winner_id != null && m.winner_id === m.home_team_id,
         status: isDone ? 'PLAYED' : null,
         resultText:
@@ -82,7 +94,7 @@ export function toLibraryMatch(
       },
       {
         id: m.away_team_id ?? `${m.away_slot_state}-away-${m.id}`,
-        name: compactLabel(m.away_team_id, teamMap, companyMap, m.away_slot_state),
+        name: compactLabel(m.away_team_id, teamMap, companyMap, m.away_slot_state, multiTeamKeys),
         isWinner: m.winner_id != null && m.winner_id === m.away_team_id,
         status: isDone ? 'PLAYED' : null,
         resultText:

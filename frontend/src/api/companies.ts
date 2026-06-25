@@ -3,7 +3,7 @@ import type { Company } from '../types'
 
 export const getCompanies = () => apiFetch<Company[]>('/companies')
 
-export const updateCompany = (id: string, body: { name?: string; logo_url?: string | null }) =>
+export const updateCompany = (id: string, body: { name?: string; short_id?: string; logo_url?: string | null }) =>
   apiFetch<Company>(`/companies/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },

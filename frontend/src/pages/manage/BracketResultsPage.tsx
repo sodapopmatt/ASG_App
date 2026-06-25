@@ -14,7 +14,7 @@ import { getTeams } from '../../api/teams'
 import { getCompanies } from '../../api/companies'
 import { getBrackets } from '../../api/brackets'
 import type { Match, Team, Company } from '../../types'
-import { toLibraryMatch, stableSortMatches, lightTheme, bracketOptions, BracketSvgWrapper } from '../../lib/bracketHelpers'
+import { toLibraryMatch, stableSortMatches, lightTheme, bracketOptions, BracketSvgWrapper, buildMultiTeamKeys } from '../../lib/bracketHelpers'
 import MatchResultModal from '../../components/MatchResultModal'
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
@@ -73,7 +73,8 @@ function SingleBracketView({
 }) {
   const libMatches = useMemo(() => {
     const ids = new Set(matches.map(m => m.id))
-    return stableSortMatches(matches).map(m => toLibraryMatch(m, teamMap, companyMap, ids))
+    const multiTeamKeys = buildMultiTeamKeys(teamMap)
+    return stableSortMatches(matches).map(m => toLibraryMatch(m, teamMap, companyMap, ids, multiTeamKeys))
   }, [matches, teamMap, companyMap])
 
   if (libMatches.length === 0) return <p className="text-center text-gray-500 py-12">No matches yet.</p>
@@ -107,9 +108,10 @@ function DoubleBracketView({
     const upper: MatchType[] = []
     const lower: MatchType[] = []
     const ids = new Set(matches.map(m => m.id))
+    const multiTeamKeys = buildMultiTeamKeys(teamMap)
     for (const m of stableSortMatches(matches)) {
       const phase = m.bracket_id ? bracketPhaseMap[m.bracket_id] : null
-      const lib = toLibraryMatch(m, teamMap, companyMap, ids)
+      const lib = toLibraryMatch(m, teamMap, companyMap, ids, multiTeamKeys)
       if (phase === 'losers') lower.push(lib)
       else upper.push(lib)
     }
