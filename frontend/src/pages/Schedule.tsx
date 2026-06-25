@@ -245,7 +245,7 @@ function MatchRow({
   const time = match.scheduled_at ? formatTime(match.scheduled_at) : null
   const isSingleTeam = bracketType === 'heats'
   const courtName = match.locations?.name
-  const hasScore = match.status === 'completed' && match.home_score != null && match.away_score != null
+  const hasScore = (match.status === 'completed' || match.status === 'draw' || match.status === 'in_progress') && match.home_score != null && match.away_score != null
 
   if (isSingleTeam) {
     return (
@@ -440,7 +440,7 @@ function MatchChip({
     : isResolved(match)
     ? 'bg-gray-100 text-gray-600'
     : 'bg-blue-100 text-blue-800'
-  const hasScore = match.status === 'completed' && match.home_score != null && match.away_score != null
+  const hasScore = (match.status === 'completed' || match.status === 'draw' || match.status === 'in_progress') && match.home_score != null && match.away_score != null
   const label = bracketType === 'heats'
     ? home
     : hasScore

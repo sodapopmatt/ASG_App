@@ -321,17 +321,19 @@ function FallbackMatchList({
   return (
     <div className="space-y-2">
       {sorted.map(m => {
-        const isDone = m.status === 'completed' || m.status === 'forfeit' || m.status === 'double_forfeit'
+        const isDone = m.status === 'completed' || m.status === 'forfeit' || m.status === 'double_forfeit' || m.status === 'draw'
         const isLive = m.status === 'in_progress'
         const homeWon = m.winner_id != null && m.winner_id === m.home_team_id
         const awayWon = m.winner_id != null && m.winner_id === m.away_team_id
         const homeLabel = compactLabel(m.home_team_id, teamMap, companyMap, m.home_slot_state)
         const awayLabel = compactLabel(m.away_team_id, teamMap, companyMap, m.away_slot_state)
+        const hasScore = (isLive || isDone) && m.home_score != null && m.away_score != null
 
         return (
           <div key={m.id} className={`bg-white rounded-xl border-2 shadow-sm overflow-hidden ${isLive ? 'border-amber-400' : 'border-gray-200'}`}>
             <div className={`flex items-center px-3 py-2.5 gap-2 ${homeWon ? 'bg-green-50' : ''}`}>
               <span className={`flex-1 text-sm truncate ${homeWon ? 'font-semibold text-green-700' : !m.home_team_id ? 'italic text-gray-400' : 'font-semibold text-slate-800'}`}>{homeLabel}</span>
+              {hasScore && <span className="text-sm font-semibold text-slate-600 tabular-nums shrink-0">{m.home_score}</span>}
               {homeWon && <span className="text-green-600 text-xs font-bold">WIN</span>}
               {(m.status === 'double_forfeit' || (m.status === 'forfeit' && m.winner_id !== m.home_team_id)) && m.home_team_id && (
                 <span className="text-xs text-red-400 font-medium">FF</span>
@@ -340,6 +342,7 @@ function FallbackMatchList({
             <div className="border-t border-gray-100" />
             <div className={`flex items-center px-3 py-2.5 gap-2 ${awayWon ? 'bg-green-50' : ''}`}>
               <span className={`flex-1 text-sm truncate ${awayWon ? 'font-semibold text-green-700' : !m.away_team_id ? 'italic text-gray-400' : 'font-semibold text-slate-800'}`}>{awayLabel}</span>
+              {hasScore && <span className="text-sm font-semibold text-slate-600 tabular-nums shrink-0">{m.away_score}</span>}
               {awayWon && <span className="text-green-600 text-xs font-bold">WIN</span>}
               {(m.status === 'double_forfeit' || (m.status === 'forfeit' && m.winner_id !== m.away_team_id)) && m.away_team_id && (
                 <span className="text-xs text-red-400 font-medium">FF</span>
