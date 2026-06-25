@@ -15,6 +15,7 @@ const ICON_RULES: { keywords: string[]; icon: string }[] = [
   { keywords: ['pyramid'], icon: '🤸' },
   { keywords: ['water', 'ball toss'], icon: '💦' },
   { keywords: ['food', 'canned', 'drive'], icon: '🥫' },
+  { keywords: ['golf'], icon: '⛳' },
 ]
 
 const FALLBACK_ICON = '🏅'

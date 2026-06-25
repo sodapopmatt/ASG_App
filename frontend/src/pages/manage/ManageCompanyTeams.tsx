@@ -4,7 +4,7 @@ import BackLink from '../../components/BackLink'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getTeams, createTeam, updateTeam, deleteTeam } from '../../api/teams'
 import { getSports } from '../../api/sports'
-import { getCompanies } from '../../api/companies'
+import { getCompanies, updateCompany } from '../../api/companies'
 import { getRosterEntries, addRosterEntry, removeRosterEntry } from '../../api/roster_entries'
 import { useAuth } from '../../contexts/AuthContext'
 import type { Team, Sport, Company } from '../../types'
@@ -36,6 +36,78 @@ const EditIcon = () => (
     <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
   </svg>
 )
+
+// ---- Company edit form -------------------------------------------------------
+
+function CompanyEditForm({ company, onDone }: { company: Company; onDone: () => void }) {
+  const qc = useQueryClient()
+  const [name, setName] = useState(company.name)
+  const [logoUrl, setLogoUrl] = useState(company.logo_url ?? '')
+  const [error, setError] = useState<string | null>(null)
+
+  const mutation = useMutation({
+    mutationFn: () => updateCompany(company.id, {
+      name: name.trim() || undefined,
+      logo_url: logoUrl.trim() || null,
+    }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['companies'] }); onDone() },
+    onError: (e) => setError(e instanceof Error ? e.message : 'Failed to update'),
+  })
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    if (!name.trim()) { setError('Name is required'); return }
+    setError(null)
+    mutation.mutate()
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="bg-blue-50 rounded-xl border border-blue-200 px-4 py-3 space-y-3">
+      <p className="text-sm font-semibold text-slate-700">Edit Company</p>
+      <div>
+        <label className="text-xs font-semibold text-slate-600">Name</label>
+        <input
+          type="text"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          required
+          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-slate-600">
+          Logo URL <span className="text-gray-400 font-normal">(optional)</span>
+        </label>
+        <input
+          type="url"
+          value={logoUrl}
+          onChange={e => setLogoUrl(e.target.value)}
+          placeholder="https://…"
+          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        {logoUrl.trim() && (
+          <img
+            src={logoUrl.trim()}
+            alt="Preview"
+            className="mt-2 w-12 h-12 rounded-lg object-contain bg-white border border-gray-200"
+            onError={e => (e.currentTarget.style.display = 'none')}
+          />
+        )}
+      </div>
+      {error && <p className="text-xs text-red-600">{error}</p>}
+      <div className="flex gap-2">
+        <button type="button" onClick={onDone}
+          className="flex-1 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg py-2">
+          Cancel
+        </button>
+        <button type="submit" disabled={mutation.isPending}
+          className="flex-1 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg py-2 disabled:opacity-50">
+          {mutation.isPending ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </form>
+  )
+}
 
 // ---- Roster panel ------------------------------------------------------------
 
@@ -411,6 +483,7 @@ export default function ManageCompanyTeams() {
   const company = companyId ? companyMap[companyId] : undefined
 
   const [showAddForm, setShowAddForm] = useState(false)
+  const [editingCompany, setEditingCompany] = useState(false)
 
   const companyTeams = useMemo(
     () => (teams as Team[]).filter(t => t.company_id === companyId),
@@ -432,16 +505,33 @@ export default function ManageCompanyTeams() {
     <div className="p-4 mt-2 space-y-4">
       <BackLink to="/manage/teams" label="Teams" />
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-xl font-bold text-slate-800">{company?.name ?? 'Company'}</h2>
-        {isAdmin && !showAddForm && (
-          <button
-            onClick={() => setShowAddForm(true)}
-            className="text-sm font-medium text-blue-600"
-          >
-            + Add Team
-          </button>
-        )}
+        <div className="flex items-center gap-3 min-w-0">
+          {company?.logo_url ? (
+            <img src={company.logo_url} alt="" className="w-10 h-10 rounded-lg object-contain bg-white shrink-0" />
+          ) : (
+            <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
+              <span className="text-xs font-bold text-gray-400">{company?.short_id ?? company?.name.charAt(0).toUpperCase()}</span>
+            </div>
+          )}
+          <h2 className="text-xl font-bold text-slate-800 truncate">{company?.name ?? 'Company'}</h2>
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          {isAdmin && !editingCompany && (
+            <button onClick={() => setEditingCompany(true)} className="text-sm font-medium text-gray-400 hover:text-blue-600 transition-colors">
+              <EditIcon />
+            </button>
+          )}
+          {isAdmin && !showAddForm && !editingCompany && (
+            <button onClick={() => setShowAddForm(true)} className="text-sm font-medium text-blue-600">
+              + Add Team
+            </button>
+          )}
+        </div>
       </div>
+
+      {editingCompany && company && (
+        <CompanyEditForm company={company} onDone={() => setEditingCompany(false)} />
+      )}
 
       {showAddForm && (
         <AddTeamForNewSport
