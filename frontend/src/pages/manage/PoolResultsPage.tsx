@@ -148,9 +148,9 @@ export default function PoolResultsPage() {
     return map
   }, [standingsQuery.data])
 
-  const showGameScores  = sport?.name === 'Pickleball'
-  const showSoccerStats = sport?.name === 'Soccer'
-  const showDraw        = sport?.name === 'Soccer'
+  const showGameScores  = sport?.name?.toLowerCase() === 'pickleball'
+  const showSoccerStats = sport?.name?.toLowerCase() === 'soccer'
+  const showDraw        = sport?.name?.toLowerCase() === 'soccer'
 
   const [activePoolId, setActivePoolId] = useTabMemory<string>(
     `pool-results-tabs-${sportId ?? ''}`,
