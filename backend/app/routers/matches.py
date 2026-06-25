@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.database import supabase
 from app.auth import require_admin
-from app.schemas.match import Match, MatchCreate, MatchUpdate, MatchResult, MatchForfeit, MatchDoubleForfeit, HeatResult
+from app.schemas.match import Match, MatchCreate, MatchUpdate, MatchResult, MatchForfeit, MatchDoubleForfeit, MatchDraw, HeatResult
 from app.bracket_engine.generator import advance_winner, advance_double_forfeit, settle_bracket, retract_winner
 
 router = APIRouter()
@@ -56,7 +56,7 @@ def _compute_estimated_starts(
             scheduled_at = _parse_dt(m.get("scheduled_at"))
             actual_start = _parse_dt(m.get("actual_start"))
             is_playable = bool(m.get("home_team_id") or m.get("away_team_id"))
-            is_completed = m.get("status") in ("completed", "forfeit", "double_forfeit")
+            is_completed = m.get("status") in ("completed", "forfeit", "double_forfeit", "draw")
 
             if actual_start:
                 result[m["id"]] = actual_start
@@ -354,6 +354,33 @@ def post_double_forfeit(match_id: str, body: MatchDoubleForfeit | None = None, _
     advance_double_forfeit(match_id, supabase)
     settle_bracket(match["sport_id"], supabase)
     return updated
+
+
+@router.post("/{match_id}/draw", response_model=Match)
+def post_draw(match_id: str, body: MatchDraw | None = None, _=Depends(require_admin)):
+    response = supabase.table("matches").select(
+        "id, sport_id, status, winner_next_match_id"
+    ).eq("id", match_id).limit(1).execute()
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Match not found")
+
+    match = response.data[0]
+    if match["status"] not in ("scheduled", "in_progress"):
+        raise HTTPException(status_code=422, detail="Match is already resolved")
+    if match.get("winner_next_match_id"):
+        raise HTTPException(status_code=422, detail="Draw is only valid for pool play matches with no bracket advancement")
+
+    update: dict = {
+        "status": "draw",
+        "winner_id": None,
+        "home_score": body.home_score if body else None,
+        "away_score": body.away_score if body else None,
+        "played_at": body.played_at.isoformat() if body and body.played_at else _now_iso(),
+    }
+    if body and body.notes:
+        update["notes"] = body.notes
+
+    return supabase.table("matches").update(update).eq("id", match_id).execute().data[0]
 
 
 @router.post("/{match_id}/heat-result", response_model=Match)

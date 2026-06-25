@@ -109,7 +109,7 @@ function slotIndex(iso: string, baseMinutes: number): number {
 }
 
 function isResolved(m: Match): boolean {
-  return m.status === 'completed' || m.status === 'forfeit' || m.status === 'double_forfeit'
+  return m.status === 'completed' || m.status === 'forfeit' || m.status === 'double_forfeit' || m.status === 'draw'
 }
 
 function matchesStatusFilter(m: Match, f: StatusFilter): boolean {
@@ -226,6 +226,8 @@ function StatusBadge({ match }: { match: Match }) {
     return <span className={`${base} text-gray-500 bg-gray-100`}>Forfeit</span>
   if (match.status === 'double_forfeit')
     return <span className={`${base} text-gray-500 bg-gray-100`}>Dbl Forfeit</span>
+  if (match.status === 'draw')
+    return <span className={`${base} text-gray-500 bg-gray-100`}>Draw</span>
   return <span className={`${base} text-gray-500 bg-gray-100`}>Done</span>
 }
 

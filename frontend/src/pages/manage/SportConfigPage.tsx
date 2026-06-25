@@ -204,6 +204,36 @@ function DivToggle({
   )
 }
 
+const SHARED_COURT_VALUE = -1
+
+function CourtPill({
+  loc,
+  currentPool,
+  poolCount,
+  onMoveCourt,
+}: {
+  loc: { id: string; name: string }
+  currentPool: number
+  poolCount: number
+  onMoveCourt: (locId: string, pool: number) => void
+}) {
+  return (
+    <div className="flex items-center gap-1 bg-blue-50 border border-blue-100 rounded-md px-2 py-1 text-xs text-slate-700">
+      <span>{loc.name}</span>
+      <select
+        value={currentPool}
+        onChange={e => onMoveCourt(loc.id, Number(e.target.value))}
+        className="ml-1 text-[10px] bg-transparent text-blue-400 cursor-pointer border-none outline-none"
+      >
+        <option value={SHARED_COURT_VALUE}>Shared (all pools)</option>
+        {Array.from({ length: poolCount }, (_, j) => (
+          <option key={j} value={j}>{poolName(j)}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
 function PoolBuckets({
   poolCount,
   seeds,
@@ -225,8 +255,23 @@ function PoolBuckets({
 }) {
   const [openPool, setOpenPool] = useState<number | null>(0)
 
+  const sharedCourts = locations.filter(l => courtPoolOf(l.id) === SHARED_COURT_VALUE)
+
   return (
     <div className="space-y-2">
+      {/* Shared courts */}
+      {sharedCourts.length > 0 && (
+        <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2.5">
+          <p className="text-xs font-semibold text-blue-600 mb-1.5">Shared courts (all pools)</p>
+          <div className="flex flex-wrap gap-1.5">
+            {sharedCourts.map(loc => (
+              <CourtPill key={loc.id} loc={loc} currentPool={SHARED_COURT_VALUE} poolCount={poolCount} onMoveCourt={onMoveCourt} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Per-pool accordions */}
       {Array.from({ length: poolCount }, (_, i) => {
         const poolTeams = seeds.filter(t => teamPoolOf(t.id) === i)
         const poolCourts = locations.filter(l => courtPoolOf(l.id) === i)
@@ -272,18 +317,7 @@ function PoolBuckets({
                 {locations.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 pt-1 border-t border-gray-100">
                     {poolCourts.map(loc => (
-                      <div key={loc.id} className="flex items-center gap-1 bg-blue-50 border border-blue-100 rounded-md px-2 py-1 text-xs text-slate-700">
-                        <span>{loc.name}</span>
-                        <select
-                          value={i}
-                          onChange={e => onMoveCourt(loc.id, Number(e.target.value))}
-                          className="ml-1 text-[10px] bg-transparent text-blue-400 cursor-pointer border-none outline-none"
-                        >
-                          {Array.from({ length: poolCount }, (_, j) => (
-                            <option key={j} value={j}>{poolName(j)}</option>
-                          ))}
-                        </select>
-                      </div>
+                      <CourtPill key={loc.id} loc={loc} currentPool={i} poolCount={poolCount} onMoveCourt={onMoveCourt} />
                     ))}
                   </div>
                 )}
@@ -441,19 +475,24 @@ export default function SportConfigPage() {
     const lap = idx % (2 * P)
     return lap < P ? lap : 2 * P - 1 - lap
   }
-  // Courts: contiguous blocks per pool
+  // -1 = shared across all pools; 0..n = dedicated to that pool
+  const SHARED_COURT = -1
   const courtPoolOf = (locId: string): number => {
     const override = courtPool[locId]
+    if (override === SHARED_COURT) return SHARED_COURT
     if (override !== undefined && override < effectivePoolCount) return override
     const idx = locations.findIndex(l => l.id === locId)
     if (idx < 0 || locations.length === 0) return 0
+    // Auto-share when there are fewer courts than pools
+    if (locations.length < effectivePoolCount) return SHARED_COURT
     return Math.min(Math.floor(idx * effectivePoolCount / locations.length), effectivePoolCount - 1)
   }
 
   const poolSpecs: PoolSpec[] = Array.from({ length: effectivePoolCount }, (_, i) => ({
     name: poolName(i),
     team_ids: seeds.filter(t => teamPoolOf(t.id) === i).map(t => t.id),
-    location_ids: locations.filter(l => courtPoolOf(l.id) === i).map(l => l.id),
+    // Include courts dedicated to this pool AND courts shared across all pools
+    location_ids: locations.filter(l => courtPoolOf(l.id) === i || courtPoolOf(l.id) === SHARED_COURT).map(l => l.id),
   }))
   const poolsValid = poolSpecs.every(p => p.team_ids.length >= 2)
 

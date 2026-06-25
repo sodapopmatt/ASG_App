@@ -39,9 +39,9 @@ function MatchCard({
   companyMap: Record<string, Company>
   onClick: () => void
 }) {
-  const isDone = match.status === 'completed' || match.status === 'forfeit' || match.status === 'double_forfeit'
+  const isDone = match.status === 'completed' || match.status === 'forfeit' || match.status === 'double_forfeit' || match.status === 'draw'
   const isLive = match.status === 'in_progress'
-  const hasScore = match.status === 'completed' && match.home_score != null && match.away_score != null
+  const hasScore = (match.status === 'completed' || match.status === 'draw') && match.home_score != null && match.away_score != null
   return (
     <button
       onClick={onClick}
@@ -73,7 +73,7 @@ function MatchCard({
           <span className="shrink-0 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full animate-pulse">Live</span>
         ) : isDone ? (
           <span className="shrink-0 text-xs text-gray-400">
-            {match.status === 'double_forfeit' ? 'Dbl Forfeit' : match.status === 'forfeit' ? 'Forfeit' : 'Final'}
+            {match.status === 'double_forfeit' ? 'Dbl Forfeit' : match.status === 'forfeit' ? 'Forfeit' : match.status === 'draw' ? 'Draw' : 'Final'}
           </span>
         ) : (
           <span className="shrink-0 text-xs text-blue-400">Tap to enter</span>
@@ -148,7 +148,9 @@ export default function PoolResultsPage() {
     return map
   }, [standingsQuery.data])
 
-  const showGameScores = sport?.name === 'Pickleball'
+  const showGameScores  = sport?.name === 'Pickleball'
+  const showSoccerStats = sport?.name === 'Soccer'
+  const showDraw        = sport?.name === 'Soccer'
 
   const [activePoolId, setActivePoolId] = useTabMemory<string>(
     `pool-results-tabs-${sportId ?? ''}`,
@@ -233,7 +235,15 @@ export default function PoolResultsPage() {
                             <th className="text-left px-3 py-2 font-semibold text-gray-500">#</th>
                             <th className="text-left px-3 py-2 font-semibold text-gray-500">Team</th>
                             <th className="text-center px-2 py-2 font-semibold text-gray-500">W</th>
+                            {showSoccerStats && <th className="text-center px-2 py-2 font-semibold text-gray-500">D</th>}
                             <th className="text-center px-2 py-2 font-semibold text-gray-500">L</th>
+                            {showSoccerStats && (
+                              <>
+                                <th className="text-center px-2 py-2 font-semibold text-gray-500">GF</th>
+                                <th className="text-center px-2 py-2 font-semibold text-gray-500">GA</th>
+                                <th className="text-center px-2 py-2 font-semibold text-gray-500">GD</th>
+                              </>
+                            )}
                             {showGameScores && (
                               <>
                                 <th className="text-center px-2 py-2 font-semibold text-gray-500">GW</th>
@@ -253,7 +263,15 @@ export default function PoolResultsPage() {
                                 <td className="px-3 py-2 font-bold text-gray-400">{row.rank}</td>
                                 <td className="px-3 py-2 text-slate-700">{label}</td>
                                 <td className="px-2 py-2 text-center font-semibold text-green-700">{row.wins}</td>
+                                {showSoccerStats && <td className="px-2 py-2 text-center text-slate-600">{row.draws}</td>}
                                 <td className="px-2 py-2 text-center text-gray-500">{row.losses}</td>
+                                {showSoccerStats && (
+                                  <>
+                                    <td className="px-2 py-2 text-center text-slate-600">{row.goals_for}</td>
+                                    <td className="px-2 py-2 text-center text-slate-600">{row.goals_against}</td>
+                                    <td className="px-2 py-2 text-center text-slate-600">{row.goal_diff > 0 ? `+${row.goal_diff}` : row.goal_diff}</td>
+                                  </>
+                                )}
                                 {showGameScores && (
                                   <>
                                     <td className="px-2 py-2 text-center text-slate-600">{row.game_wins}</td>
@@ -301,6 +319,7 @@ export default function PoolResultsPage() {
           companyMap={companyMap}
           onClose={() => setActiveMatch(null)}
           showGameScores={showGameScores}
+          showDraw={showDraw}
         />
       )}
     </>

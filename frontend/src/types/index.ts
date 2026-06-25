@@ -55,7 +55,7 @@ export interface Match {
   away_games_won: number | null
   home_points_total: number | null
   away_points_total: number | null
-  status: 'scheduled' | 'in_progress' | 'completed' | 'forfeit' | 'double_forfeit'
+  status: 'scheduled' | 'in_progress' | 'completed' | 'forfeit' | 'double_forfeit' | 'draw'
   match_round: number | null
   bracket_phase: string | null
   winner_next_match_id: string | null

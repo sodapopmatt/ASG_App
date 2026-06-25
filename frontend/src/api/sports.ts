@@ -21,9 +21,13 @@ export interface PoolSpec {
 export interface TeamStanding {
   team_id: string
   wins: number
+  draws: number
   losses: number
   played: number
   rank: number
+  goals_for: number
+  goals_against: number
+  goal_diff: number
   game_wins: number
   point_diff: number
   total_points: number

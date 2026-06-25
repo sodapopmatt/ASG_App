@@ -3,7 +3,7 @@ from uuid import UUID
 from datetime import datetime
 from typing import Literal
 
-MatchStatus = Literal["scheduled", "in_progress", "completed", "forfeit", "double_forfeit"]
+MatchStatus = Literal["scheduled", "in_progress", "completed", "forfeit", "double_forfeit", "draw"]
 
 
 class MatchCreate(BaseModel):
@@ -34,6 +34,13 @@ class MatchForfeit(BaseModel):
 
 
 class MatchDoubleForfeit(BaseModel):
+    notes: str | None = None
+
+
+class MatchDraw(BaseModel):
+    home_score: int | None = None
+    away_score: int | None = None
+    played_at: datetime | None = None
     notes: str | None = None
 
 

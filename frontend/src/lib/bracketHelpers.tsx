@@ -42,7 +42,7 @@ export function toLibraryMatch(
   companyMap: Record<string, Company>,
   withinIds?: Set<string>,
 ): MatchType {
-  const isDone = m.status === 'completed' || m.status === 'forfeit' || m.status === 'double_forfeit'
+  const isDone = m.status === 'completed' || m.status === 'forfeit' || m.status === 'double_forfeit' || m.status === 'draw'
 
   let state: string
   if (m.status === 'completed') state = 'PLAYED'

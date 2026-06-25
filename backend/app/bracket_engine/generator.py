@@ -412,37 +412,57 @@ def persist_pools(
         clear_brackets(sport_id, db)
 
     bracket_ids_created: list[str] = []
-    total_matches = 0
 
+    # Pass 1: generate all round-robin slots and create bracket rows
+    all_pool_data: list[tuple[str, list, list[str]]] = []  # (bracket_id, slots, courts)
     for pool_name, team_ids, pool_location_ids in pools:
         slots = round_robin.generate_round_robin(team_ids)
-
         bracket = db.table("brackets").insert({
             "sport_id": sport_id,
             "name": pool_name,
             "phase": "pool",
         }).execute().data[0]
         bracket_ids_created.append(bracket["id"])
+        all_pool_data.append((bracket["id"], slots, list(pool_location_ids)))
 
-        # Courts: round-robin over this pool's courts in emission order
-        # (slots are already ordered by round, so courts stay balanced).
-        courts = list(pool_location_ids)
+    # Pass 2: assign courts per pool (round-robin within each pool's courts)
+    pool_assignments: list[dict[int, str | None]] = []
+    for _, slots, courts in all_pool_data:
         assignment: dict[int, str | None] = {}
         if courts:
-            for pos, _ in enumerate(slots):
+            for pos in range(len(slots)):
                 assignment[pos] = courts[pos % len(courts)]
+        pool_assignments.append(assignment)
 
-        scheduled_at_map: dict[int, str] = {}
-        if start_time is not None:
-            scheduled_at_map = _compute_scheduled_times(
-                slots, assignment, start_time, match_duration_minutes
-            )
+    # Pass 3: global time assignment — courts shared across pools are sequenced
+    # together (interleaved by match_round then pool order), so no two pools
+    # try to start on the same court at the same time.
+    scheduled_at: dict[tuple[int, int], str] = {}  # (pool_idx, slot_idx) → ISO
+    if start_time is not None:
+        duration = timedelta(minutes=match_duration_minutes)
+        court_queue: dict[str, list[tuple[int, int, int]]] = {}
+        for pool_idx, (_, slots, _courts) in enumerate(all_pool_data):
+            for slot_idx, slot in enumerate(slots):
+                court = pool_assignments[pool_idx].get(slot_idx)
+                if court is not None:
+                    court_queue.setdefault(court, []).append(
+                        (slot.match_round, pool_idx, slot_idx)
+                    )
+        for entries in court_queue.values():
+            entries.sort()
+            t = start_time
+            for _, pool_idx, slot_idx in entries:
+                scheduled_at[(pool_idx, slot_idx)] = t.isoformat()
+                t += duration
 
+    # Pass 4: insert match rows
+    total_matches = 0
+    for pool_idx, (bracket_id, slots, _courts) in enumerate(all_pool_data):
         rows = []
-        for i, slot in enumerate(slots):
+        for slot_idx, slot in enumerate(slots):
             row: dict = {
                 "sport_id": sport_id,
-                "bracket_id": bracket["id"],
+                "bracket_id": bracket_id,
                 "home_team_id": slot.home_team_id,
                 "away_team_id": slot.away_team_id,
                 "match_round": slot.match_round,
@@ -450,13 +470,13 @@ def persist_pools(
                 "home_slot_state": "tbd",
                 "away_slot_state": "tbd",
             }
-            court = assignment.get(i)
+            court = pool_assignments[pool_idx].get(slot_idx)
             if court is not None:
                 row["location_id"] = court
-            if i in scheduled_at_map:
-                row["scheduled_at"] = scheduled_at_map[i]
+            t = scheduled_at.get((pool_idx, slot_idx))
+            if t is not None:
+                row["scheduled_at"] = t
             rows.append(row)
-
         db.table("matches").insert(rows).execute()
         total_matches += len(rows)
 

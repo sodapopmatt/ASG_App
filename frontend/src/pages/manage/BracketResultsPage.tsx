@@ -141,7 +141,7 @@ function ChampionshipCard({
   companyMap: Record<string, Company>
   onClick: () => void
 }) {
-  const isDone = match.status === 'completed' || match.status === 'forfeit' || match.status === 'double_forfeit'
+  const isDone = match.status === 'completed' || match.status === 'forfeit' || match.status === 'double_forfeit' || match.status === 'draw'
   const isLive = match.status === 'in_progress'
   return (
     <button

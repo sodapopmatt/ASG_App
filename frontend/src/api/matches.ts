@@ -49,6 +49,17 @@ export function submitForfeit(matchId: string, forfeitingTeamId: string) {
   })
 }
 
+export function submitDraw(matchId: string, scores?: { home_score?: number | null; away_score?: number | null }) {
+  return apiFetch<Match>(`/matches/${matchId}/draw`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      home_score: scores?.home_score ?? null,
+      away_score: scores?.away_score ?? null,
+    }),
+  })
+}
+
 export function submitDoubleForfeit(matchId: string, notes?: string) {
   return apiFetch<Match>(`/matches/${matchId}/double-forfeit`, {
     method: 'POST',

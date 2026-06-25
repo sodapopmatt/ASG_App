@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { startMatch, submitResult, submitForfeit, submitDoubleForfeit } from '../api/matches'
+import { startMatch, submitResult, submitForfeit, submitDoubleForfeit, submitDraw } from '../api/matches'
 import type { Match, Team, Company } from '../types'
 
 function fullLabel(
@@ -16,7 +16,7 @@ function fullLabel(
   return team.name ? `${base} · ${team.name}` : base
 }
 
-type PanelMode = 'result' | 'forfeit' | 'double_forfeit'
+type PanelMode = 'result' | 'draw' | 'forfeit' | 'double_forfeit'
 
 export default function MatchResultModal({
   match,
@@ -24,12 +24,14 @@ export default function MatchResultModal({
   companyMap,
   onClose,
   showGameScores = false,
+  showDraw = false,
 }: {
   match: Match
   teamMap: Record<string, Team>
   companyMap: Record<string, Company>
   onClose: () => void
   showGameScores?: boolean
+  showDraw?: boolean
 }) {
   const qc = useQueryClient()
   const [mode, setMode] = useState<PanelMode>('result')
@@ -44,13 +46,21 @@ export default function MatchResultModal({
   const homeLabel = fullLabel(match.home_team_id, teamMap, companyMap)
   const awayLabel = fullLabel(match.away_team_id, teamMap, companyMap)
   const isScheduled = match.status === 'scheduled'
-  const isDone = match.status === 'completed' || match.status === 'forfeit' || match.status === 'double_forfeit'
+  const isDone = match.status === 'completed' || match.status === 'forfeit' || match.status === 'double_forfeit' || match.status === 'draw'
 
   const onSuccess = () => { qc.invalidateQueries({ queryKey: ['matches'] }); onClose() }
   const onError = (e: unknown) => setError(e instanceof Error ? e.message : 'Failed to submit')
 
-  const startMutation        = useMutation({ mutationFn: () => startMatch(match.id), onSuccess, onError })
-  const resultMutation       = useMutation({
+  const startMutation  = useMutation({ mutationFn: () => startMatch(match.id), onSuccess, onError })
+  const drawMutation   = useMutation({
+    mutationFn: () => submitDraw(match.id, {
+      home_score: homeScore.trim() === '' ? null : Number(homeScore),
+      away_score: awayScore.trim() === '' ? null : Number(awayScore),
+    }),
+    onSuccess,
+    onError,
+  })
+  const resultMutation = useMutation({
     mutationFn: (winnerId: string) => submitResult(match.id, winnerId, {
       home_score: homeScore.trim() === '' ? null : Number(homeScore),
       away_score: awayScore.trim() === '' ? null : Number(awayScore),
@@ -65,7 +75,7 @@ export default function MatchResultModal({
   const forfeitMutation      = useMutation({ mutationFn: (forfeitingTeamId: string) => submitForfeit(match.id, forfeitingTeamId), onSuccess, onError })
   const doubleForfeitMutation = useMutation({ mutationFn: () => submitDoubleForfeit(match.id), onSuccess, onError })
 
-  const isPending = startMutation.isPending || resultMutation.isPending || forfeitMutation.isPending || doubleForfeitMutation.isPending
+  const isPending = startMutation.isPending || resultMutation.isPending || drawMutation.isPending || forfeitMutation.isPending || doubleForfeitMutation.isPending
 
   const handleForfeit = (forfeitingTeamId: string, label: string) => {
     if (!window.confirm(`Mark "${label}" as forfeited? Their opponent will be recorded as the winner.`)) return
@@ -111,19 +121,20 @@ export default function MatchResultModal({
 
         {/* Mode tabs */}
         <div className="flex border-b border-gray-100">
-          {(['result', 'forfeit', 'double_forfeit'] as PanelMode[]).map(m => (
+          {(['result', ...(showDraw ? ['draw'] : []), 'forfeit', 'double_forfeit'] as PanelMode[]).map(m => (
             <button
               key={m}
               onClick={() => switchMode(m)}
               className={`flex-1 py-2.5 text-xs font-semibold transition-colors ${
                 mode === m
-                  ? m === 'result'      ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/40'
-                  : m === 'forfeit'     ? 'text-red-600 border-b-2 border-red-600 bg-red-50/40'
-                  :                       'text-orange-600 border-b-2 border-orange-600 bg-orange-50/40'
+                  ? m === 'result'        ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/40'
+                  : m === 'draw'          ? 'text-slate-600 border-b-2 border-slate-600 bg-slate-50/40'
+                  : m === 'forfeit'       ? 'text-red-600 border-b-2 border-red-600 bg-red-50/40'
+                  :                         'text-orange-600 border-b-2 border-orange-600 bg-orange-50/40'
                   : 'text-gray-400 hover:text-gray-600'
               }`}
             >
-              {m === 'result' ? 'Result' : m === 'forfeit' ? 'Forfeit' : 'Dbl Forfeit'}
+              {m === 'result' ? 'Result' : m === 'draw' ? 'Draw' : m === 'forfeit' ? 'Forfeit' : 'Dbl Forfeit'}
             </button>
           ))}
         </div>
@@ -234,6 +245,45 @@ export default function MatchResultModal({
                   {awayLabel}
                 </button>
               </div>
+            </>
+          )}
+
+          {mode === 'draw' && (
+            <>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Final Score (optional)</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1 truncate">{homeLabel}</label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    value={homeScore}
+                    onChange={e => { setHomeScore(e.target.value); setError(null) }}
+                    placeholder="—"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-center text-slate-800 tabular-nums"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1 truncate">{awayLabel}</label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    value={awayScore}
+                    onChange={e => { setAwayScore(e.target.value); setError(null) }}
+                    placeholder="—"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-center text-slate-800 tabular-nums"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={() => drawMutation.mutate()}
+                disabled={isPending}
+                className="w-full py-3 rounded-xl bg-slate-50 border-2 border-slate-300 text-sm font-semibold text-slate-700 hover:border-slate-500 disabled:opacity-40 transition-colors"
+              >
+                Record Draw
+              </button>
             </>
           )}
 

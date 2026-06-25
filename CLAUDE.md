@@ -47,6 +47,7 @@ Do NOT change these without explicit migration updates.
   - `completed`
   - `forfeit`
   - `double_forfeit`
+  - `draw` — pool play only; no winner_id; both teams earn a draw; scores recorded via `home_score`/`away_score`
 
 ---
 
@@ -272,7 +273,7 @@ Per-company donation totals for donation-style sports (Canned Food Drive). Write
 | Volleyball | double_elimination | 1 | high_wins | best_placement | ASG default |
 | Basketball | double_elimination | 1 | high_wins | best_placement | ASG default |
 | Dodgeball | double_elimination | 3 | high_wins | best_placement | ASG default |
-| Soccer | single_elimination | 1 | high_wins | best_placement | ASG default |
+| Soccer | pool_bracket | 1 | high_wins | best_placement | ASG default |
 | Tug of War | single_elimination | 1 | high_wins | best_placement | ASG default |
 | Ultimate Frisbee | pool_bracket | 1 | high_wins | best_placement | ASG default |
 | Pickleball | pool_bracket | 2 | high_wins | best_placement | ASG default |
@@ -338,6 +339,7 @@ ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place (floor 0). SQL: 
 | POST | `/{id}/result` | admin | Submit winner; advances bracket |
 | POST | `/{id}/forfeit` | admin | Forfeit; accepts `forfeiting_team_id`; advances bracket |
 | POST | `/{id}/double-forfeit` | admin | Both teams forfeit; no advancement |
+| POST | `/{id}/draw` | admin | Record a draw; pool play only (no `winner_next_match_id`); accepts optional `home_score`/`away_score` |
 | DELETE | `/{id}` | admin | Delete |
 
 ### Event Points — `/event-points`
