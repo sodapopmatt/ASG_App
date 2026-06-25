@@ -52,6 +52,8 @@ class HeatResult(BaseModel):
 class MatchUpdate(BaseModel):
     scheduled_at: datetime | None = None
     location_id: UUID | None = None
+    home_score: int | None = None
+    away_score: int | None = None
 
 
 class LocationBrief(BaseModel):

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { startMatch, submitResult, submitForfeit, submitDoubleForfeit, submitDraw } from '../api/matches'
+import { startMatch, submitResult, submitForfeit, submitDoubleForfeit, submitDraw, patchMatch } from '../api/matches'
 import type { Match, Team, Company } from '../types'
 
 function fullLabel(
@@ -51,7 +51,17 @@ export default function MatchResultModal({
   const onSuccess = () => { qc.invalidateQueries({ queryKey: ['matches'] }); onClose() }
   const onError = (e: unknown) => setError(e instanceof Error ? e.message : 'Failed to submit')
 
+  const isInProgress = match.status === 'in_progress'
+
   const startMutation  = useMutation({ mutationFn: () => startMatch(match.id), onSuccess, onError })
+  const scoreMutation  = useMutation({
+    mutationFn: () => patchMatch(match.id, {
+      home_score: homeScore.trim() === '' ? null : Number(homeScore),
+      away_score: awayScore.trim() === '' ? null : Number(awayScore),
+    }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['matches'] }) },
+    onError,
+  })
   const drawMutation   = useMutation({
     mutationFn: () => submitDraw(match.id, {
       home_score: homeScore.trim() === '' ? null : Number(homeScore),
@@ -75,7 +85,7 @@ export default function MatchResultModal({
   const forfeitMutation      = useMutation({ mutationFn: (forfeitingTeamId: string) => submitForfeit(match.id, forfeitingTeamId), onSuccess, onError })
   const doubleForfeitMutation = useMutation({ mutationFn: () => submitDoubleForfeit(match.id), onSuccess, onError })
 
-  const isPending = startMutation.isPending || resultMutation.isPending || drawMutation.isPending || forfeitMutation.isPending || doubleForfeitMutation.isPending
+  const isPending = startMutation.isPending || resultMutation.isPending || drawMutation.isPending || scoreMutation.isPending || forfeitMutation.isPending || doubleForfeitMutation.isPending
 
   const handleForfeit = (forfeitingTeamId: string, label: string) => {
     if (!window.confirm(`Mark "${label}" as forfeited? Their opponent will be recorded as the winner.`)) return
@@ -227,6 +237,15 @@ export default function MatchResultModal({
                     </div>
                   </div>
                 </>
+              )}
+              {isInProgress && (
+                <button
+                  onClick={() => scoreMutation.mutate()}
+                  disabled={isPending}
+                  className="w-full py-2 rounded-xl bg-amber-50 border border-amber-300 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-40 transition-colors"
+                >
+                  {scoreMutation.isPending ? 'Saving…' : 'Update Score'}
+                </button>
               )}
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider pt-1">Who won?</p>
               <div className="grid grid-cols-2 gap-2">

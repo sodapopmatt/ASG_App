@@ -76,7 +76,7 @@ export function submitHeatResult(matchId: string, body: { time_ms?: number; forf
   })
 }
 
-export function patchMatch(matchId: string, body: { scheduled_at?: string | null; location_id?: string | null }) {
+export function patchMatch(matchId: string, body: { scheduled_at?: string | null; location_id?: string | null; home_score?: number | null; away_score?: number | null }) {
   return apiFetch<Match>(`/matches/${matchId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
