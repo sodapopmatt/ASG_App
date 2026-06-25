@@ -23,10 +23,20 @@ function RankBadge({ rank }: { rank: number }) {
   )
 }
 
-function EntryCard({ entry, rank }: { entry: LeaderboardEntry; rank: number }) {
+function CompanyLogo({ name, logoUrl }: { name: string; logoUrl?: string | null }) {
+  if (logoUrl) return <img src={logoUrl} alt="" className="w-9 h-9 rounded-lg object-contain shrink-0" />
+  return (
+    <div className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
+      <span className="text-xs font-bold text-gray-400">{name.charAt(0).toUpperCase()}</span>
+    </div>
+  )
+}
+
+function EntryCard({ entry, rank, logoUrl }: { entry: LeaderboardEntry; rank: number; logoUrl?: string | null }) {
   return (
     <div className="bg-white rounded-xl px-4 py-3 shadow-sm border border-gray-100 flex items-center gap-3">
       <RankBadge rank={rank} />
+      <CompanyLogo name={entry.company_name} logoUrl={logoUrl} />
       <div className="flex-1 min-w-0">
         <p className="font-semibold text-slate-800 truncate">{entry.company_name}</p>
         <p className="text-xs text-gray-400">
@@ -147,11 +157,7 @@ export default function Leaderboard() {
   })
 
   const sports = useQuery({ queryKey: ['sports'], queryFn: getSports, enabled: tab === 'sport' })
-  const companies = useQuery({
-    queryKey: ['companies'],
-    queryFn: getCompanies,
-    enabled: tab === 'sport',
-  })
+  const companies = useQuery({ queryKey: ['companies'], queryFn: getCompanies, staleTime: Infinity })
   const eventPoints = useQuery({
     queryKey: ['event-points', 'all'],
     queryFn: () => getEventPoints(),
@@ -159,8 +165,11 @@ export default function Leaderboard() {
     enabled: tab === 'sport',
   })
 
-  const bySportLoading =
-    sports.isLoading || companies.isLoading || eventPoints.isLoading
+  const companyById = new Map<string, Company>(
+    (companies.data ?? []).map((c) => [c.id, c]),
+  )
+
+  const bySportLoading = sports.isLoading || eventPoints.isLoading
 
   return (
     <div className="p-4 space-y-3">
@@ -181,7 +190,7 @@ export default function Leaderboard() {
             <p className="text-center text-gray-500 py-12">No scores recorded yet.</p>
           )}
           {overall.data?.map((entry, idx) => (
-            <EntryCard key={entry.company_id} entry={entry} rank={idx} />
+            <EntryCard key={entry.company_id} entry={entry} rank={idx} logoUrl={companyById.get(entry.company_id)?.logo_url} />
           ))}
         </div>
       )}
@@ -190,9 +199,6 @@ export default function Leaderboard() {
         <div className="space-y-2">
           {bySportLoading && <Skeleton />}
           {!bySportLoading && (() => {
-            const companyById = new Map<string, Company>(
-              (companies.data ?? []).map((c) => [c.id, c]),
-            )
             const bySport = new Map<string, EventPoints[]>()
             for (const ep of eventPoints.data ?? []) {
               const list = bySport.get(ep.sport_id) ?? []
