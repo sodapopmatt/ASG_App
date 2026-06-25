@@ -131,7 +131,7 @@ export default function CompanyTeams() {
         <BackLink to="/teams" label="Companies" />
         <div className="flex items-center gap-3">
           {company?.logo_url ? (
-            <img src={company.logo_url} alt="" className="w-10 h-10 rounded-lg object-contain bg-white shrink-0" />
+            <img src={company.logo_url} alt="" className="w-10 h-10 rounded-lg object-contain shrink-0" />
           ) : (
             <div className="w-10 h-10 rounded-lg bg-gray-200 flex items-center justify-center shrink-0">
               <span className="text-xs font-bold text-gray-400">{company?.short_id ?? company?.name.charAt(0).toUpperCase()}</span>

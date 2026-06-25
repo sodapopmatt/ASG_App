@@ -89,7 +89,7 @@ function CompanyEditForm({ company, onDone }: { company: Company; onDone: () => 
           <img
             src={logoUrl.trim()}
             alt="Preview"
-            className="mt-2 w-12 h-12 rounded-lg object-contain bg-white border border-gray-200"
+            className="mt-2 w-12 h-12 rounded-lg object-contain border border-gray-200"
             onError={e => (e.currentTarget.style.display = 'none')}
           />
         )}
@@ -507,7 +507,7 @@ export default function ManageCompanyTeams() {
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-3 min-w-0">
           {company?.logo_url ? (
-            <img src={company.logo_url} alt="" className="w-10 h-10 rounded-lg object-contain bg-white shrink-0" />
+            <img src={company.logo_url} alt="" className="w-10 h-10 rounded-lg object-contain shrink-0" />
           ) : (
             <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
               <span className="text-xs font-bold text-gray-400">{company?.short_id ?? company?.name.charAt(0).toUpperCase()}</span>

@@ -102,7 +102,7 @@ export default function TeamsPage() {
                 className="w-full flex items-center gap-3 px-4 py-3 bg-white rounded-xl border border-gray-200 shadow-sm text-left active:bg-gray-50 transition-colors"
               >
                 {company.logo_url ? (
-                  <img src={company.logo_url} alt="" className="w-10 h-10 rounded-lg object-contain bg-white shrink-0" />
+                  <img src={company.logo_url} alt="" className="w-10 h-10 rounded-lg object-contain shrink-0" />
                 ) : (
                   <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
                     <span className="text-[9px] font-bold text-gray-400 leading-none text-center whitespace-nowrap overflow-hidden">
