@@ -97,7 +97,7 @@ export default function PoolResultsPage() {
   const { sportId } = useParams<{ sportId: string }>()
   const [activeMatch, setActiveMatch] = useState<Match | null>(null)
 
-  const matchesQuery   = useQuery({ queryKey: ['matches'],   queryFn: () => getMatches() })
+  const matchesQuery   = useQuery({ queryKey: ['matches'],   queryFn: () => getMatches(), refetchInterval: 5000 })
   const sportsQuery    = useQuery({ queryKey: ['sports'],    queryFn: getSports,        staleTime: Infinity })
   const teamsQuery     = useQuery({ queryKey: ['teams'],     queryFn: () => getTeams(), staleTime: Infinity })
   const companiesQuery = useQuery({ queryKey: ['companies'], queryFn: getCompanies,     staleTime: Infinity })
@@ -110,6 +110,7 @@ export default function PoolResultsPage() {
     queryKey: ['standings', sportId],
     queryFn:  () => getStandings(sportId!),
     enabled:  !!sportId,
+    refetchInterval: 5000,
   })
 
   const teamMap    = useMemo(() => indexBy(teamsQuery.data    ?? [], 'id') as Record<string, Team>,    [teamsQuery.data])

@@ -184,6 +184,7 @@ function PoolPlayView({
   const standingsQuery = useQuery({
     queryKey: ['standings', sportId],
     queryFn: () => getStandings(sportId),
+    refetchInterval: 5000,
   })
   const standings = standingsQuery.data ?? []
 
@@ -518,7 +519,7 @@ function Skeleton() {
 export default function BracketView() {
   const { sportId: activeSportId = null } = useParams<{ sportId: string }>()
 
-  const matchesQuery   = useQuery({ queryKey: ['matches'],   queryFn: () => getMatches() })
+  const matchesQuery   = useQuery({ queryKey: ['matches'],   queryFn: () => getMatches(), refetchInterval: 5000 })
   const sportsQuery    = useQuery({ queryKey: ['sports'],    queryFn: getSports,        staleTime: Infinity })
   const teamsQuery     = useQuery({ queryKey: ['teams'],     queryFn: () => getTeams(), staleTime: Infinity })
   const companiesQuery = useQuery({ queryKey: ['companies'], queryFn: getCompanies,     staleTime: Infinity })
