@@ -213,7 +213,8 @@ function PoolPlayView({
     return team.name ? `${base} · ${team.name}` : base
   }
 
-  const showGameScores = sport?.name === 'Pickleball'
+  const showGameScores  = sport?.name?.toLowerCase() === 'pickleball'
+  const showSoccerStats = sport?.name?.toLowerCase() === 'soccer'
 
   if (standingsQuery.isLoading) return <Skeleton />
   if (standings.length === 0) {
@@ -235,7 +236,15 @@ function PoolPlayView({
                 <th className="text-left px-3 py-2 font-semibold text-gray-500">#</th>
                 <th className="text-left px-3 py-2 font-semibold text-gray-500">Team</th>
                 <th className="text-center px-2 py-2 font-semibold text-gray-500">W</th>
+                {showSoccerStats && <th className="text-center px-2 py-2 font-semibold text-gray-500">D</th>}
                 <th className="text-center px-2 py-2 font-semibold text-gray-500">L</th>
+                {showSoccerStats && (
+                  <>
+                    <th className="text-center px-2 py-2 font-semibold text-gray-500">GF</th>
+                    <th className="text-center px-2 py-2 font-semibold text-gray-500">GA</th>
+                    <th className="text-center px-2 py-2 font-semibold text-gray-500">GD</th>
+                  </>
+                )}
                 {showGameScores && (
                   <>
                     <th className="text-center px-2 py-2 font-semibold text-gray-500">GW</th>
@@ -253,7 +262,15 @@ function PoolPlayView({
                   </td>
                   <td className="px-3 py-2 text-slate-700">{teamName(row.team_id)}</td>
                   <td className="px-2 py-2 text-center font-semibold text-green-700">{row.wins}</td>
+                  {showSoccerStats && <td className="px-2 py-2 text-center text-slate-600">{row.draws}</td>}
                   <td className="px-2 py-2 text-center text-gray-500">{row.losses}</td>
+                  {showSoccerStats && (
+                    <>
+                      <td className="px-2 py-2 text-center text-slate-600">{row.goals_for}</td>
+                      <td className="px-2 py-2 text-center text-slate-600">{row.goals_against}</td>
+                      <td className="px-2 py-2 text-center text-slate-600">{row.goal_diff > 0 ? `+${row.goal_diff}` : row.goal_diff}</td>
+                    </>
+                  )}
                   {showGameScores && (
                     <>
                       <td className="px-2 py-2 text-center text-slate-600">{row.game_wins}</td>
