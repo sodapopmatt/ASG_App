@@ -11,12 +11,21 @@ def list_teams(
     company_id: str | None = Query(None),
     sport_id: str | None = Query(None),
 ):
-    q = supabase.table("teams").select("*")
-    if company_id:
-        q = q.eq("company_id", company_id)
-    if sport_id:
-        q = q.eq("sport_id", sport_id)
-    return q.order("name").execute().data
+    results = []
+    page_size = 1000
+    page = 0
+    while True:
+        q = supabase.table("teams").select("*")
+        if company_id:
+            q = q.eq("company_id", company_id)
+        if sport_id:
+            q = q.eq("sport_id", sport_id)
+        batch = q.order("name").range(page * page_size, (page + 1) * page_size - 1).execute().data
+        results.extend(batch)
+        if len(batch) < page_size:
+            break
+        page += 1
+    return results
 
 
 @router.get("/{team_id}", response_model=Team)
