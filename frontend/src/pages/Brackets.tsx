@@ -115,6 +115,8 @@ function HeatsStandingsView({
   teamMap: Record<string, Team>
   companyMap: Record<string, Company>
 }) {
+  const multiTeamKeys = useMemo(() => buildMultiTeamKeys(teamMap), [teamMap])
+
   const rows = useMemo(() => {
     const completed = matches
       .filter(m => m.status === 'completed' && m.notes)
@@ -131,12 +133,7 @@ function HeatsStandingsView({
   }, [matches])
 
   function teamName(teamId: string | null | undefined) {
-    if (!teamId) return '—'
-    const team = teamMap[teamId]
-    if (!team) return '—'
-    const company = companyMap[team.company_id]
-    const base = company?.name ?? 'Unknown'
-    return team.name ? `${base} · ${team.name}` : base
+    return compactLabel(teamId ?? null, teamMap, companyMap, undefined, multiTeamKeys)
   }
 
   if (rows.length === 0) return <p className="text-center text-gray-500 py-12">No results yet.</p>
@@ -206,12 +203,10 @@ function PoolPlayView({
     return { poolMatches, bracketPhaseMatches }
   }, [matches, poolBracketIds])
 
+  const multiTeamKeys = useMemo(() => buildMultiTeamKeys(teamMap), [teamMap])
+
   function teamName(teamId: string) {
-    const team = teamMap[teamId]
-    if (!team) return '—'
-    const company = companyMap[team.company_id]
-    const base = company?.name ?? 'Unknown'
-    return team.name ? `${base} · ${team.name}` : base
+    return compactLabel(teamId, teamMap, companyMap, undefined, multiTeamKeys)
   }
 
   const showGameScores  = sport?.name?.toLowerCase() === 'pickleball'

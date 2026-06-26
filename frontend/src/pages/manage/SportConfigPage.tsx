@@ -1,4 +1,4 @@
-﻿import { useState, useMemo } from 'react'
+﻿import { useState, useMemo, useRef, useEffect } from 'react'
 import { useParams, Navigate } from 'react-router-dom'
 import BackLink from '../../components/BackLink'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -205,6 +205,7 @@ function DivToggle({
 }
 
 const SHARED_COURT_VALUE = -1
+const UNASSIGNED_POOL = -2
 
 function CourtPill({
   loc,
@@ -234,6 +235,177 @@ function CourtPill({
   )
 }
 
+function PoolBucketRow({
+  poolIndex,
+  poolCount,
+  seeds,
+  locations,
+  teamPoolOf,
+  courtPoolOf,
+  companyMap,
+  onMoveTeam,
+  onMoveCourt,
+  onUnassignTeam,
+  isOpen,
+  onToggle,
+}: {
+  poolIndex: number
+  poolCount: number
+  seeds: Team[]
+  locations: { id: string; name: string; sport_id: string }[]
+  teamPoolOf: (id: string) => number
+  courtPoolOf: (id: string) => number
+  companyMap: Record<string, Company>
+  onMoveTeam: (teamId: string, pool: number) => void
+  onMoveCourt: (locId: string, pool: number) => void
+  onUnassignTeam: (teamId: string) => void
+  isOpen: boolean
+  onToggle: () => void
+}) {
+  const [search, setSearch] = useState('')
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const searchRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!dropdownOpen) return
+    const handler = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [dropdownOpen])
+
+  const poolTeams = seeds.filter(t => teamPoolOf(t.id) === poolIndex)
+  const poolCourts = locations.filter(l => courtPoolOf(l.id) === poolIndex)
+
+  const q = search.trim().toLowerCase()
+  const searchResults = q.length > 0
+    ? seeds.filter(team => {
+        const co = companyMap[team.company_id]
+        return (
+          (co?.name ?? '').toLowerCase().includes(q) ||
+          (co?.short_id ?? '').toLowerCase().includes(q) ||
+          (team.name ?? '').toLowerCase().includes(q)
+        )
+      })
+    : []
+
+  return (
+    <div className="rounded-xl border border-gray-200 overflow-hidden">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 text-left hover:bg-gray-100 transition-colors"
+      >
+        <span className="text-sm font-semibold text-slate-800">{poolName(poolIndex)}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">{poolTeams.length} teams</span>
+          {poolCourts.length > 0 && (
+            <span className="text-xs text-gray-400">· {poolCourts.map(c => c.name).join(', ')}</span>
+          )}
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+            className={`text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </div>
+      </button>
+
+      {isOpen && (
+        <div className="px-3 py-2.5 space-y-2.5 bg-white">
+          {/* Team search */}
+          <div ref={searchRef} className="relative">
+            <input
+              type="text"
+              value={search}
+              onChange={e => { setSearch(e.target.value); setDropdownOpen(true) }}
+              onFocus={() => { if (search) setDropdownOpen(true) }}
+              placeholder="Search by team name or company ID…"
+              className="w-full text-sm rounded-lg border border-gray-200 px-3 py-1.5 bg-white text-slate-700 placeholder-gray-400 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100"
+            />
+            {dropdownOpen && searchResults.length > 0 && (
+              <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-52 overflow-y-auto">
+                {searchResults.map(team => {
+                  const co = companyMap[team.company_id]
+                  const inThisPool = teamPoolOf(team.id) === poolIndex
+                  const currentPool = teamPoolOf(team.id)
+                  const currentLabel = currentPool === UNASSIGNED_POOL
+                    ? 'Unassigned'
+                    : inThisPool
+                      ? '✓ in this pool'
+                      : poolName(currentPool)
+                  return (
+                    <button
+                      key={team.id}
+                      onMouseDown={e => {
+                        e.preventDefault()
+                        if (!inThisPool) onMoveTeam(team.id, poolIndex)
+                        setSearch('')
+                        setDropdownOpen(false)
+                      }}
+                      className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between transition-colors ${
+                        inThisPool ? 'text-gray-400 cursor-default' : 'text-slate-700 hover:bg-gray-50 cursor-pointer'
+                      }`}
+                    >
+                      <span className="flex items-center gap-1.5">
+                        {co?.name ?? '—'}{team.name ? ` · ${team.name}` : ''}
+                        {co?.short_id && (
+                          <span className="text-[10px] font-mono text-gray-400 bg-gray-100 rounded px-1">{co.short_id}</span>
+                        )}
+                      </span>
+                      <span className="text-xs text-gray-400 shrink-0 ml-2">{currentLabel}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+            {dropdownOpen && q.length > 0 && searchResults.length === 0 && (
+              <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 text-sm text-gray-400">
+                No teams match "{search}"
+              </div>
+            )}
+          </div>
+
+          {/* Team chips */}
+          <div className="flex flex-wrap gap-1.5">
+            {poolTeams.map(team => (
+              <div key={team.id} className="flex items-center gap-1 bg-gray-100 rounded-md px-2 py-1 text-xs text-slate-700">
+                <span>{companyMap[team.company_id]?.short_id ?? companyMap[team.company_id]?.name ?? '—'}{team.name ? ` · ${team.name}` : ''}</span>
+                <select
+                  value={poolIndex}
+                  onChange={e => onMoveTeam(team.id, Number(e.target.value))}
+                  className="ml-1 text-[10px] bg-transparent text-gray-400 cursor-pointer border-none outline-none"
+                >
+                  {Array.from({ length: poolCount }, (_, j) => (
+                    <option key={j} value={j}>{poolName(j)}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => onUnassignTeam(team.id)}
+                  className="ml-0.5 text-gray-400 hover:text-red-500 transition-colors leading-none"
+                  title="Remove from pool"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            {poolTeams.length === 0 && <p className="text-xs text-gray-400 italic">No teams assigned</p>}
+          </div>
+
+          {locations.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pt-1 border-t border-gray-100">
+              {poolCourts.map(loc => (
+                <CourtPill key={loc.id} loc={loc} currentPool={poolIndex} poolCount={poolCount} onMoveCourt={onMoveCourt} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function PoolBuckets({
   poolCount,
   seeds,
@@ -243,6 +415,7 @@ function PoolBuckets({
   companyMap,
   onMoveTeam,
   onMoveCourt,
+  onUnassignTeam,
 }: {
   poolCount: number
   seeds: Team[]
@@ -252,10 +425,12 @@ function PoolBuckets({
   companyMap: Record<string, Company>
   onMoveTeam: (teamId: string, pool: number) => void
   onMoveCourt: (locId: string, pool: number) => void
+  onUnassignTeam: (teamId: string) => void
 }) {
   const [openPool, setOpenPool] = useState<number | null>(0)
 
   const sharedCourts = locations.filter(l => courtPoolOf(l.id) === SHARED_COURT_VALUE)
+  const unassignedTeams = seeds.filter(t => teamPoolOf(t.id) === UNASSIGNED_POOL)
 
   return (
     <div className="space-y-2">
@@ -272,60 +447,50 @@ function PoolBuckets({
       )}
 
       {/* Per-pool accordions */}
-      {Array.from({ length: poolCount }, (_, i) => {
-        const poolTeams = seeds.filter(t => teamPoolOf(t.id) === i)
-        const poolCourts = locations.filter(l => courtPoolOf(l.id) === i)
-        const isOpen = openPool === i
-        return (
-          <div key={i} className="rounded-xl border border-gray-200 overflow-hidden">
-            <button
-              onClick={() => setOpenPool(isOpen ? null : i)}
-              className="w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 text-left hover:bg-gray-100 transition-colors"
-            >
-              <span className="text-sm font-semibold text-slate-800">{poolName(i)}</span>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500">{poolTeams.length} teams</span>
-                {poolCourts.length > 0 && (
-                  <span className="text-xs text-gray-400">· {poolCourts.map(c => c.name).join(', ')}</span>
-                )}
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                  fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                  className={`text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-              </div>
-            </button>
-            {isOpen && (
-              <div className="px-3 py-2.5 space-y-2 bg-white">
-                <div className="flex flex-wrap gap-1.5">
-                  {poolTeams.map(team => (
-                    <div key={team.id} className="flex items-center gap-1 bg-gray-100 rounded-md px-2 py-1 text-xs text-slate-700">
-                      <span>{companyMap[team.company_id]?.name ?? '—'}{team.name ? ` · ${team.name}` : ''}</span>
-                      <select
-                        value={i}
-                        onChange={e => onMoveTeam(team.id, Number(e.target.value))}
-                        className="ml-1 text-[10px] bg-transparent text-gray-400 cursor-pointer border-none outline-none"
-                      >
-                        {Array.from({ length: poolCount }, (_, j) => (
-                          <option key={j} value={j}>{poolName(j)}</option>
-                        ))}
-                      </select>
-                    </div>
-                  ))}
-                  {poolTeams.length === 0 && <p className="text-xs text-gray-400 italic">No teams assigned</p>}
-                </div>
-                {locations.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 pt-1 border-t border-gray-100">
-                    {poolCourts.map(loc => (
-                      <CourtPill key={loc.id} loc={loc} currentPool={i} poolCount={poolCount} onMoveCourt={onMoveCourt} />
+      {Array.from({ length: poolCount }, (_, i) => (
+        <PoolBucketRow
+          key={i}
+          poolIndex={i}
+          poolCount={poolCount}
+          seeds={seeds}
+          locations={locations}
+          teamPoolOf={teamPoolOf}
+          courtPoolOf={courtPoolOf}
+          companyMap={companyMap}
+          onMoveTeam={onMoveTeam}
+          onMoveCourt={onMoveCourt}
+          onUnassignTeam={onUnassignTeam}
+          isOpen={openPool === i}
+          onToggle={() => setOpenPool(openPool === i ? null : i)}
+        />
+      ))}
+
+      {/* Unassigned teams tray */}
+      {unassignedTeams.length > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-3 py-2.5">
+          <p className="text-xs font-semibold text-amber-700 mb-1.5">Unassigned — assign to a pool to continue</p>
+          <div className="flex flex-wrap gap-1.5">
+            {unassignedTeams.map(team => {
+              const co = companyMap[team.company_id]
+              return (
+                <div key={team.id} className="flex items-center gap-1 bg-white border border-amber-200 rounded-md px-2 py-1 text-xs text-slate-700">
+                  <span>{co?.short_id ?? co?.name ?? '—'}{team.name ? ` · ${team.name}` : ''}</span>
+                  <select
+                    value=""
+                    onChange={e => { if (e.target.value !== '') onMoveTeam(team.id, Number(e.target.value)) }}
+                    className="ml-1 text-[10px] bg-transparent text-amber-600 cursor-pointer border-none outline-none"
+                  >
+                    <option value="" disabled>Move to…</option>
+                    {Array.from({ length: poolCount }, (_, j) => (
+                      <option key={j} value={j}>{poolName(j)}</option>
                     ))}
-                  </div>
-                )}
-              </div>
-            )}
+                  </select>
+                </div>
+              )
+            })}
           </div>
-        )
-      })}
+        </div>
+      )}
     </div>
   )
 }
@@ -380,10 +545,26 @@ export default function SportConfigPage() {
   const [teamDiv, setTeamDiv] = useState<Record<string, 0 | 1>>({})
   const [courtDiv, setCourtDiv] = useState<Record<string, 0 | 1>>({})
 
-  // Pool play state (pool_bracket / pool_swiss)
-  const [poolCount, setPoolCount] = useState<number | null>(null)
-  const [teamPool, setTeamPool] = useState<Record<string, number>>({})
-  const [courtPool, setCourtPool] = useState<Record<string, number>>({})
+  // Pool play state — restored from localStorage only if the user explicitly saved groups
+  const [poolCount, setPoolCount] = useState<number | null>(() => {
+    try { return JSON.parse(localStorage.getItem(`pool-count-${sportId}`) ?? 'null') } catch { return null }
+  })
+  const [teamPool, setTeamPool] = useState<Record<string, number>>(() => {
+    try { return JSON.parse(localStorage.getItem(`pool-teams-${sportId}`) ?? 'null') ?? {} } catch { return {} }
+  })
+  const [courtPool, setCourtPool] = useState<Record<string, number>>(() => {
+    try { return JSON.parse(localStorage.getItem(`pool-courts-${sportId}`) ?? 'null') ?? {} } catch { return {} }
+  })
+  const [groupsSavedFeedback, setGroupsSavedFeedback] = useState(false)
+
+  function saveGroups() {
+    if (!sportId) return
+    localStorage.setItem(`pool-count-${sportId}`, JSON.stringify(poolCount))
+    localStorage.setItem(`pool-teams-${sportId}`, JSON.stringify(teamPool))
+    localStorage.setItem(`pool-courts-${sportId}`, JSON.stringify(courtPool))
+    setGroupsSavedFeedback(true)
+    setTimeout(() => setGroupsSavedFeedback(false), 2000)
+  }
 
   // Bracket phase state (pool_bracket, after pool play)
   const [advanceCount, setAdvanceCount] = useState(2)
@@ -468,6 +649,7 @@ export default function SportConfigPage() {
   // Snake distribution over seed order keeps pools balanced by strength
   const teamPoolOf = (teamId: string): number => {
     const override = teamPool[teamId]
+    if (override === UNASSIGNED_POOL) return UNASSIGNED_POOL
     if (override !== undefined && override < effectivePoolCount) return override
     const idx = seeds.findIndex(t => t.id === teamId)
     if (idx < 0) return 0
@@ -494,7 +676,8 @@ export default function SportConfigPage() {
     // Include courts dedicated to this pool AND courts shared across all pools
     location_ids: locations.filter(l => courtPoolOf(l.id) === i || courtPoolOf(l.id) === SHARED_COURT).map(l => l.id),
   }))
-  const poolsValid = poolSpecs.every(p => p.team_ids.length >= 2)
+  const hasUnassignedTeams = seeds.some(t => teamPoolOf(t.id) === UNASSIGNED_POOL)
+  const poolsValid = !hasUnassignedTeams && poolSpecs.every(p => p.team_ids.length >= 2)
 
   // â”€â”€ Bracket phase (pool_bracket only) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const { data: brackets = [] } = useQuery({
@@ -675,8 +858,21 @@ export default function SportConfigPage() {
     createCourtMutation.mutate(name)
   }
 
+  function handleRestartPoolPlay() {
+    if (!window.confirm(`Reset pool play for ${sport?.name}? Matches will be deleted but your group assignments will be kept.`)) return
+    resetMutation.mutate()
+  }
+
   function handleReset() {
     if (!window.confirm(`Reset all brackets for ${sport?.name}? This will delete all matches and cannot be undone.`)) return
+    if (sportId) {
+      localStorage.removeItem(`pool-count-${sportId}`)
+      localStorage.removeItem(`pool-teams-${sportId}`)
+      localStorage.removeItem(`pool-courts-${sportId}`)
+    }
+    setTeamPool({})
+    setCourtPool({})
+    setPoolCount(null)
     resetMutation.mutate()
   }
 
@@ -844,9 +1040,22 @@ export default function SportConfigPage() {
             This sport uses manual entry. Create matches directly in the schedule.
           </p>
         ) : alreadyGenerated ? (
-          <p className="text-sm text-slate-500">
-            {isPool ? 'Pool play has been generated.' : 'Bracket has been generated.'} To regenerate, reset all brackets &amp; matches below first.
-          </p>
+          isPool ? (
+            <div className="space-y-2">
+              <p className="text-sm text-slate-500">Pool play has been generated.</p>
+              <button
+                onClick={handleRestartPoolPlay}
+                disabled={resetMutation.isPending}
+                className="w-full py-2 rounded-lg border border-amber-200 text-amber-700 font-semibold text-sm hover:bg-amber-50 disabled:opacity-50"
+              >
+                {resetMutation.isPending ? 'Resetting…' : 'Restart Pool Play'}
+              </button>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">
+              Bracket has been generated. To regenerate, reset all brackets &amp; matches below first.
+            </p>
+          )
         ) : isHeats ? (
           <p className="text-sm text-slate-500 italic">
             This will create one entry per team. Each team's ref will record their time separately.
@@ -879,13 +1088,25 @@ export default function SportConfigPage() {
               companyMap={companyMap}
               onMoveTeam={(teamId, pool) => setTeamPool(prev => ({ ...prev, [teamId]: pool }))}
               onMoveCourt={(locId, pool) => setCourtPool(prev => ({ ...prev, [locId]: pool }))}
+              onUnassignTeam={(teamId) => setTeamPool(prev => ({ ...prev, [teamId]: UNASSIGNED_POOL }))}
             />
 
-            {!poolsValid && (
+            {hasUnassignedTeams && (
+              <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                All teams must be assigned to a pool before generating.
+              </p>
+            )}
+            {!hasUnassignedTeams && !poolsValid && (
               <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                 Each pool needs at least 2 teams.
               </p>
             )}
+            <button
+              onClick={saveGroups}
+              className="w-full py-2 rounded-lg border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50"
+            >
+              {groupsSavedFeedback ? 'Groups saved ✓' : 'Save Groups'}
+            </button>
           </div>
         ) : (
           <>

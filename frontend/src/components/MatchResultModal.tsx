@@ -1,20 +1,8 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { startMatch, submitResult, submitForfeit, submitDoubleForfeit, submitDraw, patchMatch } from '../api/matches'
 import type { Match, Team, Company } from '../types'
-
-function fullLabel(
-  teamId: string | null,
-  teamMap: Record<string, Team>,
-  companyMap: Record<string, Company>,
-): string {
-  if (!teamId) return 'TBD'
-  const team = teamMap[teamId]
-  if (!team) return 'Unknown'
-  const company = companyMap[team.company_id]
-  const base = company?.name ?? 'Unknown'
-  return team.name ? `${base} · ${team.name}` : base
-}
+import { buildMultiTeamKeys, compactLabel } from '../lib/bracketHelpers'
 
 type PanelMode = 'result' | 'draw' | 'forfeit' | 'double_forfeit'
 
@@ -43,8 +31,9 @@ export default function MatchResultModal({
   const [homePointsTotal, setHomePointsTotal] = useState(match.home_points_total != null ? String(match.home_points_total) : '')
   const [awayPointsTotal, setAwayPointsTotal] = useState(match.away_points_total != null ? String(match.away_points_total) : '')
 
-  const homeLabel = fullLabel(match.home_team_id, teamMap, companyMap)
-  const awayLabel = fullLabel(match.away_team_id, teamMap, companyMap)
+  const multiTeamKeys = useMemo(() => buildMultiTeamKeys(teamMap), [teamMap])
+  const homeLabel = compactLabel(match.home_team_id, teamMap, companyMap, undefined, multiTeamKeys)
+  const awayLabel = compactLabel(match.away_team_id, teamMap, companyMap, undefined, multiTeamKeys)
   const isScheduled = match.status === 'scheduled'
   const isDone = match.status === 'completed' || match.status === 'forfeit' || match.status === 'double_forfeit' || match.status === 'draw'
 

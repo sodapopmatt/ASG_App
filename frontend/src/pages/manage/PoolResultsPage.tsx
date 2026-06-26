@@ -10,33 +10,23 @@ import { getCompanies } from '../../api/companies'
 import { getBrackets } from '../../api/brackets'
 import type { Match, Team, Company, Bracket } from '../../types'
 import MatchResultModal from '../../components/MatchResultModal'
+import { buildMultiTeamKeys, compactLabel } from '../../lib/bracketHelpers'
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [String(item[key]), item]))
-}
-
-function teamLabel(
-  teamId: string | null,
-  teamMap: Record<string, Team>,
-  companyMap: Record<string, Company>,
-): string {
-  if (!teamId) return 'TBD'
-  const team = teamMap[teamId]
-  if (!team) return 'Unknown'
-  const company = companyMap[team.company_id]
-  const base = company?.name ?? 'Unknown'
-  return team.name ? `${base} · ${team.name}` : base
 }
 
 function MatchCard({
   match,
   teamMap,
   companyMap,
+  multiTeamKeys,
   onClick,
 }: {
   match: Match
   teamMap: Record<string, Team>
   companyMap: Record<string, Company>
+  multiTeamKeys: Set<string>
   onClick: () => void
 }) {
   const isDone = match.status === 'completed' || match.status === 'forfeit' || match.status === 'double_forfeit' || match.status === 'draw'
@@ -51,14 +41,14 @@ function MatchCard({
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <p className={`text-sm truncate flex-1 ${match.winner_id && match.winner_id === match.home_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'}`}>
-              {teamLabel(match.home_team_id, teamMap, companyMap)}
+              {compactLabel(match.home_team_id, teamMap, companyMap, undefined, multiTeamKeys)}
             </p>
             {hasScore && <span className="text-sm font-semibold text-slate-600 tabular-nums shrink-0">{match.home_score}</span>}
           </div>
           <p className="text-xs text-gray-400 my-0.5">vs</p>
           <div className="flex items-center gap-2">
             <p className={`text-sm truncate flex-1 ${match.winner_id && match.winner_id === match.away_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'}`}>
-              {teamLabel(match.away_team_id, teamMap, companyMap)}
+              {compactLabel(match.away_team_id, teamMap, companyMap, undefined, multiTeamKeys)}
             </p>
             {hasScore && <span className="text-sm font-semibold text-slate-600 tabular-nums shrink-0">{match.away_score}</span>}
           </div>
@@ -113,8 +103,9 @@ export default function PoolResultsPage() {
     refetchInterval: 5000,
   })
 
-  const teamMap    = useMemo(() => indexBy(teamsQuery.data    ?? [], 'id') as Record<string, Team>,    [teamsQuery.data])
-  const companyMap = useMemo(() => indexBy(companiesQuery.data ?? [], 'id') as Record<string, Company>, [companiesQuery.data])
+  const teamMap       = useMemo(() => indexBy(teamsQuery.data    ?? [], 'id') as Record<string, Team>,    [teamsQuery.data])
+  const companyMap    = useMemo(() => indexBy(companiesQuery.data ?? [], 'id') as Record<string, Company>, [companiesQuery.data])
+  const multiTeamKeys = useMemo(() => buildMultiTeamKeys(teamMap), [teamMap])
   const sport      = useMemo(() => (sportsQuery.data ?? []).find(s => s.id === sportId), [sportsQuery.data, sportId])
 
   const sportMatches = useMemo(
@@ -256,9 +247,7 @@ export default function PoolResultsPage() {
                         </thead>
                         <tbody>
                           {poolStandings.map((row, i) => {
-                            const team = teamMap[row.team_id]
-                            const company = team ? companyMap[team.company_id] : null
-                            const label = team?.name ? `${company?.name ?? '—'} · ${team.name}` : company?.name ?? '—'
+                            const label = compactLabel(row.team_id, teamMap, companyMap, undefined, multiTeamKeys)
                             return (
                               <tr key={row.team_id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
                                 <td className="px-3 py-2 font-bold text-gray-400">{row.rank}</td>
@@ -300,6 +289,7 @@ export default function PoolResultsPage() {
                           match={m}
                           teamMap={teamMap}
                           companyMap={companyMap}
+                          multiTeamKeys={multiTeamKeys}
                           onClick={() => setActiveMatch(m)}
                         />
                       ))
