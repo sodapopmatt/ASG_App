@@ -775,6 +775,11 @@ export default function SportConfigPage() {
       qc.invalidateQueries({ queryKey: ['matches'] })
       qc.invalidateQueries({ queryKey: ['brackets'] })
       setGenError(null)
+      if (isPool && sportId) {
+        localStorage.setItem(`pool-count-${sportId}`, JSON.stringify(poolCount))
+        localStorage.setItem(`pool-teams-${sportId}`, JSON.stringify(teamPool))
+        localStorage.setItem(`pool-courts-${sportId}`, JSON.stringify(courtPool))
+      }
     },
     onError: (e) => setGenError(e instanceof Error ? e.message : 'Failed to generate bracket'),
   })
