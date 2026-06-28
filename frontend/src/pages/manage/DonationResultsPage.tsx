@@ -4,7 +4,7 @@ import BackLink from '../../components/BackLink'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getSports } from '../../api/sports'
 import { getCompanies } from '../../api/companies'
-import { getDonationCounts, upsertDonationCount } from '../../api/donation_counts'
+import { getDonationCounts, upsertDonationCount, deleteDonationCount } from '../../api/donation_counts'
 import type { Sport, Company, DonationCount } from '../../types'
 
 function donationPointsFor(counts: number[]): Record<number, number> {
@@ -68,6 +68,7 @@ export default function DonationResultsPage() {
   const previewMap = useMemo(() => donationPointsFor(previewCounts), [previewCounts])
 
   const [savingId, setSavingId] = useState<string | null>(null)
+  const [resetting, setResetting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const saveMutation = useMutation({
@@ -82,6 +83,23 @@ export default function DonationResultsPage() {
     onError: (e: unknown) => setError(e instanceof Error ? e.message : 'Failed to save'),
     onSettled: () => setSavingId(null),
   })
+
+  const handleResetAll = async () => {
+    if (!window.confirm('Reset all donation counts? This cannot be undone.')) return
+    setResetting(true)
+    setError(null)
+    try {
+      for (const d of donations) await deleteDonationCount(d.id)
+      setValues({})
+      qc.invalidateQueries({ queryKey: ['donation-counts', sportId] })
+      qc.invalidateQueries({ queryKey: ['event-points'] })
+      qc.invalidateQueries({ queryKey: ['leaderboard'] })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to reset')
+    } finally {
+      setResetting(false)
+    }
+  }
 
   const handleSave = (company_id: string) => {
     const raw = values[company_id]
@@ -153,6 +171,17 @@ export default function DonationResultsPage() {
         })}
         {error && <p className="text-sm text-red-600 px-4 py-2">{error}</p>}
       </div>
+
+      {donations.length > 0 && (
+        <button
+          type="button"
+          onClick={handleResetAll}
+          disabled={resetting}
+          className="w-full py-2 rounded-lg border border-red-200 text-red-600 font-semibold text-sm hover:bg-red-50 disabled:opacity-50"
+        >
+          {resetting ? 'Resetting…' : 'Reset All'}
+        </button>
+      )}
     </div>
   )
 }
