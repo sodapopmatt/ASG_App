@@ -23,6 +23,7 @@ def _parse_dt(value: str | datetime | None) -> datetime | None:
 def _compute_estimated_starts(
     matches: list[dict],
     sport_duration_map: dict[str, int],
+    sport_start_map: dict[str, datetime | None] | None = None,
 ) -> dict[str, datetime | None]:
     """Compute estimated start times accounting for court availability and feeder matches.
 
@@ -71,6 +72,11 @@ def _compute_estimated_starts(
                     result[m["id"]] = est
                     court_free_at = est + duration
             elif is_playable and not is_completed:
+                # Seed court_free_at from sport's schedule_start if not yet anchored.
+                # This handles matches generated without scheduled_at (e.g. pool play
+                # generated before schedule_start was saved on the sport).
+                if court_free_at is None and sport_start_map:
+                    court_free_at = sport_start_map.get(m.get("sport_id", ""))
                 if court_free_at:
                     result[m["id"]] = court_free_at
                     court_free_at = court_free_at + duration
@@ -117,20 +123,22 @@ def _compute_estimated_starts(
 
 
 def _attach_estimated_starts(matches: list[dict]) -> list[dict]:
-    """Fetch sport durations, compute estimated_start, and attach to each match dict."""
+    """Fetch sport durations and schedule_start, compute estimated_start, and attach to each match dict."""
     sport_ids = list({m["sport_id"] for m in matches if m.get("sport_id")})
     sport_duration_map: dict[str, int] = {}
+    sport_start_map: dict[str, datetime | None] = {}
     if sport_ids:
         sports = (
             supabase.table("sports")
-            .select("id, match_duration_minutes")
+            .select("id, match_duration_minutes, schedule_start")
             .in_("id", sport_ids)
             .execute()
             .data
         )
         sport_duration_map = {s["id"]: s["match_duration_minutes"] or 30 for s in sports}
+        sport_start_map = {s["id"]: _parse_dt(s.get("schedule_start")) for s in sports}
 
-    estimated = _compute_estimated_starts(matches, sport_duration_map)
+    estimated = _compute_estimated_starts(matches, sport_duration_map, sport_start_map)
     for m in matches:
         m["estimated_start"] = estimated.get(m["id"])
     return matches

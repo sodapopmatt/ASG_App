@@ -468,25 +468,38 @@ def persist_pools(
             round_counts = Counter(s.match_round for s in slots)
             mpr = max(round_counts.values())
 
-            # Partition this pool's courts into field pairs of size mpr
-            field_pairs = [courts[i : i + mpr] for i in range(0, len(courts) - mpr + 1, mpr)]
-            if not field_pairs:
-                continue
+            n_courts = len(courts)
+            if n_courts >= mpr:
+                # All round matches can play simultaneously — pick the best court group
+                field_pairs = [courts[i : i + mpr] for i in range(0, n_courts - mpr + 1, mpr)]
 
-            def pair_ready(pair: list[str], _p: int = p_idx) -> datetime:
-                return max(pool_avail[_p], max(court_avail[c] for c in pair))
+                def pair_ready(pair: list[str], _p: int = p_idx) -> datetime:
+                    return max(pool_avail[_p], max(court_avail[c] for c in pair))
 
-            best_pair = min(field_pairs, key=pair_ready)
-            slot_time = pair_ready(best_pair)
+                best_pair = min(field_pairs, key=pair_ready)
+                slot_time = pair_ready(best_pair)
 
-            for i, slot_idx in enumerate(slot_indices):
-                pool_assignments[p_idx][slot_idx] = best_pair[i % len(best_pair)]
-                if start_time is not None:
-                    scheduled_at[(p_idx, slot_idx)] = slot_time.isoformat()
+                for i, slot_idx in enumerate(slot_indices):
+                    pool_assignments[p_idx][slot_idx] = best_pair[i % len(best_pair)]
+                    if start_time is not None:
+                        scheduled_at[(p_idx, slot_idx)] = slot_time.isoformat()
 
-            for c in best_pair:
-                court_avail[c] = slot_time + duration
-            pool_avail[p_idx] = slot_time + duration
+                for c in best_pair:
+                    court_avail[c] = slot_time + duration
+                pool_avail[p_idx] = slot_time + duration
+            else:
+                # Fewer courts than matches per round — schedule in sequential batches of n_courts
+                batch_time = max(pool_avail[p_idx], max(court_avail[c] for c in courts))
+                for batch_start in range(0, len(slot_indices), n_courts):
+                    batch = slot_indices[batch_start : batch_start + n_courts]
+                    for i, slot_idx in enumerate(batch):
+                        pool_assignments[p_idx][slot_idx] = courts[i % n_courts]
+                        if start_time is not None:
+                            scheduled_at[(p_idx, slot_idx)] = batch_time.isoformat()
+                    for c in courts:
+                        court_avail[c] = batch_time + duration
+                    pool_avail[p_idx] = batch_time + duration
+                    batch_time = batch_time + duration
 
     # Pass 4: insert match rows
     total_matches = 0

@@ -584,9 +584,9 @@ export default function SportConfigPage() {
   // Courts state
   const [newCourtName, setNewCourtName] = useState('')
   const [courtError, setCourtError] = useState<string | null>(null)
-  const [bulkPrefix, setBulkPrefix] = useState('Ct')
-  const [bulkCount, setBulkCount] = useState(1)
+  const [bulkCount, setBulkCount] = useState<number | ''>('')
   const [bulkGenerating, setBulkGenerating] = useState(false)
+  const [labelInput, setLabelInput] = useState<string | null>(null)
 
   // Generate bracket state
   const [seeds, setSeeds] = useState<Team[]>([])
@@ -670,13 +670,22 @@ export default function SportConfigPage() {
   })
 
   const createCourtMutation = useMutation({
-    mutationFn: (name: string) => createLocation(sportId!, name),
+    mutationFn: (courtNumberOrName: number | string) => createLocation(sportId!, courtNumberOrName),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['locations', sportId] })
       setNewCourtName('')
       setCourtError(null)
     },
     onError: (e) => setCourtError(e instanceof Error ? e.message : 'Failed to add court'),
+  })
+
+  const labelMutation = useMutation({
+    mutationFn: (label: string) => updateSport(sportId!, { location_label: label }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sports'] })
+      setLabelInput(null)
+    },
+    onError: (e) => setCourtError(e instanceof Error ? e.message : 'Failed to update label'),
   })
 
   const deleteCourtMutation = useMutation({
@@ -789,6 +798,7 @@ export default function SportConfigPage() {
         const inside = pool.standings[advanceCount - 1]
         const outside = pool.standings[advanceCount]
         return inside && outside &&
+          inside.played > 0 &&
           inside.wins === outside.wins &&
           inside.losses === outside.losses &&
           inside.game_wins === outside.game_wins &&
@@ -872,22 +882,28 @@ export default function SportConfigPage() {
   })
 
   const sortedLocations = useMemo(
-    () => [...locations].sort((a, b) =>
-      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
-    ),
+    () => [...locations].sort((a, b) => {
+      if (a.court_number == null && b.court_number == null) return a.name.localeCompare(b.name)
+      if (a.court_number == null) return 1
+      if (b.court_number == null) return -1
+      return a.court_number - b.court_number
+    }),
     [locations],
   )
 
   async function handleBulkGenerate() {
-    const prefix = bulkPrefix.trim()
-    if (!prefix || bulkCount < 1) return
+    const count = Number(bulkCount)
+    if (!count || count < 1) return
     setBulkGenerating(true)
     setCourtError(null)
     try {
-      const existing = new Set(locations.map(l => l.name))
-      for (let i = 1; i <= bulkCount; i++) {
-        const name = `${prefix} ${i}`
-        if (!existing.has(name)) await createLocation(sportId!, name)
+      const currentLabel = labelInput || sport?.location_label || 'Court'
+      if (labelInput !== null && labelInput !== sport?.location_label) {
+        await labelMutation.mutateAsync(currentLabel)
+      }
+      const existing = new Set(locations.map(l => l.court_number).filter(Boolean))
+      for (let i = 1; i <= count; i++) {
+        if (!existing.has(i)) await createLocation(sportId!, i)
       }
       qc.invalidateQueries({ queryKey: ['locations', sportId] })
     } catch (e) {
@@ -914,10 +930,11 @@ export default function SportConfigPage() {
   }
 
   function addCourt() {
-    const name = newCourtName.trim()
-    if (!name) return
+    const trimmed = newCourtName.trim()
+    if (!trimmed) return
     setCourtError(null)
-    createCourtMutation.mutate(name)
+    const asNumber = Number(trimmed)
+    createCourtMutation.mutate(isNaN(asNumber) || trimmed === '' ? trimmed : asNumber)
   }
 
   function handleRestartPoolPlay() {
@@ -1026,58 +1043,57 @@ export default function SportConfigPage() {
           </div>
         )}
 
-        {/* Bulk generate */}
+        {/* Single add */}
+        <div className="flex gap-2">
+          <input
+            type="text"
+            placeholder='Name or number (e.g. "Main" or 5)'
+            value={newCourtName}
+            onChange={e => setNewCourtName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && addCourt()}
+            className="flex-1 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+          />
+          <button
+            onClick={addCourt}
+            disabled={newCourtName.trim() === '' || createCourtMutation.isPending}
+            className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0"
+          >
+            {createCourtMutation.isPending ? 'Adding…' : 'Add'}
+          </button>
+        </div>
+
+        {/* Generate numbered */}
         <div>
-          <p className="text-xs text-gray-400 mb-1.5">Generate courts</p>
-          <div className="flex gap-2">
+          <p className="text-xs text-gray-400 mb-1.5">Generate numbered</p>
+          <div className="flex items-center gap-2 flex-wrap">
             <input
               type="text"
-              placeholder="Prefix (e.g. Ct)"
-              value={bulkPrefix}
-              onChange={e => setBulkPrefix(e.target.value)}
-              className="w-28 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+              placeholder="Ct"
+              value={labelInput ?? ''}
+              onChange={e => setLabelInput(e.target.value)}
+              className="w-24 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
             />
+            <span className="text-sm text-gray-400">1 through</span>
             <input
               type="number"
               min={1}
               max={100}
+              placeholder="24"
               value={bulkCount}
-              onChange={e => setBulkCount(Math.max(1, Number(e.target.value)))}
-              className="w-20 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+              onChange={e => setBulkCount(e.target.value === '' ? '' : Math.max(1, Number(e.target.value)))}
+              className="w-16 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
             />
             <button
               onClick={handleBulkGenerate}
-              disabled={bulkGenerating || !bulkPrefix.trim()}
+              disabled={bulkGenerating || !bulkCount}
               className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0"
             >
               {bulkGenerating ? 'Generating…' : 'Generate'}
             </button>
           </div>
           <p className="text-xs text-gray-400 mt-1">
-            Creates "{bulkPrefix.trim() || 'Ct'} 1" through "{bulkPrefix.trim() || 'Ct'} {bulkCount}" — skips any that already exist.
+            Skips any that already exist.
           </p>
-        </div>
-
-        {/* Single add */}
-        <div>
-          <p className="text-xs text-gray-400 mb-1.5">Add one</p>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="e.g. Court 1"
-              value={newCourtName}
-              onChange={e => setNewCourtName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && addCourt()}
-              className="flex-1 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-            />
-            <button
-              onClick={addCourt}
-              disabled={!newCourtName.trim() || createCourtMutation.isPending}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0"
-            >
-              Add
-            </button>
-          </div>
         </div>
 
         {courtError && <p className="text-sm text-red-600">{courtError}</p>}
@@ -1085,7 +1101,7 @@ export default function SportConfigPage() {
 
       {/* Generate / Setup */}
       <CollapsibleSection
-        title={canGenerate ? 'Generate Bracket' : 'Bracket Setup'}
+        title={canGenerate ? (isPool ? 'Generate Pool Play' : isHeats ? 'Generate Entries' : 'Generate Bracket') : 'Bracket Setup'}
         badge={canGenerate && alreadyGenerated ? (
           <span className="text-xs font-semibold text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full shrink-0">
             Generated

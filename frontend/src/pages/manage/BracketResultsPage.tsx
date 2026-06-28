@@ -189,6 +189,7 @@ function Skeleton() {
 export default function BracketResultsPage() {
   const { sportId } = useParams<{ sportId: string }>()
   const [activeMatch, setActiveMatch] = useState<Match | null>(null)
+  const [divisionTab, setDivisionTab] = useState<string>('')
 
   const matchesQuery   = useQuery({ queryKey: ['matches'],           queryFn: () => getMatches() })
   const sportsQuery    = useQuery({ queryKey: ['sports'],            queryFn: getSports,        staleTime: Infinity })
@@ -282,7 +283,7 @@ export default function BracketResultsPage() {
     if (divisionNames.length === 0) {
       return renderElimination(sportMatches)
     }
-    // Division mode: one bracket per division plus a cross-division championship
+    // Division mode: segmented tabs matching the public bracket page layout
     const byDivision: Record<string, Match[]> = {}
     const championship: Match[] = []
     for (const m of sportMatches) {
@@ -290,11 +291,17 @@ export default function BracketResultsPage() {
       if (div) (byDivision[div] ??= []).push(m)
       else championship.push(m)
     }
-    return (
-      <div className="space-y-8">
-        {championship.length > 0 && (
+    const sections: { key: string; title: string; content: React.ReactNode }[] = [
+      ...divisionNames.map(div => ({
+        key: div,
+        title: div,
+        content: renderElimination(byDivision[div] ?? []),
+      })),
+      ...(championship.length > 0 ? [{
+        key: '__final_game',
+        title: 'Final Game',
+        content: (
           <div className="space-y-2">
-            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Championship</h3>
             {championship.map(m => (
               <ChampionshipCard
                 key={m.id}
@@ -305,13 +312,28 @@ export default function BracketResultsPage() {
               />
             ))}
           </div>
-        )}
-        {divisionNames.map(div => (
-          <div key={div}>
-            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-2">{div}</h3>
-            {renderElimination(byDivision[div] ?? [])}
-          </div>
-        ))}
+        ),
+      }] : []),
+    ]
+    const activeKey = sections.find(s => s.key === divisionTab) ? divisionTab : sections[0]?.key ?? ''
+    const activeSection = sections.find(s => s.key === activeKey)
+    return (
+      <div>
+        <div className="flex rounded-lg bg-gray-100 p-1 mb-4">
+          {sections.map(({ key, title }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setDivisionTab(key)}
+              className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                key === activeKey ? 'bg-white shadow-sm text-slate-800' : 'text-gray-500'
+              }`}
+            >
+              {title}
+            </button>
+          ))}
+        </div>
+        {activeSection?.content}
       </div>
     )
   }

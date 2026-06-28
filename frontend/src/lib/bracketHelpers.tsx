@@ -177,7 +177,9 @@ export function ZoomableBracket({ children, bracketWidth, bracketHeight }: {
 }) {
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const [fitScale, setFitScale] = React.useState<number | null>(null)
-  const storageKey = `${bracketWidth}x${bracketHeight}`
+  const [isFullscreen, setIsFullscreen] = React.useState(false)
+  const baseKey = `${bracketWidth}x${bracketHeight}`
+  const storageKey = isFullscreen ? `${baseKey}-fs` : baseKey
 
   React.useLayoutEffect(() => {
     const el = containerRef.current
@@ -190,17 +192,44 @@ export function ZoomableBracket({ children, bracketWidth, bracketHeight }: {
     const observer = new ResizeObserver(measure)
     observer.observe(el)
     return () => observer.disconnect()
-  }, [bracketWidth, bracketHeight])
+  }, [bracketWidth, bracketHeight, isFullscreen])
+
+  React.useEffect(() => {
+    if (!isFullscreen) return
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [isFullscreen])
 
   const fitsAtFullSize = fitScale !== null && fitScale >= 1
   const saved = fitScale !== null ? savedBracketTransforms[storageKey] : undefined
 
+  const iconBtn = 'w-9 h-9 flex items-center justify-center rounded-full bg-white border border-gray-200 shadow-sm text-slate-600 active:bg-gray-100'
+
   return (
     <div
       ref={containerRef}
-      className="relative overflow-hidden border border-gray-200 rounded-xl bg-gray-50"
-      style={{ height: `min(${bracketHeight + 48}px, 75vh)`, touchAction: 'none' }}
+      className={isFullscreen
+        ? 'fixed inset-0 z-50 overflow-hidden bg-gray-50'
+        : 'relative overflow-hidden border border-gray-200 rounded-xl bg-gray-50'}
+      style={isFullscreen ? { touchAction: 'none' } : { height: `min(${bracketHeight + 48}px, 75vh)`, touchAction: 'none' }}
     >
+      <button
+        type="button"
+        aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+        className={`absolute top-3 right-3 z-20 ${iconBtn}`}
+        onClick={() => setIsFullscreen(f => !f)}
+      >
+        {isFullscreen ? (
+          <svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor">
+            <path d="M1 1l4.5 4.5M5.5 1H1v4.5M15 15l-4.5-4.5M10.5 15H15v-4.5M1 15l4.5-4.5M1 10.5V15h4.5M15 1l-4.5 4.5M15 5.5V1h-4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+        ) : (
+          <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <path d="M1 6V1h5M10 1h5v5M15 10v5h-5M6 15H1v-5"/>
+          </svg>
+        )}
+      </button>
+
       {fitScale !== null && (
         <TransformWrapper
           key={`${storageKey}-${fitScale.toFixed(3)}`}

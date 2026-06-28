@@ -134,7 +134,14 @@ function groupBySportAndRound(
     if (!a.scheduled_at && !b.scheduled_at) return 0
     if (!a.scheduled_at) return 1
     if (!b.scheduled_at) return -1
-    return a.scheduled_at.localeCompare(b.scheduled_at)
+    const timeCmp = a.scheduled_at.localeCompare(b.scheduled_at)
+    if (timeCmp !== 0) return timeCmp
+    const aName = a.locations?.name ?? ''
+    const bName = b.locations?.name ?? ''
+    if (!aName && !bName) return 0
+    if (!aName) return 1
+    if (!bName) return -1
+    return aName.localeCompare(bName, undefined, { numeric: true })
   })
 
   for (const match of sorted) {

@@ -18,6 +18,7 @@ export interface Sport {
   match_duration_minutes: number | null
   schedule_start: string | null
   schedule_end: string | null
+  location_label: string
   created_at: string
 }
 
@@ -81,6 +82,7 @@ export interface Location {
   id: string
   sport_id: string
   name: string
+  court_number: number | null
 }
 
 export interface RosterEntry {

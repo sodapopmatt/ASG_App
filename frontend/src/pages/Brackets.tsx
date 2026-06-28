@@ -500,31 +500,52 @@ function DoubleBracketView({
 function DivisionTabs({
   sections,
   storageKey,
+  variant = 'pills',
 }: {
   sections: { key: string; title: string; content: React.ReactNode }[]
   storageKey?: string
+  variant?: 'pills' | 'segmented'
 }) {
   const [active, setActive] = useTabMemory<string>(storageKey ?? 'division-tabs', sections[0]?.key ?? '')
   const current = sections.find(s => s.key === active) ?? sections[0]
 
   return (
     <div>
-      <div className="flex gap-2 mb-4 overflow-x-auto -mx-4 px-4 pb-1">
-        {sections.map(({ key, title }) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setActive(key)}
-            className={`shrink-0 px-3.5 py-1.5 rounded-full text-sm font-semibold transition-colors ${
-              key === current?.key
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-slate-600 active:bg-gray-200'
-            }`}
-          >
-            {title}
-          </button>
-        ))}
-      </div>
+      {variant === 'segmented' ? (
+        <div className="flex rounded-lg bg-gray-100 p-1 mb-4">
+          {sections.map(({ key, title }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setActive(key)}
+              className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                key === current?.key
+                  ? 'bg-white shadow-sm text-slate-800'
+                  : 'text-gray-500'
+              }`}
+            >
+              {title}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="flex gap-2 mb-4 overflow-x-auto -mx-4 px-4 pb-1">
+          {sections.map(({ key, title }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setActive(key)}
+              className={`shrink-0 px-3.5 py-1.5 rounded-full text-sm font-semibold transition-colors ${
+                key === current?.key
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-slate-600 active:bg-gray-200'
+              }`}
+            >
+              {title}
+            </button>
+          ))}
+        </div>
+      )}
       {current?.content}
     </div>
   )
@@ -668,7 +689,7 @@ export default function BracketView() {
           content: <FallbackMatchList matches={championship} teamMap={teamMap} companyMap={companyMap} />,
         })
       }
-      return <DivisionTabs sections={sections} storageKey={`division-tabs-${activeSportId}`} />
+      return <DivisionTabs sections={sections} storageKey={`division-tabs-${activeSportId}`} variant="segmented" />
     }
     return <FallbackMatchList matches={sportMatches} teamMap={teamMap} companyMap={companyMap} />
   }
