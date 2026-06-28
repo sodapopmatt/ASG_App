@@ -317,15 +317,15 @@ function StatsStrip({ matches }: { matches: Match[] }) {
   const upcoming = matches.filter(m => m.status === 'scheduled').length
   return (
     <div className="flex items-center gap-3 text-xs text-gray-500">
-      <span className="flex items-center gap-1.5">
+      <span className="flex items-center gap-1.5 whitespace-nowrap">
         <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
         {live} live
       </span>
-      <span className="flex items-center gap-1.5">
+      <span className="flex items-center gap-1.5 whitespace-nowrap">
         <span className="w-1.5 h-1.5 rounded-full bg-gray-400 inline-block" />
         {done} done
       </span>
-      <span className="flex items-center gap-1.5">
+      <span className="flex items-center gap-1.5 whitespace-nowrap">
         <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" />
         {upcoming} upcoming
       </span>
@@ -824,7 +824,7 @@ export default function Schedule() {
             <button
               key={v}
               onClick={() => setView(v)}
-              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap ${
                 view === v ? 'bg-white shadow-sm text-slate-800' : 'text-gray-500'
               }`}
             >
