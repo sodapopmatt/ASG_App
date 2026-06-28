@@ -298,6 +298,11 @@ function PoolPlayView({
 
 // ---- Fallback list for pool/swiss/manual -----------------------------------
 
+function fmtTime(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+}
+
 function FallbackMatchList({
   matches,
   teamMap,
@@ -325,6 +330,7 @@ function FallbackMatchList({
         const homeLabel = compactLabel(m.home_team_id, teamMap, companyMap, m.home_slot_state, multiTeamKeys)
         const awayLabel = compactLabel(m.away_team_id, teamMap, companyMap, m.away_slot_state, multiTeamKeys)
         const hasScore = (isLive || isDone) && m.home_score != null && m.away_score != null
+        const time = fmtTime(m.scheduled_at)
 
         return (
           <div key={m.id} className={`bg-white rounded-xl border-2 shadow-sm overflow-hidden ${isLive ? 'border-amber-400' : 'border-gray-200'}`}>
@@ -345,9 +351,11 @@ function FallbackMatchList({
                 <span className="text-xs text-red-400 font-medium">FF</span>
               )}
             </div>
-            {(isLive || isDone || m.locations?.name) && (
+            {(isLive || isDone || m.locations?.name || time) && (
               <div className="border-t border-gray-100 px-3 py-1.5 bg-gray-50 flex items-center justify-between gap-2">
-                <span className="text-xs text-gray-400 truncate">{m.locations?.name ?? ''}</span>
+                <span className="text-xs text-gray-400 truncate">
+                  {[time, m.locations?.name].filter(Boolean).join(' · ')}
+                </span>
                 {isLive ? (
                   <span className="text-xs font-medium text-green-700 bg-green-100 px-1.5 py-0.5 rounded-full animate-pulse">Live</span>
                 ) : isDone ? (
