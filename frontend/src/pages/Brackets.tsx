@@ -212,13 +212,13 @@ function PoolPlayView({
   const showGameScores  = sport?.name?.toLowerCase() === 'pickleball'
   const showSoccerStats = sport?.name?.toLowerCase() === 'soccer'
 
+  const [phase, setPhase] = useTabMemory<'pools' | 'bracket'>(`pool-phase-${sportId}`, 'pools')
+
   if (standingsQuery.isLoading) return <Skeleton />
   if (standings.length === 0) {
     return <FallbackMatchList matches={matches} teamMap={teamMap} companyMap={companyMap} />
   }
 
-  // One pool (or the bracket phase) per view, selected via tabs — same layout
-  // as venue-split elimination sports.
   const sections: { key: string; title: string; content: React.ReactNode }[] = standings.map(pool => ({
     key: pool.bracket_id,
     title: pool.name,
@@ -285,15 +285,30 @@ function PoolPlayView({
     ),
   }))
 
-  if (bracketPhaseMatches.length > 0) {
-    sections.push({
-      key: '__bracket',
-      title: 'Bracket',
-      content: <SingleBracketView matches={bracketPhaseMatches} teamMap={teamMap} companyMap={companyMap} />,
-    })
-  }
-
-  return <DivisionTabs sections={sections} storageKey={`pool-tabs-${sportId}`} />
+  return (
+    <div>
+      <div className="flex rounded-lg bg-gray-100 p-1 mb-4">
+        <button
+          onClick={() => setPhase('pools')}
+          className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${phase === 'pools' ? 'bg-white shadow-sm text-slate-800' : 'text-gray-500'}`}
+        >
+          Pool Play
+        </button>
+        <button
+          onClick={() => setPhase('bracket')}
+          className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${phase === 'bracket' ? 'bg-white shadow-sm text-slate-800' : 'text-gray-500'}`}
+        >
+          Bracket Phase
+        </button>
+      </div>
+      {phase === 'pools'
+        ? <DivisionTabs sections={sections} storageKey={`pool-tabs-${sportId}`} />
+        : bracketPhaseMatches.length > 0
+          ? <SingleBracketView matches={bracketPhaseMatches} teamMap={teamMap} companyMap={companyMap} />
+          : <p className="text-center text-gray-500 py-12">Bracket phase not generated yet.</p>
+      }
+    </div>
+  )
 }
 
 // ---- Fallback list for pool/swiss/manual -----------------------------------

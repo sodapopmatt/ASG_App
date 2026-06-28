@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import BackLink from '../../components/BackLink'
 import { useTabMemory } from '../../lib/useTabMemory'
 import { useQuery } from '@tanstack/react-query'
@@ -127,10 +127,14 @@ export default function PoolResultsPage() {
   }, [sportMatches])
 
   const poolBracketIds = useMemo(() => new Set(pools.map(p => p.id)), [pools])
-  const hasBracketPhase = useMemo(
-    () => sportMatches.some(m => m.bracket_id && !poolBracketIds.has(m.bracket_id)),
+
+  const bracketPhaseMatches = useMemo(
+    () => sportMatches.filter(m => m.bracket_id && !poolBracketIds.has(m.bracket_id)),
     [sportMatches, poolBracketIds],
   )
+  const hasBracketPhase = bracketPhaseMatches.length > 0
+
+  const [phase, setPhase] = useTabMemory<'pools' | 'bracket'>(`pool-results-phase-${sportId ?? ''}`, 'pools')
 
   const standingsByBracket = useMemo(() => {
     const map: Record<string, TeamStanding[]> = {}
@@ -176,130 +180,155 @@ export default function PoolResultsPage() {
 
         <h2 className="text-xl font-bold text-slate-800 mt-3 mb-4">{sport?.name ?? 'Pool Play'}</h2>
 
-        {hasBracketPhase && (
-          <Link
-            to={`/manage/results/brackets/${sportId}`}
-            className="flex items-center justify-between w-full px-4 py-3 mb-5 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 active:bg-blue-800 transition-colors"
+        <div className="flex rounded-lg bg-gray-100 p-1 mb-4">
+          <button
+            onClick={() => setPhase('pools')}
+            className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${phase === 'pools' ? 'bg-white shadow-sm text-slate-800' : 'text-gray-500'}`}
           >
-            View Bracket Phase
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </Link>
-        )}
+            Pool Play
+          </button>
+          <button
+            onClick={() => setPhase('bracket')}
+            className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${phase === 'bracket' ? 'bg-white shadow-sm text-slate-800' : 'text-gray-500'}`}
+          >
+            Bracket Phase
+          </button>
+        </div>
 
-        {pools.length === 0 ? (
-          <p className="text-center text-gray-500 py-12">No pools for this sport yet.</p>
-        ) : (
-          <>
-            {pools.length > 1 && (
-              <div className="flex gap-2 mb-4 overflow-x-auto -mx-4 px-4 pb-1">
-                {pools.map(pool => (
-                  <button
-                    key={pool.id}
-                    type="button"
-                    onClick={() => setActivePoolId(pool.id)}
-                    className={`shrink-0 px-3.5 py-1.5 rounded-full text-sm font-semibold transition-colors ${
-                      pool.id === selectedPoolId
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 text-slate-600 active:bg-gray-200'
-                    }`}
-                  >
-                    {pool.name}
-                  </button>
-                ))}
-              </div>
-            )}
-          <div className="space-y-8">
-            {visiblePools.map(pool => {
-              const poolStandings = standingsByBracket[pool.id] ?? []
-              return (
-                <div key={pool.id}>
-                  <h3 className="text-base font-bold text-slate-800 mb-3">{pool.name}</h3>
+        {phase === 'pools' ? (
+          pools.length === 0 ? (
+            <p className="text-center text-gray-500 py-12">No pools for this sport yet.</p>
+          ) : (
+            <>
+              {pools.length > 1 && (
+                <div className="flex gap-2 mb-4 overflow-x-auto -mx-4 px-4 pb-1">
+                  {pools.map(pool => (
+                    <button
+                      key={pool.id}
+                      type="button"
+                      onClick={() => setActivePoolId(pool.id)}
+                      className={`shrink-0 px-3.5 py-1.5 rounded-full text-sm font-semibold transition-colors ${
+                        pool.id === selectedPoolId
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-100 text-slate-600 active:bg-gray-200'
+                      }`}
+                    >
+                      {pool.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="space-y-8">
+                {visiblePools.map(pool => {
+                  const poolStandings = standingsByBracket[pool.id] ?? []
+                  return (
+                    <div key={pool.id}>
+                      <h3 className="text-base font-bold text-slate-800 mb-3">{pool.name}</h3>
 
-                  {/* Standings */}
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Standings</p>
-                  {poolStandings.length > 0 ? (
-                    <div className="mb-4 rounded-xl border border-gray-200 overflow-hidden">
-                      <table className="w-full text-xs">
-                        <thead className="bg-gray-50 border-b border-gray-200">
-                          <tr>
-                            <th className="text-left px-3 py-2 font-semibold text-gray-500">#</th>
-                            <th className="text-left px-3 py-2 font-semibold text-gray-500">Team</th>
-                            <th className="text-center px-2 py-2 font-semibold text-gray-500">W</th>
-                            {showSoccerStats && <th className="text-center px-2 py-2 font-semibold text-gray-500">D</th>}
-                            <th className="text-center px-2 py-2 font-semibold text-gray-500">L</th>
-                            {showSoccerStats && (
-                              <>
-                                <th className="text-center px-2 py-2 font-semibold text-gray-500">GF</th>
-                                <th className="text-center px-2 py-2 font-semibold text-gray-500">GA</th>
-                                <th className="text-center px-2 py-2 font-semibold text-gray-500">GD</th>
-                              </>
-                            )}
-                            {showGameScores && (
-                              <>
-                                <th className="text-center px-2 py-2 font-semibold text-gray-500">GW</th>
-                                <th className="text-center px-2 py-2 font-semibold text-gray-500">PD</th>
-                                <th className="text-center px-2 py-2 font-semibold text-gray-500">TP</th>
-                              </>
-                            )}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {poolStandings.map((row, i) => {
-                            const label = compactLabel(row.team_id, teamMap, companyMap, undefined, multiTeamKeys)
-                            return (
-                              <tr key={row.team_id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
-                                <td className="px-3 py-2 font-bold text-gray-400">{row.rank}</td>
-                                <td className="px-3 py-2 text-slate-700">{label}</td>
-                                <td className="px-2 py-2 text-center font-semibold text-green-700">{row.wins}</td>
-                                {showSoccerStats && <td className="px-2 py-2 text-center text-slate-600">{row.draws}</td>}
-                                <td className="px-2 py-2 text-center text-gray-500">{row.losses}</td>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Standings</p>
+                      {poolStandings.length > 0 ? (
+                        <div className="mb-4 rounded-xl border border-gray-200 overflow-hidden">
+                          <table className="w-full text-xs">
+                            <thead className="bg-gray-50 border-b border-gray-200">
+                              <tr>
+                                <th className="text-left px-3 py-2 font-semibold text-gray-500">#</th>
+                                <th className="text-left px-3 py-2 font-semibold text-gray-500">Team</th>
+                                <th className="text-center px-2 py-2 font-semibold text-gray-500">W</th>
+                                {showSoccerStats && <th className="text-center px-2 py-2 font-semibold text-gray-500">D</th>}
+                                <th className="text-center px-2 py-2 font-semibold text-gray-500">L</th>
                                 {showSoccerStats && (
                                   <>
-                                    <td className="px-2 py-2 text-center text-slate-600">{row.goals_for}</td>
-                                    <td className="px-2 py-2 text-center text-slate-600">{row.goals_against}</td>
-                                    <td className="px-2 py-2 text-center text-slate-600">{row.goal_diff > 0 ? `+${row.goal_diff}` : row.goal_diff}</td>
+                                    <th className="text-center px-2 py-2 font-semibold text-gray-500">GF</th>
+                                    <th className="text-center px-2 py-2 font-semibold text-gray-500">GA</th>
+                                    <th className="text-center px-2 py-2 font-semibold text-gray-500">GD</th>
                                   </>
                                 )}
                                 {showGameScores && (
                                   <>
-                                    <td className="px-2 py-2 text-center text-slate-600">{row.game_wins}</td>
-                                    <td className="px-2 py-2 text-center text-slate-600">{row.point_diff > 0 ? `+${row.point_diff}` : row.point_diff}</td>
-                                    <td className="px-2 py-2 text-center text-slate-600">{row.total_points}</td>
+                                    <th className="text-center px-2 py-2 font-semibold text-gray-500">GW</th>
+                                    <th className="text-center px-2 py-2 font-semibold text-gray-500">PD</th>
+                                    <th className="text-center px-2 py-2 font-semibold text-gray-500">TP</th>
                                   </>
                                 )}
                               </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-400 italic mb-4">No results yet.</p>
-                  )}
+                            </thead>
+                            <tbody>
+                              {poolStandings.map((row, i) => {
+                                const label = compactLabel(row.team_id, teamMap, companyMap, undefined, multiTeamKeys)
+                                return (
+                                  <tr key={row.team_id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                                    <td className="px-3 py-2 font-bold text-gray-400">{row.rank}</td>
+                                    <td className="px-3 py-2 text-slate-700">{label}</td>
+                                    <td className="px-2 py-2 text-center font-semibold text-green-700">{row.wins}</td>
+                                    {showSoccerStats && <td className="px-2 py-2 text-center text-slate-600">{row.draws}</td>}
+                                    <td className="px-2 py-2 text-center text-gray-500">{row.losses}</td>
+                                    {showSoccerStats && (
+                                      <>
+                                        <td className="px-2 py-2 text-center text-slate-600">{row.goals_for}</td>
+                                        <td className="px-2 py-2 text-center text-slate-600">{row.goals_against}</td>
+                                        <td className="px-2 py-2 text-center text-slate-600">{row.goal_diff > 0 ? `+${row.goal_diff}` : row.goal_diff}</td>
+                                      </>
+                                    )}
+                                    {showGameScores && (
+                                      <>
+                                        <td className="px-2 py-2 text-center text-slate-600">{row.game_wins}</td>
+                                        <td className="px-2 py-2 text-center text-slate-600">{row.point_diff > 0 ? `+${row.point_diff}` : row.point_diff}</td>
+                                        <td className="px-2 py-2 text-center text-slate-600">{row.total_points}</td>
+                                      </>
+                                    )}
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-400 italic mb-4">No results yet.</p>
+                      )}
 
-                  {/* Matches */}
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Matches</p>
-                  <div className="space-y-2">
-                    {byRound(matchesByBracket[pool.id] ?? []).map(([, roundMatches]) => (
-                      roundMatches.map(m => (
-                        <MatchCard
-                          key={m.id}
-                          match={m}
-                          teamMap={teamMap}
-                          companyMap={companyMap}
-                          multiTeamKeys={multiTeamKeys}
-                          onClick={() => setActiveMatch(m)}
-                        />
-                      ))
-                    ))}
-                  </div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Matches</p>
+                      <div className="space-y-2">
+                        {byRound(matchesByBracket[pool.id] ?? []).map(([, roundMatches]) => (
+                          roundMatches.map(m => (
+                            <MatchCard
+                              key={m.id}
+                              match={m}
+                              teamMap={teamMap}
+                              companyMap={companyMap}
+                              multiTeamKeys={multiTeamKeys}
+                              onClick={() => setActiveMatch(m)}
+                            />
+                          ))
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )
+        ) : hasBracketPhase ? (
+          <div className="space-y-4">
+            {byRound(bracketPhaseMatches).map(([roundKey, roundMatches]) => (
+              <div key={roundKey}>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Round {roundKey}</p>
+                <div className="space-y-2">
+                  {roundMatches.map(m => (
+                    <MatchCard
+                      key={m.id}
+                      match={m}
+                      teamMap={teamMap}
+                      companyMap={companyMap}
+                      multiTeamKeys={multiTeamKeys}
+                      onClick={() => setActiveMatch(m)}
+                    />
+                  ))}
                 </div>
-              )
-            })}
+              </div>
+            ))}
           </div>
-          </>
+        ) : (
+          <p className="text-center text-gray-500 py-12">Bracket phase not generated yet.</p>
         )}
       </div>
 
