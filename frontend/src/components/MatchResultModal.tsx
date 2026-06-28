@@ -227,7 +227,7 @@ export default function MatchResultModal({
                   </div>
                 </>
               )}
-              {isInProgress && (
+              {(isInProgress || match.status === 'completed' || match.status === 'draw') && (
                 <button
                   onClick={() => scoreMutation.mutate()}
                   disabled={isPending}
