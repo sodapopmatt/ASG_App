@@ -132,10 +132,12 @@ function groupBySportAndRound(
   const bySport: Record<string, { sport: Sport; rounds: Record<string, Match[]> }> = {}
 
   const sorted = [...matches].sort((a, b) => {
-    if (!a.scheduled_at && !b.scheduled_at) return 0
-    if (!a.scheduled_at) return 1
-    if (!b.scheduled_at) return -1
-    const timeCmp = a.scheduled_at.localeCompare(b.scheduled_at)
+    const aTime = a.estimated_start ?? a.scheduled_at
+    const bTime = b.estimated_start ?? b.scheduled_at
+    if (!aTime && !bTime) return 0
+    if (!aTime) return 1
+    if (!bTime) return -1
+    const timeCmp = aTime.localeCompare(bTime)
     if (timeCmp !== 0) return timeCmp
     const aName = a.locations?.name ?? ''
     const bName = b.locations?.name ?? ''
@@ -252,8 +254,8 @@ function MatchRow({
 }) {
   const home = compactLabel(match.home_team_id ?? null, teamMap, companyMap, undefined, multiTeamKeys)
   const away = compactLabel(match.away_team_id ?? null, teamMap, companyMap, undefined, multiTeamKeys)
-  const showTime = match.status !== 'scheduled'
-  const time = match.scheduled_at ? formatTime(match.scheduled_at) : null
+  const effectiveTime = match.estimated_start ?? match.scheduled_at
+  const time = effectiveTime ? formatTime(effectiveTime) : null
   const isSingleTeam = bracketType === 'heats'
   const courtName = match.locations?.name
   const hasScore = match.home_score != null && match.away_score != null
@@ -265,7 +267,7 @@ function MatchRow({
         style={{ gridTemplateColumns: '4rem 1fr 5.5rem' }}
       >
         <div className="flex flex-col gap-0.5">
-          <span className="text-xs text-gray-400 tabular-nums">{showTime && time ? time : ''}</span>
+          <span className="text-xs text-gray-400 tabular-nums">{time ?? ''}</span>
           {courtName && <span className="text-xs text-gray-500 truncate">{courtName}</span>}
         </div>
         <span className="font-medium text-slate-700 truncate text-center">{home}</span>
@@ -280,7 +282,7 @@ function MatchRow({
       style={{ gridTemplateColumns: '4rem 1fr 2rem 1fr 5.5rem' }}
     >
       <div className="flex flex-col gap-0.5">
-        <span className="text-xs text-gray-400 tabular-nums">{showTime && time ? time : ''}</span>
+        <span className="text-xs text-gray-400 tabular-nums">{time ?? ''}</span>
         {courtName && <span className="text-xs text-gray-500 truncate">{courtName}</span>}
       </div>
       <span className="text-right font-medium text-slate-700 truncate">{home}</span>

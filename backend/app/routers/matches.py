@@ -146,24 +146,28 @@ def _attach_estimated_starts(matches: list[dict]) -> list[dict]:
     sport_ids = list({m["sport_id"] for m in matches if m.get("sport_id")})
     sport_duration_map: dict[str, int] = {}
     sport_start_map: dict[str, datetime | None] = {}
+    heats_sport_ids: set[str] = set()
     if sport_ids:
         sports = (
             supabase.table("sports")
-            .select("id, match_duration_minutes, schedule_start")
+            .select("id, match_duration_minutes, schedule_start, bracket_type")
             .in_("id", sport_ids)
             .execute()
             .data
         )
         sport_duration_map = {s["id"]: s["match_duration_minutes"] or 30 for s in sports}
         sport_start_map = {s["id"]: _parse_dt(s.get("schedule_start")) for s in sports}
+        heats_sport_ids = {s["id"] for s in sports if s.get("bracket_type") == "heats"}
 
-    # Heats brackets have concurrent teams — their matches share one time slot
+    # Heats brackets have concurrent teams — their matches share one time slot.
+    # Only applies to sports with bracket_type="heats"; other bracket types (e.g.
+    # single_elimination) also use phase="bracket" but are NOT concurrent.
     heats_bracket_ids: set[str] = set()
     bracket_ids = list({m["bracket_id"] for m in matches if m.get("bracket_id")})
     if bracket_ids:
         brackets = (
             supabase.table("brackets")
-            .select("id, phase")
+            .select("id, phase, sport_id")
             .in_("id", bracket_ids)
             .execute()
             .data
@@ -171,6 +175,7 @@ def _attach_estimated_starts(matches: list[dict]) -> list[dict]:
         heats_bracket_ids = {
             b["id"] for b in brackets
             if b.get("phase") in ("heats", "bracket", "finals")
+            and b.get("sport_id") in heats_sport_ids
         }
 
     estimated = _compute_estimated_starts(matches, sport_duration_map, sport_start_map, heats_bracket_ids)

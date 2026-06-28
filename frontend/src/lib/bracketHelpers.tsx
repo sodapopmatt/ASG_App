@@ -76,7 +76,7 @@ export function toLibraryMatch(
     nextLooserMatchId: loserNext ?? undefined,
     tournamentRoundText: m.match_round != null ? String(m.match_round) : '',
     startTime: [
-      formatMatchTime(m.scheduled_at ?? m.estimated_start),
+      formatMatchTime(m.estimated_start ?? m.scheduled_at),
       m.locations?.name ?? null,
     ].filter(Boolean).join(' · '),
     state,
