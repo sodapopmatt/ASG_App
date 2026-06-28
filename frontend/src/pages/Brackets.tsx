@@ -344,7 +344,7 @@ function FallbackMatchList({
         const awayWon = m.winner_id != null && m.winner_id === m.away_team_id
         const homeLabel = compactLabel(m.home_team_id, teamMap, companyMap, m.home_slot_state, multiTeamKeys)
         const awayLabel = compactLabel(m.away_team_id, teamMap, companyMap, m.away_slot_state, multiTeamKeys)
-        const hasScore = (isLive || isDone) && m.home_score != null && m.away_score != null
+        const hasScore = m.home_score != null && m.away_score != null
         const time = fmtTime(m.scheduled_at)
 
         return (

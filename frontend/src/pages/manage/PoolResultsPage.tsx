@@ -31,7 +31,7 @@ function MatchCard({
 }) {
   const isDone = match.status === 'completed' || match.status === 'forfeit' || match.status === 'double_forfeit' || match.status === 'draw'
   const isLive = match.status === 'in_progress'
-  const hasScore = (match.status === 'completed' || match.status === 'draw' || match.status === 'in_progress') && match.home_score != null && match.away_score != null
+  const hasScore = match.home_score != null && match.away_score != null
   return (
     <button
       onClick={onClick}

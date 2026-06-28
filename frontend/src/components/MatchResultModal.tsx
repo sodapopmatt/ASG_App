@@ -229,7 +229,7 @@ export default function MatchResultModal({
               )}
               <button
                 onClick={() => scoreMutation.mutate()}
-                disabled={isPending}
+                disabled={isPending || (homeScore.trim() === '' && awayScore.trim() === '')}
                 className="w-full py-2 rounded-xl bg-amber-50 border border-amber-300 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-40 transition-colors"
               >
                 {scoreMutation.isPending ? 'Saving…' : 'Update Score'}
