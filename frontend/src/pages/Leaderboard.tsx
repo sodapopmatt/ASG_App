@@ -4,6 +4,7 @@ import { getLeaderboard } from '../api/leaderboard'
 import { getEventPoints } from '../api/event_points'
 import { getSports } from '../api/sports'
 import { getCompanies } from '../api/companies'
+import { getSportIcon } from '../lib/sportIcons'
 import type { LeaderboardEntry, EventPoints, Sport, Company } from '../types'
 
 const RANK_STYLES: Record<number, string> = {
@@ -91,11 +92,14 @@ function SportSection({
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center justify-between px-4 py-3 text-left"
       >
-        <div>
-          <p className="font-semibold text-slate-800">{sport.name}</p>
-          <p className="text-xs text-gray-400">
-            {sorted.length} placement{sorted.length !== 1 ? 's' : ''} recorded
-          </p>
+        <div className="flex items-center gap-2">
+          <span className="text-xl leading-none shrink-0">{getSportIcon(sport.name)}</span>
+          <div>
+            <p className="font-semibold text-slate-800">{sport.name}</p>
+            <p className="text-xs text-gray-400">
+              {sorted.length} placement{sorted.length !== 1 ? 's' : ''} recorded
+            </p>
+          </div>
         </div>
         <span className={`text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`}>
           ▸
@@ -224,8 +228,8 @@ export default function Leaderboard() {
                 </p>
               )
             }
-            return sportsWithResults.map(({ sport, rows }, i) => (
-              <SportSection key={sport.id} sport={sport} rows={rows} defaultOpen={i === 0} />
+            return sportsWithResults.map(({ sport, rows }) => (
+              <SportSection key={sport.id} sport={sport} rows={rows} defaultOpen={false} />
             ))
           })()}
         </div>

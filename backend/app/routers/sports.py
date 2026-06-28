@@ -20,6 +20,13 @@ class PoolSpec(BaseModel):
     location_ids: list[str] = []  # this pool's courts (subset of the sport's locations)
 
 
+class HeatSpec(BaseModel):
+    name: str                        # e.g. "Preliminary Heat 1", "Semi-Final Heat 1", "Final"
+    team_ids: list[str]
+    phase: str = "heats"             # heats | bracket | finals
+    scheduled_at: str | None = None  # ISO timestamp; if omitted, derived from schedule_start
+
+
 class GenerateBracketRequest(BaseModel):
     team_ids: list[str] = []  # ordered by seed — index 0 is the top seed
     clear_existing: bool = False
@@ -30,6 +37,9 @@ class GenerateBracketRequest(BaseModel):
     # courts. For pool_bracket sports the elimination phase is generated later by
     # calling this endpoint again with team_ids seeded from pool standings.
     pools: list[PoolSpec] | None = None
+    # When set (heats only): one bracket per heat, one match per team per heat.
+    # Supports multi-phase tournaments (preliminary → semi-finals → final).
+    heats: list[HeatSpec] | None = None
 
 
 @router.get("/", response_model=list[Sport])
@@ -112,24 +122,13 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
     )
     location_ids = [loc["id"] for loc in sport_locations]
 
-    # Heats: one match per team, no bracket structure
+    # Heats: one match per team. Supports grouped heats (body.heats) or flat list.
     if bracket_type == "heats":
-        if len(body.team_ids) < 1:
-            raise HTTPException(status_code=422, detail="At least 1 team is required")
-
-        teams = supabase.table("teams").select("id").eq("sport_id", sport_id).execute()
-        valid_ids = {t["id"] for t in teams.data}
-        invalid = [tid for tid in body.team_ids if tid not in valid_ids]
-        if invalid:
-            raise HTTPException(status_code=422, detail=f"Teams not found in this sport: {invalid}")
-
-        if body.clear_existing:
-            clear_brackets(sport_id, supabase)
-
         from datetime import datetime, timezone, timedelta
 
+        teams_resp = supabase.table("teams").select("id").eq("sport_id", sport_id).execute()
+        valid_ids = {t["id"] for t in teams_resp.data}
         duration = sport.get("match_duration_minutes") or 30
-        concurrent = len(location_ids) or 1
 
         start_time = None
         raw_start = sport.get("schedule_start")
@@ -139,6 +138,54 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
             else:
                 start_time = raw_start
 
+        if body.heats is not None:
+            # Grouped heats: one bracket per heat, one match per team
+            all_team_ids = [tid for h in body.heats for tid in h.team_ids]
+            invalid = [tid for tid in all_team_ids if tid not in valid_ids]
+            if invalid:
+                raise HTTPException(status_code=422, detail=f"Teams not found in this sport: {invalid}")
+
+            total_matches = 0
+            for i, heat in enumerate(body.heats):
+                bracket_row = supabase.table("brackets").insert({
+                    "sport_id": sport_id,
+                    "name": heat.name,
+                    "phase": heat.phase,
+                }).execute().data[0]
+                bracket_id = bracket_row["id"]
+
+                scheduled_at = heat.scheduled_at
+                if scheduled_at is None and start_time:
+                    offset_minutes = i * duration
+                    scheduled_at = (start_time + timedelta(minutes=offset_minutes)).isoformat()
+
+                for team_id in heat.team_ids:
+                    row: dict = {
+                        "sport_id": sport_id,
+                        "bracket_id": bracket_id,
+                        "home_team_id": team_id,
+                        "status": "scheduled",
+                        "match_round": 1,
+                    }
+                    if scheduled_at:
+                        row["scheduled_at"] = scheduled_at
+                    supabase.table("matches").insert(row).execute()
+                    total_matches += 1
+
+            return {"matches_created": total_matches}
+
+        # Flat mode (backward compatibility): one match per team, no bracket
+        if len(body.team_ids) < 1:
+            raise HTTPException(status_code=422, detail="At least 1 team is required")
+
+        invalid = [tid for tid in body.team_ids if tid not in valid_ids]
+        if invalid:
+            raise HTTPException(status_code=422, detail=f"Teams not found in this sport: {invalid}")
+
+        if body.clear_existing:
+            clear_brackets(sport_id, supabase)
+
+        concurrent = len(location_ids) or 1
         matches = []
         for i, team_id in enumerate(body.team_ids):
             round_num = i // concurrent + 1

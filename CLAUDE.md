@@ -215,7 +215,7 @@ Per-company donation totals for donation-style sports (Canned Food Drive). Write
 | `double_elimination` | Yes | Full |
 | `pool_bracket` | Yes — pools + seeded bracket phase | Full — pool setup, standings, results entry, bracket view |
 | `pool_swiss` | Pools only (Swiss rounds manual) | Partial — pool UI works; no Swiss round UI |
-| `heats` | Yes — one entry per team | Partial — result/standings UI, no heat progression |
+| `heats` | Yes — flat (one entry per team) OR grouped multi-phase (one bracket per heat) | Full for Relay Race (multi-phase: prelims → semis → final); flat for Human Pyramid |
 | `points_based` | N/A — no matches | Partial — placement entry via Scoring page only |
 
 ### Auto-Generation Rules (elimination only)
@@ -240,6 +240,22 @@ Per-company donation totals for donation-style sports (Canned Food Drive). Write
 - **No score-based tiebreakers** — V1 has no scores; admins break ties manually when seeding the bracket phase
 - Bracket phase (`pool_bracket` only): calling `generate-bracket` again with `team_ids` (no `pools`) generates a single-elimination bracket via `persist_bracket(bracket_type_override="single_elimination", shuffle=False)` — seed order is preserved exactly (frontend pre-fills it from standings: pool winners first, then runners-up); pool matches are kept; `clear_existing=true` is rejected on this path; bracket-phase start time = last scheduled match + one duration slot
 - `pool_swiss`: pools generate the same way; calling with `team_ids` returns 422 (Swiss rounds not built — Cornhole championship is manual)
+
+### Heats (multi-phase — Relay Race)
+- `generate-bracket` accepts optional `heats: [{name, team_ids, phase, scheduled_at?}]` for grouped heat generation
+  - `phase` values: `heats` (preliminary), `bracket` (semi-finals), `finals`
+  - One `brackets` row per heat with `phase` set; one match per team with `bracket_id` set
+  - `scheduled_at` derived from heat index × `match_duration_minutes` if omitted
+- Flat mode (Human Pyramid): pass `team_ids` without `heats`; creates matches with no bracket row, no `bracket_id`
+- Discrimination: grouped = brackets exist with non-null phase; flat = no brackets
+- **Relay Race multi-phase flow:**
+  1. Admin generates 7 preliminary heats from SportConfigPage (sets custom `points_scale` on sport)
+  2. After all prelim heats complete, admin opens Semi-Finals tab → "Generate Semi-Finals" card appears; snake-distributes top 2 per prelim heat into 2 semi-final heats
+  3. After both semi-finals complete, admin opens Final tab → "Generate Final Heat" card appears; top 3 per semi advance
+  4. Final ranks 1–6 get gold/silver/bronze treatment in UI
+- **Relay Race custom scoring scale:** 1st–6th: 40/38/36/34/32/30; 7th–12th: 22 each; 13th–18th: 12 each; 19th+: 4 each; forfeit/DQ: 0
+  - Auto-applied to `sport.points_scale` when generating grouped heats from SportConfigPage
+  - ScoringPage auto-computes placements from heat results; admin can override before saving
 
 ### Seeding Constraint
 - No two teams from the same company may meet in **Winners Bracket Round 1**
@@ -278,7 +294,7 @@ Per-company donation totals for donation-style sports (Canned Food Drive). Write
 | Ultimate Frisbee | pool_bracket | 1 | high_wins | best_placement | ASG default |
 | Pickleball | pool_bracket | 2 | high_wins | best_placement | ASG default |
 | Cornhole | pool_swiss | 4 | high_wins | best_placement | ASG default |
-| Relay Race | heats | 1 | high_wins | best_placement | ASG default |
+| Relay Race | heats | 1 | high_wins | best_placement | Custom (see Heats section) |
 | Human Pyramid | heats | 1 | low_wins | best_placement | ASG default |
 | Water Ball Toss | points_based | 5 | high_wins | average_score | ASG default |
 | Canned Food Drive | points_based | 1 | high_wins | best_placement | n/a (uses `scoring_mode='donation_count'`) |
@@ -306,7 +322,7 @@ ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place (floor 0). SQL: 
 | POST | `/` | admin | Create |
 | PATCH | `/{id}` | admin | Update (including scheduling config) |
 | DELETE | `/{id}` | admin | Delete |
-| POST | `/{id}/generate-bracket` | admin | Generate bracket; accepts `team_ids`, `clear_existing`, optional `divisions` (venue split + auto championship match), optional `pools` (round-robin pool play); for pool_bracket sports, `team_ids` alone generates the seeded bracket phase |
+| POST | `/{id}/generate-bracket` | admin | Generate bracket; accepts `team_ids`, `clear_existing`, optional `divisions` (venue split + auto championship match), optional `pools` (round-robin pool play), optional `heats` (grouped heat generation for heats sports); for pool_bracket sports, `team_ids` alone generates the seeded bracket phase |
 | GET | `/{id}/standings` | public | W-L standings per pool (pool types; computed from terminal matches) |
 | DELETE | `/{id}/brackets` | admin | Clear all matches/brackets for a sport |
 
@@ -395,7 +411,8 @@ ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place (floor 0). SQL: 
 | SportConfigPage | `/manage/brackets/:sportId` | Per-sport config: scheduling, courts, bracket/pool generation; pool sports get pool setup (snake auto-split + overrides) and a post-pool "Generate Bracket Phase" card seeded from standings. |
 | ResultsPage | `/manage/results` | Lists pending matches; links to bracket visualization for elimination sports, pool results for pool sports, heats entry for heats. |
 | PoolResultsPage | `/manage/results/pools/:sportId` | Pool matches grouped by pool+round; tap to enter result via shared MatchResultModal; links to bracket phase view. |
-| ScoringPage | `/manage/scoring` | Award placements to companies per sport; calls `/event-points/award-placement`. |
+| ScoringPage | `/manage/scoring` | Sport card list (tap to drill in). For standard sports: award placement per company. For Relay Race: auto-computes placements from heat results with editable overrides; calls `/event-points/award-placement`. |
+| HeatsResultPage | `/manage/results/heats/:sportId` | For grouped heats (Relay Race): segmented Prelims/Semi-Finals/Final tabs with scrollable heat pill tabs within each phase; generate next phase when current is complete. For flat heats (Human Pyramid): simple per-team time entry. |
 | TeamsPage | `/manage/teams` | Create/edit/delete teams, grouped by sport+company. |
 | ManageHub | `/manage` | Navigation hub for admin pages. |
 | AlertsPage | `/manage/alerts` | Compose, deactivate, and delete broadcast banner alerts. |
@@ -441,6 +458,7 @@ ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place (floor 0). SQL: 
 - Accepts seeded team IDs
 - Optional: clear existing data
 - Elimination types: full bracket; pool types: `pools` generates round-robin pool play, and (pool_bracket only) `team_ids` alone generates the seeded single-elimination bracket phase
+- Heats type: `heats: [{name, team_ids, phase, scheduled_at?}]` generates grouped multi-phase heats (Relay Race); plain `team_ids` generates flat single-bracket entries (Human Pyramid)
 
 ---
 

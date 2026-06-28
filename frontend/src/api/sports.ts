@@ -18,6 +18,13 @@ export interface PoolSpec {
   location_ids: string[]
 }
 
+export interface HeatSpec {
+  name: string
+  team_ids: string[]
+  phase?: string       // 'heats' | 'bracket' | 'finals'
+  scheduled_at?: string
+}
+
 export interface TeamStanding {
   team_id: string
   wins: number
@@ -45,6 +52,7 @@ export function generateBracket(
   clearExisting = false,
   divisions?: DivisionSpec[],
   pools?: PoolSpec[],
+  heats?: HeatSpec[],
 ) {
   return apiFetch<unknown>(`/sports/${sportId}/generate-bracket`, {
     method: 'POST',
@@ -54,6 +62,7 @@ export function generateBracket(
       clear_existing: clearExisting,
       ...(divisions ? { divisions } : {}),
       ...(pools ? { pools } : {}),
+      ...(heats ? { heats } : {}),
     }),
   })
 }

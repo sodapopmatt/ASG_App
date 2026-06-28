@@ -2,7 +2,7 @@
 import { useParams, Navigate } from 'react-router-dom'
 import BackLink from '../../components/BackLink'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getSports, generateBracket, resetBrackets, updateSport, getStandings, type DivisionSpec, type PoolSpec } from '../../api/sports'
+import { getSports, generateBracket, resetBrackets, updateSport, getStandings, type DivisionSpec, type PoolSpec, type HeatSpec } from '../../api/sports'
 import { getMatches, patchMatch } from '../../api/matches'
 import { getTeams } from '../../api/teams'
 import { getCompanies } from '../../api/companies'
@@ -592,6 +592,12 @@ export default function SportConfigPage() {
   const [seeds, setSeeds] = useState<Team[]>([])
   const [seedsInit, setSeedsInit] = useState(false)
   const [genError, setGenError] = useState<string | null>(null)
+  const [numHeats, setNumHeats] = useState(1)
+
+  useEffect(() => {
+    if (sport?.name === 'Relay Race') setNumHeats(7)
+    else setNumHeats(1)
+  }, [sport?.name])
 
   // Division split state (elimination sports across two venues)
   const [splitEnabled, setSplitEnabled] = useState(false)
@@ -745,7 +751,26 @@ export default function SportConfigPage() {
   const hasUnassignedTeams = seeds.some(t => teamPoolOf(t.id) === UNASSIGNED_POOL)
   const poolsValid = !hasUnassignedTeams && poolSpecs.every(p => p.team_ids.length >= 2)
 
-  // â”€â”€ Bracket phase (pool_bracket only) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Heats setup (heats sports with multiple heats, e.g. Relay Race) ─────────
+  const effectiveNumHeats = Math.max(1, Math.min(numHeats, sportTeams.length))
+  const heatSpecs = useMemo((): HeatSpec[] =>
+    Array.from({ length: effectiveNumHeats }, (_, i) => ({
+      name: `Preliminary Heat ${i + 1}`,
+      team_ids: sportTeams.filter((_, ti) => ti % effectiveNumHeats === i).map(t => t.id),
+      phase: 'heats',
+    })),
+    [sportTeams, effectiveNumHeats],
+  )
+
+  // Custom points scale for multi-phase heats (relay race scoring tiers)
+  const RELAY_RACE_SCALE: Record<string, number> = {
+    '1': 40, '2': 38, '3': 36, '4': 34, '5': 32, '6': 30,
+    '7': 22, '8': 22, '9': 22, '10': 22, '11': 22, '12': 22,
+    '13': 12, '14': 12, '15': 12, '16': 12, '17': 12, '18': 12,
+    'default': 4,
+  }
+
+  // ── Bracket phase (pool_bracket only) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const { data: brackets = [] } = useQuery({
     queryKey: ['brackets', sportId],
     queryFn: () => getBrackets(sportId!),
@@ -831,7 +856,12 @@ export default function SportConfigPage() {
   const splitValid = divisionSpecs.every(d => d.team_ids.length >= 2)
 
   const genMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
+      if (isHeats && effectiveNumHeats > 1) {
+        await generateBracket(sportId!, [], false, undefined, undefined, heatSpecs)
+        await updateSport(sportId!, { points_scale: RELAY_RACE_SCALE })
+        return
+      }
       if (isPool) return generateBracket(sportId!, [], false, undefined, poolSpecs)
       if (splitEnabled) return generateBracket(sportId!, [], false, divisionSpecs)
       return isRandomized
@@ -841,6 +871,7 @@ export default function SportConfigPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['matches'] })
       qc.invalidateQueries({ queryKey: ['brackets'] })
+      qc.invalidateQueries({ queryKey: ['sports'] })
       setGenError(null)
       if (isPool && sportId) {
         localStorage.setItem(`pool-count-${sportId}`, JSON.stringify(poolCount))
@@ -1131,9 +1162,35 @@ export default function SportConfigPage() {
             </p>
           )
         ) : isHeats ? (
-          <p className="text-sm text-slate-500 italic">
-            This will create one entry per team. Each team's ref will record their time separately.
-          </p>
+          <div className="space-y-3">
+            <p className="text-sm text-slate-500 italic">
+              {effectiveNumHeats > 1
+                ? 'Teams are distributed into preliminary heats. After entering results, generate semi-finals and the final from the Results page.'
+                : 'This will create one entry per team. Each team\'s referee records their time separately.'}
+            </p>
+            <label className="space-y-1 block">
+              <span className="text-xs text-gray-400">Number of preliminary heats</span>
+              <input
+                type="number"
+                min={1}
+                max={Math.max(1, sportTeams.length)}
+                value={numHeats}
+                onChange={e => setNumHeats(Math.max(1, Number(e.target.value)))}
+                className="w-24 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+              />
+            </label>
+            {effectiveNumHeats > 1 && (
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Distribution preview</p>
+                {heatSpecs.map((h, i) => (
+                  <div key={i} className="bg-gray-50 rounded-lg px-3 py-2 border border-gray-200 flex items-center gap-2">
+                    <span className="text-xs font-semibold text-gray-600 shrink-0">{h.name}</span>
+                    <span className="text-xs text-gray-400">{h.team_ids.length} team{h.team_ids.length !== 1 ? 's' : ''}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         ) : isPool ? (
           <div className="space-y-3">
             <p className="text-sm text-slate-500 italic">
@@ -1307,7 +1364,7 @@ export default function SportConfigPage() {
               disabled={genMutation.isPending || sportTeams.length < 2 || (splitEnabled && !splitValid) || (isPool && !poolsValid)}
               className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
             >
-              {genMutation.isPending ? 'Generating…' : isHeats ? 'Generate Entries' : isPool ? 'Generate Pool Play' : splitEnabled ? 'Generate Division Brackets' : 'Generate Bracket'}
+              {genMutation.isPending ? 'Generating…' : isHeats ? (effectiveNumHeats > 1 ? 'Generate Preliminary Heats' : 'Generate Entries') : isPool ? 'Generate Pool Play' : splitEnabled ? 'Generate Division Brackets' : 'Generate Bracket'}
             </button>
           </>
         )}

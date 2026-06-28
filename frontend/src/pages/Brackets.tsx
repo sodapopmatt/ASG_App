@@ -1,4 +1,4 @@
-﻿import React, { useMemo } from 'react'
+﻿import React, { useMemo, useState } from 'react'
 import { useTabMemory } from '../lib/useTabMemory'
 import { useParams } from 'react-router-dom'
 import BackLink from '../components/BackLink'
@@ -106,17 +106,20 @@ function formatHeatTime(ms: number): string {
   return `${m}:${String(s).padStart(2, '0')}.${String(millis).padStart(3, '0')}`
 }
 
-function HeatsStandingsView({
-  matches,
-  teamMap,
-  companyMap,
-}: {
-  matches: Match[]
-  teamMap: Record<string, Team>
-  companyMap: Record<string, Company>
-}) {
-  const multiTeamKeys = useMemo(() => buildMultiTeamKeys(teamMap), [teamMap])
+const HEAT_PHASE_ORDER: Record<string, number> = { heats: 1, bracket: 2, finals: 3 }
 
+function medalColor(rank: number): string {
+  if (rank === 1) return 'text-yellow-500'
+  if (rank === 2) return 'text-slate-400'
+  if (rank === 3) return 'text-amber-700'
+  return 'text-slate-700'
+}
+
+function HeatTable({ matches, teamName, isFinal = false }: {
+  matches: Match[]
+  teamName: (id: string | null | undefined) => string
+  isFinal?: boolean
+}) {
   const rows = useMemo(() => {
     const completed = matches
       .filter(m => m.status === 'completed' && m.notes)
@@ -132,11 +135,7 @@ function HeatsStandingsView({
     ]
   }, [matches])
 
-  function teamName(teamId: string | null | undefined) {
-    return compactLabel(teamId ?? null, teamMap, companyMap, undefined, multiTeamKeys)
-  }
-
-  if (rows.length === 0) return <p className="text-center text-gray-500 py-12">No results yet.</p>
+  if (rows.length === 0) return <p className="text-sm text-gray-400 italic py-2">No entries.</p>
 
   return (
     <div className="rounded-xl border border-gray-200 overflow-hidden">
@@ -147,7 +146,9 @@ function HeatsStandingsView({
       <div className="divide-y divide-gray-100">
         {rows.map(({ match, rank, ms, state }) => (
           <div key={match.id} className="grid items-center px-4 py-3 gap-3" style={{ gridTemplateColumns: '2.5rem 1fr auto' }}>
-            <span className={`font-bold text-sm text-center ${state === 'done' ? 'text-slate-700' : 'text-gray-300'}`}>
+            <span className={`font-bold text-sm text-center ${
+              state !== 'done' ? 'text-gray-300' : isFinal && rank !== null ? medalColor(rank) : 'text-slate-700'
+            }`}>
               {state === 'done' ? rank : '—'}
             </span>
             <span className="text-sm font-medium text-slate-700 truncate">{teamName(match.home_team_id)}</span>
@@ -157,6 +158,107 @@ function HeatsStandingsView({
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+const HEAT_PHASE_SHORT: Record<string, string> = {
+  heats:   'Prelims',
+  bracket: 'Semi-Finals',
+  finals:  'Final',
+}
+
+function HeatsStandingsView({
+  matches,
+  brackets,
+  teamMap,
+  companyMap,
+}: {
+  matches: Match[]
+  brackets: Bracket[]
+  teamMap: Record<string, Team>
+  companyMap: Record<string, Company>
+}) {
+  const multiTeamKeys = useMemo(() => buildMultiTeamKeys(teamMap), [teamMap])
+
+  function teamName(teamId: string | null | undefined) {
+    return compactLabel(teamId ?? null, teamMap, companyMap, undefined, multiTeamKeys)
+  }
+
+  const matchesByBracket = useMemo(() => {
+    const map: Record<string, Match[]> = {}
+    for (const m of matches) {
+      const key = m.bracket_id ?? '__flat'
+      ;(map[key] ??= []).push(m)
+    }
+    return map
+  }, [matches])
+
+  const sortedBrackets = useMemo(() => [...brackets].sort((a, b) => {
+    const ao = HEAT_PHASE_ORDER[a.phase ?? ''] ?? 99
+    const bo = HEAT_PHASE_ORDER[b.phase ?? ''] ?? 99
+    if (ao !== bo) return ao - bo
+    return a.name.localeCompare(b.name)
+  }), [brackets])
+
+  const bracketsByPhase = useMemo(() => {
+    const map: Record<string, Bracket[]> = {}
+    for (const b of sortedBrackets) {
+      ;(map[b.phase ?? 'unknown'] ??= []).push(b)
+    }
+    return map
+  }, [sortedBrackets])
+
+  const hasGroupedBrackets = brackets.some(b => b.phase !== null)
+  const flatMatches = matchesByBracket['__flat'] ?? matches
+
+  const allPhases = ['heats', 'bracket', 'finals'] as const
+  const [activePhase, setActivePhase] = useState<string>('heats')
+
+  if (!hasGroupedBrackets) {
+    if (flatMatches.length === 0) return <p className="text-center text-gray-500 py-12">No results yet.</p>
+    return <HeatTable matches={flatMatches} teamName={teamName} />
+  }
+
+  const phaseBrackets = bracketsByPhase[activePhase] ?? []
+  const isFinalPhase = activePhase === 'finals'
+
+  const heatSections = phaseBrackets.map((b, i) => {
+    const hm = matchesByBracket[b.id] ?? []
+    const done = hm.length > 0 && hm.every(m => m.status === 'completed' || m.status === 'forfeit')
+    return {
+      key: b.id,
+      title: `Heat ${i + 1}${done ? ' ✓' : ''}`,
+      content: <HeatTable matches={hm} teamName={teamName} isFinal={isFinalPhase} />,
+    }
+  })
+
+  return (
+    <div>
+      <div className="flex rounded-lg bg-gray-100 p-1 mb-4">
+        {allPhases.map(phase => (
+          <button
+            key={phase}
+            onClick={() => setActivePhase(phase)}
+            className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              phase === activePhase ? 'bg-white shadow-sm text-slate-800' : 'text-gray-500'
+            }`}
+          >
+            {HEAT_PHASE_SHORT[phase]}
+          </button>
+        ))}
+      </div>
+
+      {phaseBrackets.length === 0 ? (
+        <p className="text-center text-gray-400 py-12">Not generated yet.</p>
+      ) : phaseBrackets.length === 1 ? (
+        <HeatTable matches={matchesByBracket[phaseBrackets[0].id] ?? []} teamName={teamName} isFinal={isFinalPhase} />
+      ) : (
+        <DivisionTabs
+          sections={heatSections}
+          storageKey={`heats-tabs-${activePhase}-${phaseBrackets[0]?.id}`}
+        />
+      )}
     </div>
   )
 }
@@ -652,7 +754,7 @@ export default function BracketView() {
       return <DonationCountsView sportId={activeSportId!} companyMap={companyMap} />
     }
     if (bracketType === 'heats') {
-      return <HeatsStandingsView matches={sportMatches} teamMap={teamMap} companyMap={companyMap} />
+      return <HeatsStandingsView matches={sportMatches} brackets={bracketsQuery.data ?? []} teamMap={teamMap} companyMap={companyMap} />
     }
     if (bracketType === 'pool_bracket' || bracketType === 'pool_swiss') {
       return (
