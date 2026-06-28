@@ -40,7 +40,7 @@ export default function MatchResultModal({
   const onSuccess = () => { qc.invalidateQueries({ queryKey: ['matches'] }); onClose() }
   const onError = (e: unknown) => setError(e instanceof Error ? e.message : 'Failed to submit')
 
-  const isInProgress = match.status === 'in_progress'
+
 
   const startMutation  = useMutation({ mutationFn: () => startMatch(match.id), onSuccess, onError })
   const scoreMutation  = useMutation({
