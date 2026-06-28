@@ -42,7 +42,7 @@ export default function Teams() {
   const filteredCompanies = useMemo(() => {
     const q = search.trim().toLowerCase()
     return [...companies as Company[]]
-      .filter(c => !q || c.name.toLowerCase().includes(q))
+      .filter(c => !q || c.name.toLowerCase().includes(q) || (c.short_id ?? '').toLowerCase().includes(q))
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [companies, search])
 
