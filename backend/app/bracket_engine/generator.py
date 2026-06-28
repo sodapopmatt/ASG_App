@@ -425,35 +425,68 @@ def persist_pools(
         bracket_ids_created.append(bracket["id"])
         all_pool_data.append((bracket["id"], slots, list(pool_location_ids)))
 
-    # Pass 2: assign courts per pool (round-robin within each pool's courts)
-    pool_assignments: list[dict[int, str | None]] = []
-    for _, slots, courts in all_pool_data:
-        assignment: dict[int, str | None] = {}
-        if courts:
-            for pos in range(len(slots)):
-                assignment[pos] = courts[pos % len(courts)]
-        pool_assignments.append(assignment)
+    # Pass 2+3: cohort-aware court assignment and scheduling.
+    #
+    # Processes (round_num, pool_idx) pairs in sorted order so that courts are
+    # shared across pools without conflicts.  For each pool's round we pick the
+    # field pair (a consecutive slice of that pool's declared courts sized by
+    # matches_per_round) that becomes available earliest — accounting for both
+    # court availability and the pool's own previous round finishing time.
+    #
+    # This produces the "cohort scheduling" pattern where groups with shared
+    # courts are staggered automatically: e.g. 14 soccer pools sharing 6 fields
+    # (3 pairs of 2) pack 3 pools per time slot and rotate field pairs each round.
+    from collections import Counter
 
-    # Pass 3: global time assignment — courts shared across pools are sequenced
-    # together (interleaved by match_round then pool order), so no two pools
-    # try to start on the same court at the same time.
-    scheduled_at: dict[tuple[int, int], str] = {}  # (pool_idx, slot_idx) → ISO
-    if start_time is not None:
+    pool_assignments: list[dict[int, str | None]] = [{} for _ in all_pool_data]
+    scheduled_at: dict[tuple[int, int], str] = {}
+
+    all_court_ids: set[str] = set()
+    for _, _, courts in all_pool_data:
+        all_court_ids.update(courts)
+
+    if all_court_ids:
         duration = timedelta(minutes=match_duration_minutes)
-        court_queue: dict[str, list[tuple[int, int, int]]] = {}
-        for pool_idx, (_, slots, _courts) in enumerate(all_pool_data):
+        epoch = start_time if start_time is not None else datetime(2000, 1, 1)
+        court_avail: dict[str, datetime] = {c: epoch for c in all_court_ids}
+        pool_avail: list[datetime] = [epoch] * len(all_pool_data)
+
+        # Build sorted queue of (round_num, pool_idx, [slot_indices])
+        queue: list[tuple[int, int, list[int]]] = []
+        for p_idx, (_, slots, courts) in enumerate(all_pool_data):
+            if not courts:
+                continue
+            rmap: dict[int, list[int]] = {}
             for slot_idx, slot in enumerate(slots):
-                court = pool_assignments[pool_idx].get(slot_idx)
-                if court is not None:
-                    court_queue.setdefault(court, []).append(
-                        (slot.match_round, pool_idx, slot_idx)
-                    )
-        for entries in court_queue.values():
-            entries.sort()
-            t = start_time
-            for _, pool_idx, slot_idx in entries:
-                scheduled_at[(pool_idx, slot_idx)] = t.isoformat()
-                t += duration
+                rmap.setdefault(slot.match_round, []).append(slot_idx)
+            for r, idxs in sorted(rmap.items()):
+                queue.append((r, p_idx, idxs))
+        queue.sort()
+
+        for r, p_idx, slot_indices in queue:
+            _, slots, courts = all_pool_data[p_idx]
+            round_counts = Counter(s.match_round for s in slots)
+            mpr = max(round_counts.values())
+
+            # Partition this pool's courts into field pairs of size mpr
+            field_pairs = [courts[i : i + mpr] for i in range(0, len(courts) - mpr + 1, mpr)]
+            if not field_pairs:
+                continue
+
+            def pair_ready(pair: list[str], _p: int = p_idx) -> datetime:
+                return max(pool_avail[_p], max(court_avail[c] for c in pair))
+
+            best_pair = min(field_pairs, key=pair_ready)
+            slot_time = pair_ready(best_pair)
+
+            for i, slot_idx in enumerate(slot_indices):
+                pool_assignments[p_idx][slot_idx] = best_pair[i % len(best_pair)]
+                if start_time is not None:
+                    scheduled_at[(p_idx, slot_idx)] = slot_time.isoformat()
+
+            for c in best_pair:
+                court_avail[c] = slot_time + duration
+            pool_avail[p_idx] = slot_time + duration
 
     # Pass 4: insert match rows
     total_matches = 0

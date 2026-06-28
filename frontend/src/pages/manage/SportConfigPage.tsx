@@ -174,7 +174,46 @@ function DonationSportConfig({
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{children}</p>
+    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{children}</p>
+  )
+}
+
+function CollapsibleSection({
+  title,
+  children,
+  badge,
+  borderColor = 'border-gray-100',
+  defaultOpen = true,
+}: {
+  title: React.ReactNode
+  children: React.ReactNode
+  badge?: React.ReactNode
+  borderColor?: string
+  defaultOpen?: boolean
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className={`bg-white rounded-xl border ${borderColor} shadow-sm overflow-hidden`}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full px-4 py-4 flex items-center justify-between text-left gap-2"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <SectionHeading>{title}</SectionHeading>
+          {badge}
+        </div>
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+          fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+          className={`shrink-0 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}>
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+      {open && (
+        <div className="border-t border-gray-100 px-4 py-4 space-y-3">
+          {children}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -243,6 +282,7 @@ function PoolBucketRow({
   teamPoolOf,
   courtPoolOf,
   companyMap,
+  cohortMode,
   onMoveTeam,
   onMoveCourt,
   onUnassignTeam,
@@ -256,6 +296,7 @@ function PoolBucketRow({
   teamPoolOf: (id: string) => number
   courtPoolOf: (id: string) => number
   companyMap: Record<string, Company>
+  cohortMode: boolean
   onMoveTeam: (teamId: string, pool: number) => void
   onMoveCourt: (locId: string, pool: number) => void
   onUnassignTeam: (teamId: string) => void
@@ -301,7 +342,7 @@ function PoolBucketRow({
         <span className="text-sm font-semibold text-slate-800">{poolName(poolIndex)}</span>
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-500">{poolTeams.length} teams</span>
-          {poolCourts.length > 0 && (
+          {!cohortMode && poolCourts.length > 0 && (
             <span className="text-xs text-gray-400">· {poolCourts.map(c => c.name).join(', ')}</span>
           )}
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
@@ -393,7 +434,7 @@ function PoolBucketRow({
             {poolTeams.length === 0 && <p className="text-xs text-gray-400 italic">No teams assigned</p>}
           </div>
 
-          {locations.length > 0 && (
+          {!cohortMode && locations.length > 0 && (
             <div className="flex flex-wrap gap-1.5 pt-1 border-t border-gray-100">
               {poolCourts.map(loc => (
                 <CourtPill key={loc.id} loc={loc} currentPool={poolIndex} poolCount={poolCount} onMoveCourt={onMoveCourt} />
@@ -413,6 +454,7 @@ function PoolBuckets({
   teamPoolOf,
   courtPoolOf,
   companyMap,
+  cohortMode,
   onMoveTeam,
   onMoveCourt,
   onUnassignTeam,
@@ -423,6 +465,7 @@ function PoolBuckets({
   teamPoolOf: (id: string) => number
   courtPoolOf: (id: string) => number
   companyMap: Record<string, Company>
+  cohortMode: boolean
   onMoveTeam: (teamId: string, pool: number) => void
   onMoveCourt: (locId: string, pool: number) => void
   onUnassignTeam: (teamId: string) => void
@@ -434,16 +477,26 @@ function PoolBuckets({
 
   return (
     <div className="space-y-2">
-      {/* Shared courts */}
-      {sharedCourts.length > 0 && (
+      {/* Cohort mode: fields auto-distributed, no manual assignment needed */}
+      {cohortMode ? (
         <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2.5">
-          <p className="text-xs font-semibold text-blue-600 mb-1.5">Shared courts (all pools)</p>
-          <div className="flex flex-wrap gap-1.5">
-            {sharedCourts.map(loc => (
-              <CourtPill key={loc.id} loc={loc} currentPool={SHARED_COURT_VALUE} poolCount={poolCount} onMoveCourt={onMoveCourt} />
-            ))}
-          </div>
+          <p className="text-xs font-semibold text-blue-600 mb-0.5">Fields auto-distributed</p>
+          <p className="text-xs text-blue-500">
+            {locations.length} field{locations.length !== 1 ? 's' : ''} will be automatically split into pairs and rotated across pools each round. No manual assignment needed.
+          </p>
         </div>
+      ) : (
+        /* Shared courts (manual assignment mode) */
+        sharedCourts.length > 0 && (
+          <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2.5">
+            <p className="text-xs font-semibold text-blue-600 mb-1.5">Shared courts (all pools)</p>
+            <div className="flex flex-wrap gap-1.5">
+              {sharedCourts.map(loc => (
+                <CourtPill key={loc.id} loc={loc} currentPool={SHARED_COURT_VALUE} poolCount={poolCount} onMoveCourt={onMoveCourt} />
+              ))}
+            </div>
+          </div>
+        )
       )}
 
       {/* Per-pool accordions */}
@@ -457,6 +510,7 @@ function PoolBuckets({
           teamPoolOf={teamPoolOf}
           courtPoolOf={courtPoolOf}
           companyMap={companyMap}
+          cohortMode={cohortMode}
           onMoveTeam={onMoveTeam}
           onMoveCourt={onMoveCourt}
           onUnassignTeam={onUnassignTeam}
@@ -567,11 +621,10 @@ export default function SportConfigPage() {
   }
 
   // Bracket phase state (pool_bracket, after pool play)
-  const [advanceCount, setAdvanceCount] = useState(2)
+  const advanceCount = 2
   const [advOverride, setAdvOverride] = useState<string[] | null>(null)
 
   // Schedule patch state
-  const [scheduleOpen, setScheduleOpen] = useState(false)
   const [pendingTimes, setPendingTimes] = useState<Record<string, string>>({})
   const [patchError, setPatchError] = useState<string | null>(null)
 
@@ -669,6 +722,10 @@ export default function SportConfigPage() {
     if (locations.length < effectivePoolCount) return SHARED_COURT
     return Math.min(Math.floor(idx * effectivePoolCount / locations.length), effectivePoolCount - 1)
   }
+
+  // Cohort mode: fewer courts than pools means all courts auto-share and the
+  // backend's greedy cohort scheduler handles field pair rotation automatically.
+  const cohortMode = locations.length > 0 && locations.length < effectivePoolCount
 
   const poolSpecs: PoolSpec[] = Array.from({ length: effectivePoolCount }, (_, i) => ({
     name: poolName(i),
@@ -917,8 +974,7 @@ export default function SportConfigPage() {
       </div>
 
       {/* Schedule Config */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-4 space-y-3">
-        <SectionHeading>Scheduling</SectionHeading>
+      <CollapsibleSection title="Scheduling">
         <label className="space-y-1 block">
           <span className="text-xs text-gray-400">Start time</span>
           <input
@@ -946,12 +1002,10 @@ export default function SportConfigPage() {
         >
           {configMutation.isPending ? 'Saving…' : configMutation.isSuccess ? 'Saved' : 'Save'}
         </button>
-      </div>
+      </CollapsibleSection>
 
       {/* Courts */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-4 space-y-3">
-        <SectionHeading>Courts</SectionHeading>
-
+      <CollapsibleSection title="Courts">
         {/* Chip grid */}
         {sortedLocations.length === 0 ? (
           <p className="text-sm text-slate-400 italic">No courts defined — matches will be unassigned.</p>
@@ -1027,18 +1081,17 @@ export default function SportConfigPage() {
         </div>
 
         {courtError && <p className="text-sm text-red-600">{courtError}</p>}
-      </div>
+      </CollapsibleSection>
 
       {/* Generate / Setup */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-4 space-y-3">
-        <div className="flex items-center gap-2">
-          <SectionHeading>{canGenerate ? 'Generate Bracket' : 'Bracket Setup'}</SectionHeading>
-          {canGenerate && alreadyGenerated && (
-            <span className="mb-2 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
-              Generated
-            </span>
-          )}
-        </div>
+      <CollapsibleSection
+        title={canGenerate ? 'Generate Bracket' : 'Bracket Setup'}
+        badge={canGenerate && alreadyGenerated ? (
+          <span className="text-xs font-semibold text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full shrink-0">
+            Generated
+          </span>
+        ) : undefined}
+      >
 
         {!canGenerate ? (
           <p className="text-sm text-slate-500 italic">
@@ -1091,6 +1144,7 @@ export default function SportConfigPage() {
               teamPoolOf={teamPoolOf}
               courtPoolOf={courtPoolOf}
               companyMap={companyMap}
+              cohortMode={cohortMode}
               onMoveTeam={(teamId, pool) => setTeamPool(prev => ({ ...prev, [teamId]: pool }))}
               onMoveCourt={(locId, pool) => setCourtPool(prev => ({ ...prev, [locId]: pool }))}
               onUnassignTeam={(teamId) => setTeamPool(prev => ({ ...prev, [teamId]: UNASSIGNED_POOL }))}
@@ -1241,19 +1295,18 @@ export default function SportConfigPage() {
             </button>
           </>
         )}
-      </div>
+      </CollapsibleSection>
 
       {/* Bracket Phase (pool_bracket: seeded from pool standings) */}
       {showBracketPhaseCard && (
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <SectionHeading>Generate Bracket Phase</SectionHeading>
-            {hasBracketPhase && (
-              <span className="mb-2 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full shrink-0">
-                Additional bracket
-              </span>
-            )}
-          </div>
+        <CollapsibleSection
+          title="Generate Bracket Phase"
+          badge={hasBracketPhase ? (
+            <span className="text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full shrink-0">
+              Additional bracket
+            </span>
+          ) : undefined}
+        >
 
           {pendingPoolCount > 0 && (
             <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
@@ -1261,17 +1314,6 @@ export default function SportConfigPage() {
               Standings may change — enter all results before generating the bracket.
             </p>
           )}
-
-          <label className="space-y-1 block">
-            <span className="text-xs text-gray-400">Teams advancing per pool</span>
-            <input
-              type="number"
-              min={1}
-              value={advanceCount}
-              onChange={e => { setAdvanceCount(Math.max(1, Number(e.target.value))); setAdvOverride(null) }}
-              className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-            />
-          </label>
 
           {cutLineTies.length > 0 && (
             <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
@@ -1319,24 +1361,12 @@ export default function SportConfigPage() {
           >
             {bracketPhaseMutation.isPending ? 'Generating…' : 'Generate Bracket Phase'}
           </button>
-        </div>
+        </CollapsibleSection>
       )}
 
       {/* Adjust Match Times */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <button
-          onClick={() => setScheduleOpen(v => !v)}
-          className="w-full px-4 py-4 flex items-center justify-between text-left"
-        >
-          <SectionHeading>Manually Adjust Match Times</SectionHeading>
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-            fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-            className={`shrink-0 text-gray-400 transition-transform ${scheduleOpen ? 'rotate-180' : ''}`}>
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
-        </button>
-        {scheduleOpen && (
-          <div className="border-t border-gray-100 px-4 py-3 space-y-3">
+      <CollapsibleSection title="Manually Adjust Match Times" defaultOpen={false}>
+        <>
             {matches.length === 0 ? (
               <p className="text-sm text-slate-500 italic text-center py-2">
                 No matches yet. Generate a bracket first.
@@ -1386,13 +1416,11 @@ export default function SportConfigPage() {
                 ))}
               </>
             )}
-          </div>
-        )}
-      </div>
+        </>
+      </CollapsibleSection>
 
       {/* Danger zone */}
-      <div className="bg-white rounded-xl border border-red-100 shadow-sm px-4 py-4 space-y-3">
-        <SectionHeading>Danger Zone</SectionHeading>
+      <CollapsibleSection title="Danger Zone" borderColor="border-red-100" defaultOpen={false}>
         {resetMutation.isError && <p className="text-sm text-red-600">{genError}</p>}
         <button
           onClick={handleReset}
@@ -1401,7 +1429,7 @@ export default function SportConfigPage() {
         >
           {resetMutation.isPending ? 'Resetting…' : 'Reset All Brackets & Matches'}
         </button>
-      </div>
+      </CollapsibleSection>
     </div>
   )
 }
