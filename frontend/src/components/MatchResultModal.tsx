@@ -227,15 +227,13 @@ export default function MatchResultModal({
                   </div>
                 </>
               )}
-              {(isInProgress || match.status === 'completed' || match.status === 'draw') && (
-                <button
-                  onClick={() => scoreMutation.mutate()}
-                  disabled={isPending}
-                  className="w-full py-2 rounded-xl bg-amber-50 border border-amber-300 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-40 transition-colors"
-                >
-                  {scoreMutation.isPending ? 'Saving…' : 'Update Score'}
-                </button>
-              )}
+              <button
+                onClick={() => scoreMutation.mutate()}
+                disabled={isPending}
+                className="w-full py-2 rounded-xl bg-amber-50 border border-amber-300 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-40 transition-colors"
+              >
+                {scoreMutation.isPending ? 'Saving…' : 'Update Score'}
+              </button>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider pt-1">Who won?</p>
               <div className="grid grid-cols-2 gap-2">
                 <button
