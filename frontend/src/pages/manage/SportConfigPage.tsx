@@ -152,21 +152,29 @@ function DonationSportConfig({
 
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-4 space-y-3">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Location</p>
-        <input
-          type="text"
-          value={locationName}
-          onChange={e => setLocationName(e.target.value)}
-          placeholder="e.g. Main Lobby"
-          className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-        />
+        {locations[0]?.name && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400">Saved:</span>
+            <span className="text-sm text-gray-400 bg-gray-100 rounded-lg px-2.5 py-1">{locations[0].name}</span>
+          </div>
+        )}
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={locationName}
+            onChange={e => setLocationName(e.target.value)}
+            placeholder="e.g. Main Lobby"
+            className="flex-1 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+          />
+          <button
+            onClick={() => locationMutation.mutate()}
+            disabled={locationMutation.isPending}
+            className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0"
+          >
+            {locationMutation.isPending ? 'Saving…' : 'Save'}
+          </button>
+        </div>
         {locationError && <p className="text-sm text-red-600">{locationError}</p>}
-        <button
-          onClick={() => locationMutation.mutate()}
-          disabled={locationMutation.isPending}
-          className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
-        >
-          {locationMutation.isPending ? 'Saving…' : locationMutation.isSuccess ? 'Saved' : 'Save'}
-        </button>
       </div>
     </div>
   )
