@@ -328,7 +328,14 @@ function FallbackMatchList({
   companyMap: Record<string, Company>
 }) {
   const sorted = useMemo(
-    () => [...matches].sort((a, b) => (a.match_round ?? 0) - (b.match_round ?? 0)),
+    () => [...matches].sort((a, b) => {
+      const rDiff = (a.match_round ?? 0) - (b.match_round ?? 0)
+      if (rDiff !== 0) return rDiff
+      const aTime = a.scheduled_at ?? ''
+      const bTime = b.scheduled_at ?? ''
+      if (aTime !== bTime) return aTime < bTime ? -1 : 1
+      return a.id < b.id ? -1 : 1
+    }),
     [matches],
   )
   const multiTeamKeys = useMemo(() => buildMultiTeamKeys(teamMap), [teamMap])

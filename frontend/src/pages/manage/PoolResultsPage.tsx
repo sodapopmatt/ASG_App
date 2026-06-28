@@ -170,6 +170,14 @@ export default function PoolResultsPage() {
       const key = m.match_round != null ? String(m.match_round) : '?'
       ;(groups[key] ??= []).push(m)
     }
+    for (const key of Object.keys(groups)) {
+      groups[key].sort((a, b) => {
+        const aTime = a.scheduled_at ?? ''
+        const bTime = b.scheduled_at ?? ''
+        if (aTime !== bTime) return aTime < bTime ? -1 : 1
+        return a.id < b.id ? -1 : 1
+      })
+    }
     return Object.entries(groups).sort(([a], [b]) => Number(a) - Number(b))
   }
 
