@@ -72,11 +72,14 @@ def delete_sport(sport_id: str, _=Depends(require_admin)):
 
 @router.delete("/{sport_id}/brackets", status_code=204)
 def reset_brackets(sport_id: str, _=Depends(require_admin)):
-    """Delete all brackets and matches for a sport without regenerating."""
-    sport = supabase.table("sports").select("id").eq("id", sport_id).limit(1).execute()
+    """Delete all brackets and matches for a sport without regenerating.
+    For heats sports, also clears event_points since they are derived from match results."""
+    sport = supabase.table("sports").select("id, bracket_type").eq("id", sport_id).limit(1).execute()
     if not sport.data:
         raise HTTPException(status_code=404, detail="Sport not found")
     clear_brackets(sport_id, supabase)
+    if sport.data[0].get("bracket_type") == "heats":
+        supabase.table("event_points").delete().eq("sport_id", sport_id).execute()
 
 
 @router.post("/{sport_id}/generate-bracket")
@@ -159,6 +162,9 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
                     offset_minutes = i * duration
                     scheduled_at = (start_time + timedelta(minutes=offset_minutes)).isoformat()
 
+                # All teams in a heat race simultaneously at the same location
+                heat_location_id = location_ids[i % len(location_ids)] if location_ids else None
+
                 for team_id in heat.team_ids:
                     row: dict = {
                         "sport_id": sport_id,
@@ -169,6 +175,8 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
                     }
                     if scheduled_at:
                         row["scheduled_at"] = scheduled_at
+                    if heat_location_id:
+                        row["location_id"] = heat_location_id
                     supabase.table("matches").insert(row).execute()
                     total_matches += 1
 

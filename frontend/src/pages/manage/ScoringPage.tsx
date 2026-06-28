@@ -1,6 +1,6 @@
 ﻿import { useState, useMemo } from 'react'
 import BackLink from '../../components/BackLink'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getSports } from '../../api/sports'
 import { getTeams } from '../../api/teams'
 import { getCompanies } from '../../api/companies'
@@ -9,18 +9,6 @@ import { getBrackets } from '../../api/brackets'
 import { getEventPoints, awardPlacement } from '../../api/event_points'
 import { getSportIcon } from '../../lib/sportIcons'
 import type { Sport, Company, EventPoints, Match, Bracket, Team } from '../../types'
-
-const PLACEMENTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-
-function ordinal(n: number) {
-  const s = ['th', 'st', 'nd', 'rd']
-  const v = n % 100
-  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0])
-}
-
-function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
-  return Object.fromEntries(arr.map(item => [String(item[key]), item]))
-}
 
 // ── Relay Race scoring ────────────────────────────────────────────────────────
 
@@ -245,9 +233,9 @@ function RelayRaceScoringSection({
       </div>
 
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="grid px-4 py-2 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-400 uppercase tracking-wider"
+        <div className="grid gap-2 px-4 py-2 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-400 uppercase tracking-wider"
           style={{ gridTemplateColumns: '2rem 1fr auto auto' }}>
-          <span>#</span><span>Company</span><span className="text-right">Pts</span><span />
+          <span>#</span><span>Company</span><span className="text-right">Pts</span><span className="text-right">Place</span>
         </div>
         <div className="divide-y divide-gray-50">
           {computed.map(row => {
@@ -294,6 +282,112 @@ function RelayRaceScoringSection({
   )
 }
 
+// ── Standard scoring (inline placement table for non-relay sports) ────────────
+
+function StandardScoringSection({
+  sport,
+  companies,
+  eventPoints,
+}: {
+  sport: Sport
+  companies: Company[]
+  eventPoints: EventPoints[]
+}) {
+  const qc = useQueryClient()
+  const sportPoints = useMemo(
+    () => eventPoints.filter(ep => ep.sport_id === sport.id),
+    [eventPoints, sport.id],
+  )
+  const existingByCompany = useMemo(
+    () => Object.fromEntries(sportPoints.map(ep => [ep.company_id, ep])),
+    [sportPoints],
+  )
+
+  const [placements, setPlacements] = useState<Record<string, string>>(() =>
+    Object.fromEntries(sportPoints.map(ep => [ep.company_id, String(ep.placement)]))
+  )
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saved, setSaved] = useState(false)
+
+  // Sort: placed companies first (by placement), then unplaced alphabetically
+  const sortedCompanies = useMemo(() => {
+    return [...companies].sort((a, b) => {
+      const pa = existingByCompany[a.id]?.placement
+      const pb = existingByCompany[b.id]?.placement
+      if (pa != null && pb != null) return pa - pb
+      if (pa != null) return -1
+      if (pb != null) return 1
+      return a.name.localeCompare(b.name)
+    })
+  }, [companies, existingByCompany])
+
+  async function handleSaveAll() {
+    setSaving(true)
+    setSaveError(null)
+    try {
+      for (const company of companies) {
+        const p = placements[company.id]
+        if (!p) continue
+        await awardPlacement(company.id, sport.id, Number(p))
+      }
+      qc.invalidateQueries({ queryKey: ['event-points'] })
+      qc.invalidateQueries({ queryKey: ['leaderboard'] })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Failed to save placements')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="grid gap-2 px-4 py-2 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-400 uppercase tracking-wider"
+          style={{ gridTemplateColumns: '2rem 1fr auto auto' }}>
+          <span>#</span><span>Company</span><span className="text-right">Pts</span><span className="text-right">Place</span>
+        </div>
+        <div className="divide-y divide-gray-50">
+          {sortedCompanies.map(company => {
+            const existing = existingByCompany[company.id]
+            const p = placements[company.id]
+            return (
+              <div key={company.id} className="grid items-center px-4 py-2.5 gap-2"
+                style={{ gridTemplateColumns: '2rem 1fr auto auto' }}>
+                <span className="text-xs font-bold text-gray-400 tabular-nums">
+                  {existing?.placement ?? '—'}
+                </span>
+                <span className="text-sm font-semibold text-slate-800 truncate">{company.name}</span>
+                <span className={`text-sm font-bold tabular-nums ${existing ? 'text-blue-600' : 'text-gray-200'}`}>
+                  {existing?.points ?? 0}
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  value={p ?? ''}
+                  onChange={e => setPlacements(prev => ({ ...prev, [company.id]: e.target.value }))}
+                  placeholder="—"
+                  className="w-14 text-center text-sm rounded-lg border border-gray-200 px-2 py-1 text-slate-700 tabular-nums"
+                />
+              </div>
+            )
+          })}
+        </div>
+      </div>
+      {saveError && <p className="text-sm text-red-600">{saveError}</p>}
+      <button
+        onClick={handleSaveAll}
+        disabled={saving}
+        className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
+      >
+        {saving ? 'Saving…' : saved ? 'Saved!' : 'Save All Placements'}
+      </button>
+    </div>
+  )
+}
+
 // ── Sport detail (scoring UI for one sport) ───────────────────────────────────
 
 function SportScoringDetail({
@@ -309,54 +403,14 @@ function SportScoringDetail({
   eventPoints: EventPoints[]
   onBack: () => void
 }) {
-  const qc = useQueryClient()
-  const [companyId, setCompanyId] = useState('')
-  const [placement, setPlacement] = useState('')
-  const [tiedThrough, setTiedThrough] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [saved, setSaved] = useState(false)
-
   const { data: sportBrackets = [] } = useQuery<Bracket[]>({
     queryKey: ['brackets', sport.id],
     queryFn: () => getBrackets(sport.id),
     enabled: sport.bracket_type === 'heats',
   })
 
-  const companyMap = useMemo(() => indexBy(companies, 'id'), [companies])
-
-  const sportPoints = useMemo(
-    () => eventPoints.filter(ep => ep.sport_id === sport.id).sort((a, b) => a.placement - b.placement),
-    [eventPoints, sport.id],
-  )
-
-  const existing = companyId
-    ? eventPoints.find(ep => ep.sport_id === sport.id && ep.company_id === companyId) ?? null
-    : null
-
   const isRelayRace = sport.bracket_type === 'heats' && sportBrackets.length > 0
   const sportTeams = useMemo(() => teams.filter(t => t.sport_id === sport.id), [teams, sport.id])
-
-  const mutation = useMutation({
-    mutationFn: () => awardPlacement(companyId, sport.id, Number(placement), tiedThrough ? Number(tiedThrough) : undefined),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['event-points'] })
-      qc.invalidateQueries({ queryKey: ['leaderboard'] })
-      setSaved(true)
-      setCompanyId('')
-      setPlacement('')
-      setTiedThrough('')
-      setError(null)
-      setTimeout(() => setSaved(false), 2500)
-    },
-    onError: (e: unknown) => setError(e instanceof Error ? e.message : 'Failed to award placement'),
-  })
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!companyId || !placement) return
-    setError(null)
-    mutation.mutate()
-  }
 
   return (
     <div className="p-4 mt-2 space-y-5">
@@ -376,100 +430,7 @@ function SportScoringDetail({
       {isRelayRace ? (
         <RelayRaceScoringSection sport={sport} companies={companies} teams={sportTeams} />
       ) : (
-        <>
-          <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-4">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Assign Placement</p>
-
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Company</label>
-              <select
-                required
-                value={companyId}
-                onChange={e => { setCompanyId(e.target.value); setSaved(false) }}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 bg-white"
-              >
-                <option value="">Select company…</option>
-                {companies.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Placement</label>
-              <select
-                required
-                value={placement}
-                onChange={e => { setPlacement(e.target.value); setTiedThrough(''); setSaved(false) }}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 bg-white"
-              >
-                <option value="">Select placement…</option>
-                {PLACEMENTS.map(p => (
-                  <option key={p} value={p}>{ordinal(p)}</option>
-                ))}
-              </select>
-            </div>
-
-            {placement && Number(placement) < PLACEMENTS[PLACEMENTS.length - 1] && (
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Tied through (optional)</label>
-                <select
-                  value={tiedThrough}
-                  onChange={e => { setTiedThrough(e.target.value); setSaved(false) }}
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 bg-white"
-                >
-                  <option value="">Not tied</option>
-                  {PLACEMENTS.filter(p => p > Number(placement)).map(p => (
-                    <option key={p} value={p}>{ordinal(p)}</option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-400 mt-1">
-                  For shared placements: tied companies each receive the average of the tied places' points.
-                </p>
-              </div>
-            )}
-
-            {existing && (
-              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                This company already has {ordinal(existing.placement)} place ({existing.points} pts) for this sport.
-                Submitting will overwrite it.
-              </p>
-            )}
-
-            {error && <p className="text-sm text-red-600">{error}</p>}
-
-            <button
-              type="submit"
-              disabled={mutation.isPending || !companyId || !placement}
-              className="w-full py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold disabled:opacity-40 hover:bg-blue-700 transition-colors"
-            >
-              {mutation.isPending ? 'Saving…' : saved ? 'Saved!' : 'Award Placement'}
-            </button>
-          </form>
-
-          <div className="space-y-2">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-              Current Placements
-            </p>
-            {sportPoints.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-6">No placements awarded yet.</p>
-            ) : (
-              <div className="bg-white rounded-xl border border-gray-100 shadow-sm divide-y divide-gray-50">
-                {sportPoints.map(ep => (
-                  <div key={ep.company_id} className="flex items-center justify-between px-4 py-3">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800">
-                        {companyMap[ep.company_id]?.name ?? ep.company_id}
-                      </p>
-                      <p className="text-xs text-gray-400">{ordinal(ep.placement)} place</p>
-                    </div>
-                    <span className="text-sm font-bold text-blue-600">{ep.points} pts</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </>
+        <StandardScoringSection sport={sport} companies={companies} eventPoints={eventPoints} />
       )}
     </div>
   )

@@ -24,11 +24,16 @@ def _compute_estimated_starts(
     matches: list[dict],
     sport_duration_map: dict[str, int],
     sport_start_map: dict[str, datetime | None] | None = None,
+    heats_bracket_ids: set[str] | None = None,
 ) -> dict[str, datetime | None]:
     """Compute estimated start times accounting for court availability and feeder matches.
 
     Pass 1 — per-court ripple: processes each court's chain in scheduled_at order,
     shifting matches forward when their court isn't free yet.
+
+    Heats brackets (concurrent teams): all matches in the same bracket share one
+    estimated_start and occupy the court for exactly one duration slot. Only the
+    first match seen per bracket advances court_free_at; the rest reuse its time.
 
     Pass 2 — feeder adjustment: for each match, estimated_start must be at least
     as late as the finish time of both upstream feeder matches (via
@@ -36,6 +41,8 @@ def _compute_estimated_starts(
     feeders are always resolved before their downstream matches.
     """
     from datetime import timedelta
+
+    heats_bracket_ids = heats_bracket_ids or set()
 
     by_court: dict[str | None, list[dict]] = {}
     for m in matches:
@@ -51,9 +58,18 @@ def _compute_estimated_starts(
         )
 
         court_free_at: datetime | None = None
+        seen_heat_brackets: dict[str, datetime | None] = {}  # bracket_id -> computed est
 
         for m in sorted_matches:
             duration = timedelta(minutes=sport_duration_map.get(m.get("sport_id", ""), 30))
+            bracket_id = m.get("bracket_id")
+            is_concurrent = bracket_id in heats_bracket_ids
+
+            # Concurrent heats: reuse the bracket's already-computed start, skip court advance
+            if is_concurrent and bracket_id in seen_heat_brackets:
+                result[m["id"]] = seen_heat_brackets[bracket_id]
+                continue
+
             scheduled_at = _parse_dt(m.get("scheduled_at"))
             actual_start = _parse_dt(m.get("actual_start"))
             is_playable = bool(m.get("home_team_id") or m.get("away_team_id"))
@@ -84,6 +100,9 @@ def _compute_estimated_starts(
                     result[m["id"]] = None
             else:
                 result[m["id"]] = None
+
+            if is_concurrent and bracket_id:
+                seen_heat_brackets[bracket_id] = result.get(m["id"])
 
     # Pass 2: feeder adjustment
     # Build reverse map: match_id -> list of upstream match_ids that feed into it
@@ -138,7 +157,23 @@ def _attach_estimated_starts(matches: list[dict]) -> list[dict]:
         sport_duration_map = {s["id"]: s["match_duration_minutes"] or 30 for s in sports}
         sport_start_map = {s["id"]: _parse_dt(s.get("schedule_start")) for s in sports}
 
-    estimated = _compute_estimated_starts(matches, sport_duration_map, sport_start_map)
+    # Heats brackets have concurrent teams — their matches share one time slot
+    heats_bracket_ids: set[str] = set()
+    bracket_ids = list({m["bracket_id"] for m in matches if m.get("bracket_id")})
+    if bracket_ids:
+        brackets = (
+            supabase.table("brackets")
+            .select("id, phase")
+            .in_("id", bracket_ids)
+            .execute()
+            .data
+        )
+        heats_bracket_ids = {
+            b["id"] for b in brackets
+            if b.get("phase") in ("heats", "bracket", "finals")
+        }
+
+    estimated = _compute_estimated_starts(matches, sport_duration_map, sport_start_map, heats_bracket_ids)
     for m in matches:
         m["estimated_start"] = estimated.get(m["id"])
     return matches

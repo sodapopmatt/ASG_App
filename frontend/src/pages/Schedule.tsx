@@ -6,7 +6,8 @@ import { getSports } from '../api/sports'
 import { getTeams } from '../api/teams'
 import { getCompanies } from '../api/companies'
 import { getLocations } from '../api/locations'
-import type { Match, Sport, Team, Company, Location } from '../types'
+import { getBrackets } from '../api/brackets'
+import type { Match, Sport, Team, Company, Location, Bracket } from '../types'
 import { compactLabel, buildMultiTeamKeys } from '../lib/bracketHelpers'
 import { getSportIcon } from '../lib/sportIcons'
 
@@ -330,6 +331,151 @@ function StatsStrip({ matches }: { matches: Match[] }) {
   )
 }
 
+// ── Heats schedule view ──────────────────────────────────────────────────────
+
+const HEATS_PHASE_LABELS: Record<string, string> = {
+  heats:   'Prelims',
+  bracket: 'Semi-Finals',
+  finals:  'Final',
+}
+const HEATS_PHASE_ORDER: Record<string, number> = { heats: 1, bracket: 2, finals: 3 }
+
+function HeatsScheduleView({
+  sport,
+  matches,
+  teamMap,
+  companyMap,
+  multiTeamKeys,
+}: {
+  sport: Sport
+  matches: Match[]
+  teamMap: Record<string, Team>
+  companyMap: Record<string, Company>
+  multiTeamKeys: Set<string>
+}) {
+  const { data: brackets = [] } = useQuery<Bracket[]>({
+    queryKey: ['brackets', sport.id],
+    queryFn: () => getBrackets(sport.id),
+    refetchInterval: 10_000,
+  })
+
+  const matchesByBracket = useMemo(() => {
+    const map: Record<string, Match[]> = {}
+    for (const m of matches) {
+      const key = m.bracket_id ?? '__flat'
+      ;(map[key] ??= []).push(m)
+    }
+    return map
+  }, [matches])
+
+  const hasGroupedBrackets = brackets.some(b => b.phase !== null)
+
+  const sortedBrackets = useMemo(() => [...brackets].sort((a, b) => {
+    const ao = HEATS_PHASE_ORDER[a.phase ?? ''] ?? 99
+    const bo = HEATS_PHASE_ORDER[b.phase ?? ''] ?? 99
+    return ao !== bo ? ao - bo : a.name.localeCompare(b.name)
+  }), [brackets])
+
+  const bracketsByPhase = useMemo(() => {
+    const map: Record<string, Bracket[]> = {}
+    for (const b of sortedBrackets) {
+      ;(map[b.phase ?? 'unknown'] ??= []).push(b)
+    }
+    return map
+  }, [sortedBrackets])
+
+  // Flat mode (Human Pyramid) — sequential teams, same court, show location once
+  if (!hasGroupedBrackets) {
+    const flatMatches = matchesByBracket['__flat'] ?? matches
+    const locationName = flatMatches.find(m => m.locations?.name)?.locations?.name
+    return (
+      <div>
+        {locationName && (
+          <div className="px-4 py-1.5 border-t border-gray-100 bg-white">
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+              {locationName}
+            </span>
+          </div>
+        )}
+        {flatMatches.map(m => {
+          const label = compactLabel(m.home_team_id ?? null, teamMap, companyMap, undefined, multiTeamKeys)
+          return (
+            <div key={m.id} className="flex items-center gap-2 px-4 py-2 border-t border-gray-100 hover:bg-gray-50 text-sm">
+              <span className="flex-1 font-medium text-slate-700 truncate text-center">{label}</span>
+              <StatusBadge match={m} />
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      {(['heats', 'bracket', 'finals'] as const).map(phase => {
+        const phaseBrackets = bracketsByPhase[phase] ?? []
+        if (phaseBrackets.length === 0) return null
+
+        const allPhaseMatches = phaseBrackets.flatMap(b => matchesByBracket[b.id] ?? [])
+        const locationName = allPhaseMatches.find(m => m.locations?.name)?.locations?.name
+
+        return (
+          <div key={phase}>
+            {/* Phase header */}
+            <div className="px-4 py-1.5 border-t border-gray-100 bg-white flex items-center gap-1.5">
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                {HEATS_PHASE_LABELS[phase]}
+              </span>
+              {locationName && (
+                <span className="text-xs text-gray-400">· {locationName}</span>
+              )}
+            </div>
+
+            {/* Heats */}
+            {phaseBrackets.map((bracket, i) => {
+              const heatMatches = matchesByBracket[bracket.id] ?? []
+              if (heatMatches.length === 0) return null
+              const effectiveTime = heatMatches[0].estimated_start ?? heatMatches[0].scheduled_at
+
+              return (
+                <div key={bracket.id} className="border-t border-gray-100">
+                  {/* Heat header row */}
+                  <div className="flex items-center justify-between px-4 py-1.5">
+                    <span className="text-xs font-semibold text-slate-600">Heat {i + 1}</span>
+                    {effectiveTime && (
+                      <span className="text-xs font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+                        {formatTime(effectiveTime)}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Team rows */}
+                  {heatMatches.map(m => {
+                    const label = compactLabel(m.home_team_id ?? null, teamMap, companyMap, undefined, multiTeamKeys)
+                    const resolved = isResolved(m)
+                    const live = m.status === 'in_progress'
+                    return (
+                      <div key={m.id} className="flex items-center gap-2 px-6 py-1">
+                        <span className="flex-1 text-sm font-medium text-slate-700 truncate text-center">{label}</span>
+                        {live && (
+                          <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Live</span>
+                        )}
+                        {resolved && !live && (
+                          <span className="text-xs text-gray-400">Done</span>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── By Sport view ────────────────────────────────────────────────────────────
 
 function SportCard({
@@ -374,18 +520,28 @@ function SportCard({
 
       {expanded && (
         <div>
-          {rounds.map(({ roundKey, matches: roundMatches }) => (
-            <div key={roundKey}>
-              <div className="px-4 py-1.5 bg-white border-t border-gray-100">
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                  {roundKey === 'unscheduled' ? 'Unscheduled' : `Round ${roundKey}`}
-                </span>
+          {sport.bracket_type === 'heats' ? (
+            <HeatsScheduleView
+              sport={sport}
+              matches={rounds.flatMap(r => r.matches)}
+              teamMap={teamMap}
+              companyMap={companyMap}
+              multiTeamKeys={multiTeamKeys}
+            />
+          ) : (
+            rounds.map(({ roundKey, matches: roundMatches }) => (
+              <div key={roundKey}>
+                <div className="px-4 py-1.5 bg-white border-t border-gray-100">
+                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                    {roundKey === 'unscheduled' ? 'Unscheduled' : `Round ${roundKey}`}
+                  </span>
+                </div>
+                {roundMatches.map(match => (
+                  <MatchRow key={match.id} match={match} teamMap={teamMap} companyMap={companyMap} bracketType={sport.bracket_type} multiTeamKeys={multiTeamKeys} />
+                ))}
               </div>
-              {roundMatches.map(match => (
-                <MatchRow key={match.id} match={match} teamMap={teamMap} companyMap={companyMap} bracketType={sport.bracket_type} multiTeamKeys={multiTeamKeys} />
-              ))}
-            </div>
-          ))}
+            ))
+          )}
         </div>
       )}
     </div>

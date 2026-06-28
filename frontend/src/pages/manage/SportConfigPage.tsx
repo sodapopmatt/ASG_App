@@ -549,6 +549,76 @@ function PoolBuckets({
   )
 }
 
+function HeatLocationEditor({
+  sportId,
+  locations,
+  onSuccess,
+}: {
+  sportId: string
+  locations: LocationRow[]
+  onSuccess: () => void
+}) {
+  const [name, setName] = useState(locations[0]?.name ?? '')
+  const [error, setError] = useState<string | null>(null)
+  const [, setSaved] = useState(false)
+
+  useEffect(() => { setName(locations[0]?.name ?? '') }, [locations])
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const trimmed = name.trim()
+      const [first, ...rest] = locations
+      if (!trimmed) {
+        for (const loc of locations) await deleteLocation(loc.id)
+        return
+      }
+      if (first) {
+        if (first.name !== trimmed) await updateLocation(first.id, trimmed)
+      } else {
+        await createLocation(sportId, trimmed)
+      }
+      for (const extra of rest) await deleteLocation(extra.id)
+    },
+    onSuccess: () => {
+      onSuccess()
+      setError(null)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    },
+    onError: e => setError(e instanceof Error ? e.message : 'Failed to save'),
+  })
+
+  const savedName = locations[0]?.name
+
+  return (
+    <div className="space-y-3">
+      {savedName && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">Saved:</span>
+          <span className="text-sm text-gray-400 bg-gray-100 rounded-lg px-2.5 py-1">{savedName}</span>
+        </div>
+      )}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="e.g. Track"
+          className="flex-1 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+        />
+        <button
+          onClick={() => mutation.mutate()}
+          disabled={mutation.isPending}
+          className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0"
+        >
+          {mutation.isPending ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+      {error && <p className="text-sm text-red-600">{error}</p>}
+    </div>
+  )
+}
+
 export default function SportConfigPage() {
   const { sportId } = useParams<{ sportId: string }>()
   const qc = useQueryClient()
@@ -897,6 +967,8 @@ export default function SportConfigPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['brackets'] })
       qc.invalidateQueries({ queryKey: ['matches'] })
+      qc.invalidateQueries({ queryKey: ['event-points'] })
+      qc.invalidateQueries({ queryKey: ['leaderboard'] })
       setGenError(null)
     },
     onError: (e) => setGenError(e instanceof Error ? e.message : 'Failed to reset brackets'),
@@ -1053,81 +1125,92 @@ export default function SportConfigPage() {
       </CollapsibleSection>
 
       {/* Courts */}
-      <CollapsibleSection title="Courts">
-        {/* Chip grid */}
-        {sortedLocations.length === 0 ? (
-          <p className="text-sm text-slate-400 italic">No courts defined — matches will be unassigned.</p>
+      <CollapsibleSection title={isHeats ? 'Location' : 'Courts'}>
+        {isHeats ? (
+          // Heats sports only ever need one location (e.g. "Track")
+          <HeatLocationEditor
+            sportId={sportId!}
+            locations={sortedLocations}
+            onSuccess={() => qc.invalidateQueries({ queryKey: ['locations', sportId] })}
+          />
         ) : (
-          <div className="flex flex-wrap gap-2">
-            {sortedLocations.map(loc => (
-              <div key={loc.id} className="flex items-center gap-1.5 bg-gray-100 border border-gray-200 rounded-lg px-2.5 py-1.5">
-                <span className="text-sm text-slate-700">{loc.name}</span>
+          <>
+            {/* Chip grid */}
+            {sortedLocations.length === 0 ? (
+              <p className="text-sm text-slate-400 italic">No courts defined — matches will be unassigned.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {sortedLocations.map(loc => (
+                  <div key={loc.id} className="flex items-center gap-1.5 bg-gray-100 border border-gray-200 rounded-lg px-2.5 py-1.5">
+                    <span className="text-sm text-slate-700">{loc.name}</span>
+                    <button
+                      onClick={() => deleteCourtMutation.mutate(loc.id)}
+                      disabled={deleteCourtMutation.isPending}
+                      className="text-gray-400 hover:text-red-500 disabled:opacity-40 leading-none text-base"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Single add */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder='Name or number (e.g. "Main" or 5)'
+                value={newCourtName}
+                onChange={e => setNewCourtName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addCourt()}
+                className="flex-1 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+              />
+              <button
+                onClick={addCourt}
+                disabled={newCourtName.trim() === '' || createCourtMutation.isPending}
+                className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0"
+              >
+                {createCourtMutation.isPending ? 'Adding…' : 'Add'}
+              </button>
+            </div>
+
+            {/* Generate numbered */}
+            <div>
+              <p className="text-xs text-gray-400 mb-1.5">Generate numbered</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <input
+                  type="text"
+                  placeholder="Ct"
+                  value={labelInput ?? ''}
+                  onChange={e => setLabelInput(e.target.value)}
+                  className="w-24 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+                />
+                <span className="text-sm text-gray-400">1 through</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  placeholder="24"
+                  value={bulkCount}
+                  onChange={e => setBulkCount(e.target.value === '' ? '' : Math.max(1, Number(e.target.value)))}
+                  className="w-16 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+                />
                 <button
-                  onClick={() => deleteCourtMutation.mutate(loc.id)}
-                  disabled={deleteCourtMutation.isPending}
-                  className="text-gray-400 hover:text-red-500 disabled:opacity-40 leading-none text-base"
+                  onClick={handleBulkGenerate}
+                  disabled={bulkGenerating || !bulkCount}
+                  className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0"
                 >
-                  ×
+                  {bulkGenerating ? 'Generating…' : 'Generate'}
                 </button>
               </div>
-            ))}
-          </div>
+              <p className="text-xs text-gray-400 mt-1">
+                Skips any that already exist.
+              </p>
+            </div>
+
+            {courtError && <p className="text-sm text-red-600">{courtError}</p>}
+          </>
         )}
-
-        {/* Single add */}
-        <div className="flex gap-2">
-          <input
-            type="text"
-            placeholder='Name or number (e.g. "Main" or 5)'
-            value={newCourtName}
-            onChange={e => setNewCourtName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && addCourt()}
-            className="flex-1 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-          />
-          <button
-            onClick={addCourt}
-            disabled={newCourtName.trim() === '' || createCourtMutation.isPending}
-            className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0"
-          >
-            {createCourtMutation.isPending ? 'Adding…' : 'Add'}
-          </button>
-        </div>
-
-        {/* Generate numbered */}
-        <div>
-          <p className="text-xs text-gray-400 mb-1.5">Generate numbered</p>
-          <div className="flex items-center gap-2 flex-wrap">
-            <input
-              type="text"
-              placeholder="Ct"
-              value={labelInput ?? ''}
-              onChange={e => setLabelInput(e.target.value)}
-              className="w-24 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-            />
-            <span className="text-sm text-gray-400">1 through</span>
-            <input
-              type="number"
-              min={1}
-              max={100}
-              placeholder="24"
-              value={bulkCount}
-              onChange={e => setBulkCount(e.target.value === '' ? '' : Math.max(1, Number(e.target.value)))}
-              className="w-16 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-            />
-            <button
-              onClick={handleBulkGenerate}
-              disabled={bulkGenerating || !bulkCount}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0"
-            >
-              {bulkGenerating ? 'Generating…' : 'Generate'}
-            </button>
-          </div>
-          <p className="text-xs text-gray-400 mt-1">
-            Skips any that already exist.
-          </p>
-        </div>
-
-        {courtError && <p className="text-sm text-red-600">{courtError}</p>}
       </CollapsibleSection>
 
       {/* Generate / Setup */}
