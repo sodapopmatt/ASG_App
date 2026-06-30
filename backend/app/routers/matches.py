@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+﻿from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.database import supabase
 from app.auth import require_admin
@@ -28,14 +28,14 @@ def _compute_estimated_starts(
 ) -> dict[str, datetime | None]:
     """Compute estimated start times accounting for court availability and feeder matches.
 
-    Pass 1 — per-court ripple: processes each court's chain in scheduled_at order,
+    Pass 1 â€” per-court ripple: processes each court's chain in scheduled_at order,
     shifting matches forward when their court isn't free yet.
 
     Heats brackets (concurrent teams): all matches in the same bracket share one
     estimated_start and occupy the court for exactly one duration slot. Only the
     first match seen per bracket advances court_free_at; the rest reuse its time.
 
-    Pass 2 — feeder adjustment: for each match, estimated_start must be at least
+    Pass 2 â€” feeder adjustment: for each match, estimated_start must be at least
     as late as the finish time of both upstream feeder matches (via
     winner_next_match_id / loser_next_match_id). Processed in round order so
     feeders are always resolved before their downstream matches.
@@ -159,7 +159,7 @@ def _attach_estimated_starts(matches: list[dict]) -> list[dict]:
         sport_start_map = {s["id"]: _parse_dt(s.get("schedule_start")) for s in sports}
         heats_sport_ids = {s["id"] for s in sports if s.get("bracket_type") == "heats"}
 
-    # Heats brackets have concurrent teams — their matches share one time slot.
+    # Heats brackets have concurrent teams â€” their matches share one time slot.
     # Only applies to sports with bracket_type="heats"; other bracket types (e.g.
     # single_elimination) also use phase="bracket" but are NOT concurrent.
     heats_bracket_ids: set[str] = set()
@@ -216,7 +216,23 @@ def _assign_dynamic_court(match_id: str) -> None:
         supabase.table("matches").update({"location_id": court}).eq("id", next_id).execute()
 
 
-@router.get("/", response_model=list[Match])
+def _fetch_all_matches(q) -> list[dict]:
+    """Paginate through all matches, bypassing PostgREST's 1000-row default cap."""
+    results = []
+    page_size = 1000
+    page = 0
+    while True:
+        batch = q.order("match_round").order("scheduled_at").range(
+            page * page_size, (page + 1) * page_size - 1
+        ).execute().data
+        results.extend(batch)
+        if len(batch) < page_size:
+            break
+        page += 1
+    return results
+
+
+@router.get("", response_model=list[Match])
 def list_matches(
     sport_id: str | None = Query(None),
     bracket_id: str | None = Query(None),
@@ -229,7 +245,7 @@ def list_matches(
         q = q.eq("bracket_id", bracket_id)
     if status:
         q = q.eq("status", status)
-    matches = q.order("match_round").order("scheduled_at").execute().data
+    matches = _fetch_all_matches(q)
     return _attach_estimated_starts(matches)
 
 
@@ -242,12 +258,10 @@ def get_match(match_id: str):
 
     # Fetch all matches for the sport so feeder timing is available for Pass 2
     if m.get("sport_id"):
-        sport_matches = (
+        sport_matches = _fetch_all_matches(
             supabase.table("matches")
             .select("*, locations(name)")
             .eq("sport_id", m["sport_id"])
-            .execute()
-            .data
         )
         _attach_estimated_starts(sport_matches)
         match_map = {sm["id"]: sm for sm in sport_matches}
@@ -257,7 +271,7 @@ def get_match(match_id: str):
     return m
 
 
-@router.post("/", response_model=Match, status_code=201)
+@router.post("", response_model=Match, status_code=201)
 def create_match(body: MatchCreate, _=Depends(require_admin)):
     return supabase.table("matches").insert(body.model_dump(mode="json")).execute().data[0]
 
