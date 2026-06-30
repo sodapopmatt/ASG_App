@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+﻿from fastapi import APIRouter, Depends, HTTPException, Query
 from postgrest.exceptions import APIError
 from pydantic import BaseModel
 from uuid import UUID
@@ -22,7 +22,7 @@ class Location(BaseModel):
 
 
 class LocationUpdate(BaseModel):
-    court_number: int | None = None  # For regular sports — re-derives name
+    court_number: int | None = None  # For regular sports â€” re-derives name
     name: str | None = None           # For donation sports free-text
 
 
@@ -37,7 +37,7 @@ def _get_sport_label(sport_id: str) -> str:
     return "Court"
 
 
-@router.get("/", response_model=list[Location])
+@router.get("", response_model=list[Location])
 def list_locations(sport_id: str | None = Query(None)):
     q = supabase.table("locations").select("id, sport_id, name, court_number").order("court_number", nullsfirst=False)
     if sport_id:
@@ -45,7 +45,7 @@ def list_locations(sport_id: str | None = Query(None)):
     return q.execute().data
 
 
-@router.post("/", response_model=Location, status_code=201)
+@router.post("", response_model=Location, status_code=201)
 def create_location(body: LocationCreate, _=Depends(require_admin)):
     sport = supabase.table("sports").select("id").eq("id", str(body.sport_id)).limit(1).execute()
     if not sport.data:

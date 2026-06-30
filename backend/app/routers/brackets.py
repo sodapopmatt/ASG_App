@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+﻿from fastapi import APIRouter, Depends, HTTPException, Query
 from app.database import supabase
 from app.auth import require_admin
 from app.schemas.bracket import Bracket, BracketCreate, BracketUpdate
@@ -6,7 +6,7 @@ from app.schemas.bracket import Bracket, BracketCreate, BracketUpdate
 router = APIRouter()
 
 
-@router.get("/", response_model=list[Bracket])
+@router.get("", response_model=list[Bracket])
 def list_brackets(sport_id: str | None = Query(None)):
     q = supabase.table("brackets").select("*")
     if sport_id:
@@ -22,7 +22,7 @@ def get_bracket(bracket_id: str):
     return response.data[0]
 
 
-@router.post("/", response_model=Bracket, status_code=201)
+@router.post("", response_model=Bracket, status_code=201)
 def create_bracket(body: BracketCreate, _=Depends(require_admin)):
     return supabase.table("brackets").insert(body.model_dump(mode="json")).execute().data[0]
 

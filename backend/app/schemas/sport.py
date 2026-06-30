@@ -29,6 +29,8 @@ class SportCreate(BaseModel):
     schedule_start: Optional[datetime] = None
     schedule_end: Optional[datetime] = None
     location_label: str = "Court"
+    venue: Optional[str] = None
+    assumed_courts_per_group: Optional[int] = None
 
 
 class SportUpdate(BaseModel):
@@ -43,6 +45,8 @@ class SportUpdate(BaseModel):
     schedule_start: Optional[datetime] = None
     schedule_end: Optional[datetime] = None
     location_label: str | None = None
+    venue: str | None = None
+    assumed_courts_per_group: int | None = None
 
 
 class Sport(SportCreate):

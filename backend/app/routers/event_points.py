@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+﻿from fastapi import APIRouter, Depends, HTTPException, Query
 from app.database import supabase
 from app.auth import require_admin
 from app.schemas.event_points import EventPoints
@@ -7,7 +7,7 @@ router = APIRouter()
 
 
 def _scale_points(placement: int, points_scale: dict | None) -> int:
-    """ASG scale: 1st=40, 2nd=38, … (–2 per place, floor 0).
+    """ASG scale: 1st=40, 2nd=38, â€¦ (â€“2 per place, floor 0).
     If the sport defines a points_scale override, use that instead."""
     if points_scale:
         return int(points_scale.get(str(placement), points_scale.get("default", 0)))
@@ -24,7 +24,7 @@ def _compute_points(placement: int, points_scale: dict | None, tied_through: int
     return round(sum(values) / len(values))
 
 
-@router.get("/", response_model=list[EventPoints])
+@router.get("", response_model=list[EventPoints])
 def list_event_points(
     company_id: str | None = Query(None),
     sport_id: str | None = Query(None),

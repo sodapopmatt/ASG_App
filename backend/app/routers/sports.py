@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+﻿from fastapi import APIRouter, Depends, HTTPException
 from app.database import supabase
 from app.auth import require_admin
 from app.schemas.sport import Sport, SportCreate, SportUpdate
@@ -28,7 +28,7 @@ class HeatSpec(BaseModel):
 
 
 class GenerateBracketRequest(BaseModel):
-    team_ids: list[str] = []  # ordered by seed — index 0 is the top seed
+    team_ids: list[str] = []  # ordered by seed â€” index 0 is the top seed
     clear_existing: bool = False
     # When set (elimination only): one independent bracket per division, each on
     # its own courts, with the division finals feeding a single championship match.
@@ -38,11 +38,11 @@ class GenerateBracketRequest(BaseModel):
     # calling this endpoint again with team_ids seeded from pool standings.
     pools: list[PoolSpec] | None = None
     # When set (heats only): one bracket per heat, one match per team per heat.
-    # Supports multi-phase tournaments (preliminary → semi-finals → final).
+    # Supports multi-phase tournaments (preliminary â†’ semi-finals â†’ final).
     heats: list[HeatSpec] | None = None
 
 
-@router.get("/", response_model=list[Sport])
+@router.get("", response_model=list[Sport])
 def list_sports():
     return supabase.table("sports").select("*").order("name").execute().data
 
@@ -55,7 +55,7 @@ def get_sport(sport_id: str):
     return response.data[0]
 
 
-@router.post("/", response_model=Sport, status_code=201)
+@router.post("", response_model=Sport, status_code=201)
 def create_sport(body: SportCreate, _=Depends(require_admin)):
     return supabase.table("sports").insert(body.model_dump()).execute().data[0]
 
@@ -96,7 +96,7 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
     Other combinations return a 422.
     """
     sport_row = supabase.table("sports").select(
-        "bracket_type, match_duration_minutes, schedule_start"
+        "bracket_type, match_duration_minutes, schedule_start, assumed_courts_per_group"
     ).eq("id", sport_id).limit(1).execute()
 
     if not sport_row.data:
@@ -240,7 +240,8 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
 
     if body.pools is not None:
         return _generate_pool_play(
-            sport_id, body, valid_ids, location_ids, start_time, duration
+            sport_id, body, valid_ids, location_ids, start_time, duration,
+            assumed_courts_per_group=sport.get("assumed_courts_per_group") or 0,
         )
 
     # Pool types without `pools`: pool_bracket generates its seeded bracket
@@ -259,7 +260,7 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
                 detail="clear_existing would delete the pool matches. Use DELETE /sports/{id}/brackets to reset everything.",
             )
         bracket_type_override = "single_elimination"
-        shuffle = False  # team_ids are seeded from pool standings — keep the order
+        shuffle = False  # team_ids are seeded from pool standings â€” keep the order
         start_time = _after_last_scheduled_match(sport_id, start_time, duration)
 
     # Elimination brackets require at least 2 teams
@@ -347,7 +348,7 @@ def _generate_division_brackets(
         raise HTTPException(status_code=422, detail=str(exc))
 
     # Championship: one match in its own finals bracket; each division's root
-    # match advances its winner here. Court is left unassigned (dynamic — the
+    # match advances its winner here. Court is left unassigned (dynamic â€” the
     # first division to finish claims its court; admins can PATCH location_id).
     championship_bracket = supabase.table("brackets").insert({
         "sport_id": sport_id,
@@ -405,6 +406,7 @@ def _generate_pool_play(
     sport_location_ids: list[str],
     start_time,
     duration: int,
+    assumed_courts_per_group: int = 0,
 ) -> dict:
     """Generate one round-robin pool per PoolSpec, each on its own courts."""
     pools = body.pools or []
@@ -440,6 +442,7 @@ def _generate_pool_play(
             clear_existing=body.clear_existing,
             start_time=start_time,
             match_duration_minutes=duration,
+            assumed_courts_per_group=assumed_courts_per_group,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -448,16 +451,133 @@ def _generate_pool_play(
 _TERMINAL_STATUSES = {"completed", "forfeit", "double_forfeit", "draw"}
 
 
+def _build_records(matches: list[dict], is_pool_swiss: bool = False) -> dict[str, dict]:
+    """Compute standings records from a list of terminal matches.
+
+    For pool_swiss sports (Cornhole), tournament_points are computed as:
+      4 pts for a regular win, 2 pts for a forfeit win, 1 pt for a draw, 0 for a loss.
+    For all other sports, tournament_points = 4*wins + 1*draws (forfeit wins treated same as wins).
+    goals_for/goal_diff are populated from home_score/away_score (cornhole game scores).
+    """
+    records: dict[str, dict] = {}
+
+    def record(team_id: str) -> dict:
+        return records.setdefault(team_id, {
+            "team_id": team_id,
+            "wins": 0,
+            "forfeit_wins": 0,
+            "draws": 0,
+            "losses": 0,
+            "played": 0,
+            "tournament_points": 0,
+            "goals_for": 0,
+            "goals_against": 0,
+            "goal_diff": 0,
+            "game_wins": 0,
+            "point_diff": 0,
+            "total_points": 0,
+        })
+
+    for m in matches:
+        home, away = m["home_team_id"], m["away_team_id"]
+        for tid in (home, away):
+            if tid:
+                record(tid)
+        if m["status"] not in _TERMINAL_STATUSES or not home or not away:
+            continue
+
+        hgw = m.get("home_games_won") or 0
+        agw = m.get("away_games_won") or 0
+        hpt = m.get("home_points_total") or 0
+        apt = m.get("away_points_total") or 0
+        hs = m.get("home_score") or 0
+        as_ = m.get("away_score") or 0
+
+        if m["status"] == "double_forfeit":
+            for tid in (home, away):
+                record(tid)["losses"] += 1
+                record(tid)["played"] += 1
+        elif m["status"] == "draw":
+            for tid in (home, away):
+                record(tid)["draws"] += 1
+                record(tid)["played"] += 1
+                record(tid)["tournament_points"] += 1
+        elif m["winner_id"] in (home, away):
+            loser = away if m["winner_id"] == home else home
+            winner_id = m["winner_id"]
+            is_forfeit = m["status"] == "forfeit"
+            record(winner_id)["wins"] += 1
+            record(winner_id)["played"] += 1
+            record(loser)["losses"] += 1
+            record(loser)["played"] += 1
+            if is_forfeit and is_pool_swiss:
+                record(winner_id)["forfeit_wins"] += 1
+                record(winner_id)["tournament_points"] += 2
+            else:
+                record(winner_id)["tournament_points"] += 4
+
+        record(home)["goals_for"] += hs
+        record(home)["goals_against"] += as_
+        record(home)["goal_diff"] += hs - as_
+        record(away)["goals_for"] += as_
+        record(away)["goals_against"] += hs
+        record(away)["goal_diff"] += as_ - hs
+        record(home)["game_wins"] += hgw
+        record(home)["point_diff"] += hpt - apt
+        record(home)["total_points"] += hpt
+        record(away)["game_wins"] += agw
+        record(away)["point_diff"] += apt - hpt
+        record(away)["total_points"] += apt
+
+    return records
+
+
+def _rank_standings(records: dict[str, dict], is_pool_swiss: bool = False) -> list[dict]:
+    """Sort and assign ranks to standings records.
+
+    pool_swiss (Cornhole): sort by tournament_points â†’ goal_diff â†’ goals_for
+    Others: sort by wins â†’ goal_diff â†’ goals_for â†’ game_wins â†’ point_diff â†’ total_points
+    """
+    if is_pool_swiss:
+        standings = sorted(
+            records.values(),
+            key=lambda r: (-r["tournament_points"], -r["goal_diff"], -r["goals_for"]),
+        )
+        prev_key = None
+        for i, row in enumerate(standings):
+            key = (row["tournament_points"], row["goal_diff"], row["goals_for"])
+            row["rank"] = standings[i - 1]["rank"] if key == prev_key else i + 1
+            prev_key = key
+    else:
+        standings = sorted(
+            records.values(),
+            key=lambda r: (-r["wins"], -r["goal_diff"], -r["goals_for"], -r["game_wins"], -r["point_diff"], -r["total_points"]),
+        )
+        prev_key = None
+        for i, row in enumerate(standings):
+            key = (row["wins"], row["goal_diff"], row["goals_for"], row["game_wins"], row["point_diff"], row["total_points"])
+            row["rank"] = standings[i - 1]["rank"] if key == prev_key else i + 1
+            prev_key = key
+    return standings
+
+
 @router.get("/{sport_id}/standings")
 def get_standings(sport_id: str):
     """W/D/L standings per pool, computed from terminal matches.
 
-    completed/forfeit → win for winner, loss for opponent
-    draw → both teams get a draw
-    double_forfeit → both teams get a loss
-    Ranking: wins desc → goal_diff desc → goals_for desc → game_wins desc → point_diff desc → total_points desc
-    Draws and goals (from home_score/away_score) support soccer group play.
+    completed/forfeit â†’ win for winner, loss for opponent
+    draw â†’ both teams get a draw
+    double_forfeit â†’ both teams get a loss
+
+    pool_swiss sports (Cornhole): tournament_points = 4*wins + 2*forfeit_wins + 1*draws.
+    Ranking: tournament_points desc â†’ goal_diff desc â†’ goals_for desc.
+    Other sports: wins desc â†’ goal_diff desc â†’ goals_for desc â†’ game_wins â†’ point_diff â†’ total_points.
     """
+    sport_row = supabase.table("sports").select("bracket_type").eq("id", sport_id).limit(1).execute()
+    if not sport_row.data:
+        return []
+    is_pool_swiss = sport_row.data[0].get("bracket_type") == "pool_swiss"
+
     pool_brackets = (
         supabase.table("brackets")
         .select("id, name")
@@ -489,76 +609,8 @@ def get_standings(sport_id: str):
 
     result = []
     for bracket in pool_brackets:
-        records: dict[str, dict] = {}
-
-        def record(team_id: str) -> dict:
-            return records.setdefault(team_id, {
-                "team_id": team_id,
-                "wins": 0,
-                "draws": 0,
-                "losses": 0,
-                "played": 0,
-                "goals_for": 0,
-                "goals_against": 0,
-                "goal_diff": 0,
-                "game_wins": 0,
-                "point_diff": 0,
-                "total_points": 0,
-            })
-
-        for m in by_bracket.get(bracket["id"], []):
-            home, away = m["home_team_id"], m["away_team_id"]
-            for tid in (home, away):
-                if tid:
-                    record(tid)
-            if m["status"] not in _TERMINAL_STATUSES or not home or not away:
-                continue
-
-            hgw = m.get("home_games_won") or 0
-            agw = m.get("away_games_won") or 0
-            hpt = m.get("home_points_total") or 0
-            apt = m.get("away_points_total") or 0
-            hs = m.get("home_score") or 0
-            as_ = m.get("away_score") or 0
-
-            if m["status"] == "double_forfeit":
-                for tid in (home, away):
-                    record(tid)["losses"] += 1
-                    record(tid)["played"] += 1
-            elif m["status"] == "draw":
-                for tid in (home, away):
-                    record(tid)["draws"] += 1
-                    record(tid)["played"] += 1
-            elif m["winner_id"] in (home, away):
-                loser = away if m["winner_id"] == home else home
-                record(m["winner_id"])["wins"] += 1
-                record(m["winner_id"])["played"] += 1
-                record(loser)["losses"] += 1
-                record(loser)["played"] += 1
-
-            record(home)["goals_for"] += hs
-            record(home)["goals_against"] += as_
-            record(home)["goal_diff"] += hs - as_
-            record(away)["goals_for"] += as_
-            record(away)["goals_against"] += hs
-            record(away)["goal_diff"] += as_ - hs
-            record(home)["game_wins"] += hgw
-            record(home)["point_diff"] += hpt - apt
-            record(home)["total_points"] += hpt
-            record(away)["game_wins"] += agw
-            record(away)["point_diff"] += apt - hpt
-            record(away)["total_points"] += apt
-
-        standings = sorted(
-            records.values(),
-            key=lambda r: (-r["wins"], -r["goal_diff"], -r["goals_for"], -r["game_wins"], -r["point_diff"], -r["total_points"]),
-        )
-        prev_key = None
-        for i, row in enumerate(standings):
-            key = (row["wins"], row["goal_diff"], row["goals_for"], row["game_wins"], row["point_diff"], row["total_points"])
-            row["rank"] = standings[i - 1]["rank"] if key == prev_key else i + 1
-            prev_key = key
-
+        records = _build_records(by_bracket.get(bracket["id"], []), is_pool_swiss=is_pool_swiss)
+        standings = _rank_standings(records, is_pool_swiss=is_pool_swiss)
         result.append({
             "bracket_id": bracket["id"],
             "name": bracket["name"],
@@ -566,3 +618,194 @@ def get_standings(sport_id: str):
         })
 
     return result
+
+
+@router.get("/{sport_id}/championship-standings")
+def get_championship_standings(sport_id: str):
+    """Tournament points standings for the Swiss championship bracket.
+
+    Returns a single standings list computed from all Championship bracket matches.
+    Only meaningful for pool_swiss sports (Cornhole).
+    Ranking: tournament_points desc â†’ goal_diff desc â†’ goals_for desc.
+    """
+    championship_bracket = (
+        supabase.table("brackets")
+        .select("id, name")
+        .eq("sport_id", sport_id)
+        .eq("phase", "bracket")
+        .eq("name", "Championship")
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not championship_bracket:
+        return {"bracket_id": None, "standings": [], "current_round": 0}
+
+    bracket_id = championship_bracket[0]["id"]
+    matches = (
+        supabase.table("matches")
+        .select(
+            "id, bracket_id, home_team_id, away_team_id, winner_id, status, match_round, "
+            "home_score, away_score, "
+            "home_games_won, away_games_won, home_points_total, away_points_total"
+        )
+        .eq("bracket_id", bracket_id)
+        .execute()
+        .data
+    )
+
+    current_round = max((m["match_round"] or 0 for m in matches), default=0)
+    records = _build_records(matches, is_pool_swiss=True)
+    standings = _rank_standings(records, is_pool_swiss=True)
+
+    return {
+        "bracket_id": bracket_id,
+        "standings": standings,
+        "current_round": current_round,
+    }
+
+
+@router.post("/{sport_id}/generate-swiss-round")
+def generate_swiss_round(sport_id: str, _=Depends(require_admin)):
+    """Generate the next Swiss championship round for a pool_swiss sport (Cornhole).
+
+    Round 1: automatically takes the rank-1 team from each pool and generates
+    pairings. A "Championship" bracket (phase='bracket') is created.
+
+    Rounds 2â€“N: reads current championship standings, pairs teams by standing
+    while avoiding rematches, increments match_round, and inserts new matches.
+    Matches are not scheduled (no scheduled_at) â€” admin times them manually.
+
+    Returns 422 if:
+    - Sport is not pool_swiss
+    - No pool play has been generated yet (Round 1 only)
+    - Not all matches in the current round are complete
+    """
+    from app.bracket_engine.swiss import generate_swiss_pairings
+
+    sport_row = supabase.table("sports").select("bracket_type").eq("id", sport_id).limit(1).execute()
+    if not sport_row.data:
+        raise HTTPException(status_code=404, detail="Sport not found")
+    if sport_row.data[0].get("bracket_type") != "pool_swiss":
+        raise HTTPException(status_code=422, detail="Swiss round generation is only supported for pool_swiss sports")
+
+    # Check for an existing Championship bracket
+    existing_bracket = (
+        supabase.table("brackets")
+        .select("id")
+        .eq("sport_id", sport_id)
+        .eq("phase", "bracket")
+        .eq("name", "Championship")
+        .limit(1)
+        .execute()
+        .data
+    )
+
+    if not existing_bracket:
+        # Round 1 â€” derive teams from pool standings (rank=1 per pool)
+        pool_brackets = (
+            supabase.table("brackets")
+            .select("id, name")
+            .eq("sport_id", sport_id)
+            .eq("phase", "pool")
+            .order("name")
+            .execute()
+            .data
+        )
+        if not pool_brackets:
+            raise HTTPException(status_code=422, detail="No pool play has been generated for this sport yet")
+
+        bracket_ids = [b["id"] for b in pool_brackets]
+        pool_matches = (
+            supabase.table("matches")
+            .select(
+                "bracket_id, home_team_id, away_team_id, winner_id, status, "
+                "home_score, away_score, home_games_won, away_games_won, home_points_total, away_points_total"
+            )
+            .in_("bracket_id", bracket_ids)
+            .execute()
+            .data
+        )
+
+        by_pool: dict[str, list[dict]] = {}
+        for m in pool_matches:
+            by_pool.setdefault(m["bracket_id"], []).append(m)
+
+        # Take rank-1 team from each pool, ordered by pool name
+        seeded_teams: list[str] = []
+        for bracket in pool_brackets:
+            pool_records = _build_records(by_pool.get(bracket["id"], []), is_pool_swiss=True)
+            pool_standings = _rank_standings(pool_records, is_pool_swiss=True)
+            winners = [row["team_id"] for row in pool_standings if row["rank"] == 1]
+            seeded_teams.extend(winners)
+
+        if len(seeded_teams) < 2:
+            raise HTTPException(status_code=422, detail="Need at least 2 pool winners to start the championship")
+
+        championship_bracket = supabase.table("brackets").insert({
+            "sport_id": sport_id,
+            "name": "Championship",
+            "phase": "bracket",
+        }).execute().data[0]
+        bracket_id = championship_bracket["id"]
+        next_round = 1
+        previous_matchups: set[frozenset] = set()
+        team_order = seeded_teams
+    else:
+        # Subsequent rounds â€” derive from championship standings
+        bracket_id = existing_bracket[0]["id"]
+        champ_matches = (
+            supabase.table("matches")
+            .select(
+                "id, home_team_id, away_team_id, winner_id, status, match_round, "
+                "home_score, away_score, home_games_won, away_games_won, home_points_total, away_points_total"
+            )
+            .eq("bracket_id", bracket_id)
+            .execute()
+            .data
+        )
+
+        current_round = max((m["match_round"] or 0 for m in champ_matches), default=0)
+
+        # All matches in the current round must be complete before generating the next
+        current_round_matches = [m for m in champ_matches if m["match_round"] == current_round]
+        incomplete = [m for m in current_round_matches if m["status"] not in _TERMINAL_STATUSES]
+        if incomplete:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Round {current_round} has {len(incomplete)} incomplete match(es). Complete them before generating the next round.",
+            )
+
+        # Build previous matchup set to avoid rematches
+        previous_matchups: set[frozenset] = set()
+        for m in champ_matches:
+            if m["home_team_id"] and m["away_team_id"]:
+                previous_matchups.add(frozenset([m["home_team_id"], m["away_team_id"]]))
+
+        # Sort teams by current championship standing
+        records = _build_records(champ_matches, is_pool_swiss=True)
+        standings = _rank_standings(records, is_pool_swiss=True)
+        team_order = [row["team_id"] for row in standings]
+        next_round = current_round + 1
+
+    pairings = generate_swiss_pairings(team_order, previous_matchups)
+    if not pairings:
+        raise HTTPException(status_code=422, detail="No valid pairings could be generated")
+
+    created = []
+    for home_id, away_id in pairings:
+        match = supabase.table("matches").insert({
+            "sport_id": sport_id,
+            "bracket_id": bracket_id,
+            "home_team_id": home_id,
+            "away_team_id": away_id,
+            "status": "scheduled",
+            "match_round": next_round,
+        }).execute().data[0]
+        created.append(match)
+
+    return {
+        "bracket_id": bracket_id,
+        "round": next_round,
+        "matches_created": len(created),
+    }

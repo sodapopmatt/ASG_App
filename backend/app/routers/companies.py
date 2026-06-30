@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+﻿from fastapi import APIRouter, Depends, HTTPException
 from app.database import supabase
 from app.auth import require_admin
 from app.schemas.company import Company, CompanyCreate, CompanyUpdate
@@ -6,7 +6,7 @@ from app.schemas.company import Company, CompanyCreate, CompanyUpdate
 router = APIRouter()
 
 
-@router.get("/", response_model=list[Company])
+@router.get("", response_model=list[Company])
 def list_companies():
     return supabase.table("companies").select("*").order("name").execute().data
 
@@ -19,7 +19,7 @@ def get_company(company_id: str):
     return response.data[0]
 
 
-@router.post("/", response_model=Company, status_code=201)
+@router.post("", response_model=Company, status_code=201)
 def create_company(body: CompanyCreate, _=Depends(require_admin)):
     return supabase.table("companies").insert(body.model_dump()).execute().data[0]
 

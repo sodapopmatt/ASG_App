@@ -19,6 +19,8 @@ export interface Sport {
   schedule_start: string | null
   schedule_end: string | null
   location_label: string
+  venue: string | null
+  assumed_courts_per_group: number | null
   created_at: string
 }
 

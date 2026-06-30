@@ -1,4 +1,4 @@
-from datetime import datetime
+﻿from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import Literal
@@ -36,7 +36,7 @@ class Alert(BaseModel):
 
 @router.get("/log", response_model=list[Alert])
 def list_alert_log():
-    """Public alert history — all alerts ordered newest first. Used by the notifications log page."""
+    """Public alert history â€” all alerts ordered newest first. Used by the notifications log page."""
     return (
         supabase.table("alerts")
         .select("*")
@@ -61,7 +61,7 @@ def list_active_alerts():
     return [r for r in rows if not r.get("expires_at") or r["expires_at"] > now_iso]
 
 
-@router.get("/", response_model=list[Alert])
+@router.get("", response_model=list[Alert])
 def list_alerts(_: UserProfile = Depends(require_admin)):
     return (
         supabase.table("alerts")
@@ -72,7 +72,7 @@ def list_alerts(_: UserProfile = Depends(require_admin)):
     )
 
 
-@router.post("/", response_model=Alert, status_code=201)
+@router.post("", response_model=Alert, status_code=201)
 def create_alert(body: AlertCreate, profile: UserProfile = Depends(require_admin)):
     payload = body.model_dump(mode="json")
     payload["created_by"] = profile.id

@@ -394,6 +394,7 @@ def persist_pools(
     clear_existing: bool = False,
     start_time: datetime | None = None,
     match_duration_minutes: int = 30,
+    assumed_courts_per_group: int = 0,
 ) -> dict:
     """Generate and save round-robin pool play for a sport.
 
@@ -415,7 +416,7 @@ def persist_pools(
 
     # Pass 1: generate all round-robin slots and create bracket rows
     all_pool_data: list[tuple[str, list, list[str]]] = []  # (bracket_id, slots, courts)
-    for pool_name, team_ids, pool_location_ids in pools:
+    for p_idx, (pool_name, team_ids, pool_location_ids) in enumerate(pools):
         slots = round_robin.generate_round_robin(team_ids)
         bracket = db.table("brackets").insert({
             "sport_id": sport_id,
@@ -423,7 +424,12 @@ def persist_pools(
             "phase": "pool",
         }).execute().data[0]
         bracket_ids_created.append(bracket["id"])
-        all_pool_data.append((bracket["id"], slots, list(pool_location_ids)))
+        # When no explicit courts are given but assumed_courts_per_group > 0, create
+        # virtual court IDs for scheduling math only (not written to match rows).
+        effective_courts = list(pool_location_ids)
+        if not effective_courts and assumed_courts_per_group > 0:
+            effective_courts = [f"__virt_{p_idx}_{c}" for c in range(assumed_courts_per_group)]
+        all_pool_data.append((bracket["id"], slots, effective_courts))
 
     # Pass 2+3: cohort-aware court assignment and scheduling.
     #
@@ -517,7 +523,7 @@ def persist_pools(
                 "away_slot_state": "tbd",
             }
             court = pool_assignments[pool_idx].get(slot_idx)
-            if court is not None:
+            if court is not None and not court.startswith("__virt_"):
                 row["location_id"] = court
             t = scheduled_at.get((pool_idx, slot_idx))
             if t is not None:

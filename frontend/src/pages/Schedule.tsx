@@ -244,20 +244,21 @@ function StatusBadge({ match }: { match: Match }) {
 }
 
 function MatchRow({
-  match, teamMap, companyMap, bracketType, multiTeamKeys,
+  match, teamMap, companyMap, bracketType, multiTeamKeys, venue,
 }: {
   match: Match
   teamMap: Record<string, Team>
   companyMap: Record<string, Company>
   bracketType?: string
   multiTeamKeys?: Set<string>
+  venue?: string | null
 }) {
   const home = compactLabel(match.home_team_id ?? null, teamMap, companyMap, undefined, multiTeamKeys)
   const away = compactLabel(match.away_team_id ?? null, teamMap, companyMap, undefined, multiTeamKeys)
   const effectiveTime = match.estimated_start ?? match.scheduled_at
   const time = effectiveTime ? formatTime(effectiveTime) : null
   const isSingleTeam = bracketType === 'heats'
-  const courtName = match.locations?.name
+  const courtName = match.locations?.name ?? venue ?? undefined
   const hasScore = match.home_score != null && match.away_score != null
 
   if (isSingleTeam) {
@@ -531,18 +532,35 @@ function SportCard({
               multiTeamKeys={multiTeamKeys}
             />
           ) : (
-            rounds.map(({ roundKey, matches: roundMatches }) => (
-              <div key={roundKey}>
-                <div className="px-4 py-1.5 bg-white border-t border-gray-100">
+            <>
+              {sport.venue && sport.bracket_type === 'pool_swiss' && (
+                <div className="px-4 py-1.5 border-t border-gray-100 bg-white">
                   <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                    {roundKey === 'unscheduled' ? 'Unscheduled' : `Round ${roundKey}`}
+                    {sport.venue}
                   </span>
                 </div>
-                {roundMatches.map(match => (
-                  <MatchRow key={match.id} match={match} teamMap={teamMap} companyMap={companyMap} bracketType={sport.bracket_type} multiTeamKeys={multiTeamKeys} />
-                ))}
-              </div>
-            ))
+              )}
+              {rounds.map(({ roundKey, matches: roundMatches }) => (
+                <div key={roundKey}>
+                  <div className="px-4 py-1.5 bg-white border-t border-gray-100">
+                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                      {roundKey === 'unscheduled' ? 'Unscheduled' : `Round ${roundKey}`}
+                    </span>
+                  </div>
+                  {roundMatches.map(match => (
+                    <MatchRow
+                      key={match.id}
+                      match={match}
+                      teamMap={teamMap}
+                      companyMap={companyMap}
+                      bracketType={sport.bracket_type}
+                      multiTeamKeys={multiTeamKeys}
+                      venue={sport.bracket_type === 'pool_swiss' ? undefined : sport.venue}
+                    />
+                  ))}
+                </div>
+              ))}
+            </>
           )}
         </div>
       )}

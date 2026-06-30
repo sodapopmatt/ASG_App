@@ -658,6 +658,8 @@ export default function SportConfigPage() {
   const [configDuration, setConfigDuration] = useState<number | null>(null)
   const [configStart, setConfigStart] = useState<string | null>(null)
   const [configError, setConfigError] = useState<string | null>(null)
+  const [configVenue, setConfigVenue] = useState<string | null>(null)
+  const [configAssumedCourts, setConfigAssumedCourts] = useState<number | null>(null)
 
   // Courts state
   const [newCourtName, setNewCourtName] = useState('')
@@ -740,11 +742,15 @@ export default function SportConfigPage() {
 
   const effectiveDuration = configDuration ?? sport?.match_duration_minutes ?? 30
   const effectiveStart = configStart ?? (sport?.schedule_start ? toDatetimeLocal(sport.schedule_start) : '')
+  const effectiveVenue = configVenue ?? sport?.venue ?? ''
+  const effectiveAssumedCourts = configAssumedCourts ?? sport?.assumed_courts_per_group ?? 1
 
   const configMutation = useMutation({
     mutationFn: () => updateSport(sportId!, {
       match_duration_minutes: effectiveDuration,
       schedule_start: effectiveStart ? new Date(effectiveStart).toISOString() : null,
+      venue: effectiveVenue.trim() || null,
+      assumed_courts_per_group: effectiveAssumedCourts > 0 ? effectiveAssumedCourts : null,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['sports'] })
@@ -778,11 +784,13 @@ export default function SportConfigPage() {
     onError: (e) => setCourtError(e instanceof Error ? e.message : 'Failed to remove court'),
   })
 
+
   const isHeats = sport?.bracket_type === 'heats'
   const isRandomized = sport?.bracket_type === 'double_elimination'
   const isElimination = sport?.bracket_type === 'single_elimination' || sport?.bracket_type === 'double_elimination'
   const isPool = sport?.bracket_type === 'pool_bracket' || sport?.bracket_type === 'pool_swiss'
   const isPoolBracket = sport?.bracket_type === 'pool_bracket'
+  const isPoolSwiss = sport?.bracket_type === 'pool_swiss'
 
   const alreadyGenerated = matches.length > 0
 
@@ -933,15 +941,20 @@ export default function SportConfigPage() {
   }))
   const splitValid = divisionSpecs.every(d => d.team_ids.length >= 2)
 
-  const genMutation = useMutation({
+const genMutation = useMutation({
     mutationFn: async () => {
       if (isHeats && effectiveNumHeats > 1) {
         await generateBracket(sportId!, [], false, undefined, undefined, heatSpecs)
-        await updateSport(sportId!, { points_scale: RELAY_RACE_SCALE })
+        if (sport?.name === 'Relay Race') {
+          await updateSport(sportId!, { points_scale: RELAY_RACE_SCALE })
+        }
         return
       }
       if (isPool) return generateBracket(sportId!, [], false, undefined, poolSpecs)
       if (splitEnabled) return generateBracket(sportId!, [], false, divisionSpecs)
+      // Flat heats (Human Pyramid): no seeding order needed — use live sportTeams so
+      // newly registered teams are always included, not just those present at page load.
+      if (isHeats) return generateBracket(sportId!, sportTeams.map(t => t.id), false)
       return isRandomized
         ? generateBracket(sportId!, sportTeams.map(t => t.id), false)
         : generateBracket(sportId!, seeds.map(t => t.id), false)
@@ -1122,6 +1135,28 @@ export default function SportConfigPage() {
             className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
           />
         </label>
+        <label className="space-y-1 block">
+          <span className="text-xs text-gray-400">Venue label (shown on schedule when no court assigned)</span>
+          <input
+            type="text"
+            placeholder='e.g. "Cornhole Area", "Soccer Fields"'
+            value={effectiveVenue}
+            onChange={e => setConfigVenue(e.target.value)}
+            className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+          />
+        </label>
+        {isPool && (
+          <label className="space-y-1 block">
+            <span className="text-xs text-gray-400">Assumed boards/courts per group (used for scheduling when no courts are assigned)</span>
+            <input
+              type="number"
+              min={1}
+              value={effectiveAssumedCourts}
+              onChange={e => setConfigAssumedCourts(Number(e.target.value))}
+              className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+            />
+          </label>
+        )}
         {configError && <p className="text-sm text-red-600">{configError}</p>}
         <button
           onClick={() => configMutation.mutate()}
@@ -1132,7 +1167,8 @@ export default function SportConfigPage() {
         </button>
       </CollapsibleSection>
 
-      {/* Courts */}
+      {/* Courts — hidden for pool_swiss (uses venue label + assumed boards instead) */}
+      {!isPoolSwiss && (
       <CollapsibleSection title={isHeats ? 'Location' : 'Courts'}>
         {isHeats ? (
           // Heats sports only ever need one location (e.g. "Track")
@@ -1220,6 +1256,7 @@ export default function SportConfigPage() {
           </>
         )}
       </CollapsibleSection>
+      )}
 
       {/* Generate / Setup */}
       <CollapsibleSection
@@ -1447,7 +1484,7 @@ export default function SportConfigPage() {
           </>
         )}
 
-        {canGenerate && !alreadyGenerated && (
+{canGenerate && !alreadyGenerated && (
           <>
             {genError && <p className="text-sm text-red-600">{genError}</p>}
             <button

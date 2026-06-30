@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+﻿from fastapi import APIRouter, Depends, HTTPException
 from app.database import supabase
 from app.auth import UserProfile, require_team_manager
 from app.schemas.roster_entry import RosterEntry, RosterEntryCreate
@@ -13,7 +13,7 @@ def _assert_team_access(team_id: str, profile: UserProfile):
             raise HTTPException(status_code=403, detail="Not authorized for this team")
 
 
-@router.get("/", response_model=list[RosterEntry])
+@router.get("", response_model=list[RosterEntry])
 def list_roster_entries(team_id: str):
     return (
         supabase.table("roster_entries")
@@ -25,7 +25,7 @@ def list_roster_entries(team_id: str):
     )
 
 
-@router.post("/", response_model=RosterEntry, status_code=201)
+@router.post("", response_model=RosterEntry, status_code=201)
 def add_roster_entry(body: RosterEntryCreate, profile: UserProfile = Depends(require_team_manager)):
     _assert_team_access(str(body.team_id), profile)
     return (

@@ -28,10 +28,12 @@ export interface HeatSpec {
 export interface TeamStanding {
   team_id: string
   wins: number
+  forfeit_wins: number
   draws: number
   losses: number
   played: number
   rank: number
+  tournament_points: number
   goals_for: number
   goals_against: number
   goal_diff: number
@@ -69,6 +71,21 @@ export function generateBracket(
 
 export const getStandings = (sportId: string) =>
   apiFetch<PoolStandings[]>(`/sports/${sportId}/standings`)
+
+export interface ChampionshipStandings {
+  bracket_id: string | null
+  standings: TeamStanding[]
+  current_round: number
+}
+
+export const getChampionshipStandings = (sportId: string) =>
+  apiFetch<ChampionshipStandings>(`/sports/${sportId}/championship-standings`)
+
+export const generateSwissRound = (sportId: string) =>
+  apiFetch<{ bracket_id: string; round: number; matches_created: number }>(
+    `/sports/${sportId}/generate-swiss-round`,
+    { method: 'POST' },
+  )
 
 export function updateSport(sportId: string, body: Partial<Sport>) {
   return apiFetch<Sport>(`/sports/${sportId}`, {

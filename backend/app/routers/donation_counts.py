@@ -1,4 +1,4 @@
-from datetime import datetime
+﻿from datetime import datetime
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -27,10 +27,10 @@ def _bucket_points(counts: list[int]) -> dict[int, int]:
     """Given the distinct sorted-desc item_counts in play, return {item_count: points}.
 
     Rules:
-      - Top distinct count bucket → 15 pts each
-      - Second distinct count bucket → 10 pts each
-      - Any remaining count ≥ 10 → 5 pts each
-      - Count < 10 → 0 pts
+      - Top distinct count bucket â†’ 15 pts each
+      - Second distinct count bucket â†’ 10 pts each
+      - Any remaining count â‰¥ 10 â†’ 5 pts each
+      - Count < 10 â†’ 0 pts
     """
     distinct = sorted({c for c in counts}, reverse=True)
     mapping: dict[int, int] = {}
@@ -105,7 +105,7 @@ def _ensure_donation_mode(sport_id: str) -> None:
         raise HTTPException(status_code=422, detail="Sport is not in donation_count scoring mode")
 
 
-@router.get("/", response_model=list[DonationCount])
+@router.get("", response_model=list[DonationCount])
 def list_donation_counts(sport_id: str | None = Query(None), company_id: str | None = Query(None)):
     q = supabase.table("donation_counts").select("*")
     if sport_id:
