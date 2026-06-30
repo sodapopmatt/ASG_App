@@ -8,7 +8,7 @@ import { getCompanies } from '../api/companies'
 import { getLocations } from '../api/locations'
 import { getBrackets } from '../api/brackets'
 import type { Match, Sport, Team, Company, Location, Bracket } from '../types'
-import { compactLabel, buildMultiTeamKeys } from '../lib/bracketHelpers'
+import { compactLabel, buildMultiTeamKeys, compareBracketNames } from '../lib/bracketHelpers'
 import { getSportIcon } from '../lib/sportIcons'
 
 type ViewMode = 'by_sport' | 'timeline'
@@ -376,7 +376,7 @@ function HeatsScheduleView({
   const sortedBrackets = useMemo(() => [...brackets].sort((a, b) => {
     const ao = HEATS_PHASE_ORDER[a.phase ?? ''] ?? 99
     const bo = HEATS_PHASE_ORDER[b.phase ?? ''] ?? 99
-    return ao !== bo ? ao - bo : a.name.localeCompare(b.name)
+    return ao !== bo ? ao - bo : compareBracketNames(a.name, b.name)
   }), [brackets])
 
   const bracketsByPhase = useMemo(() => {
@@ -479,6 +479,139 @@ function HeatsScheduleView({
   )
 }
 
+// ── Pool schedule view ───────────────────────────────────────────────────────
+
+function groupMatchesByRound(matches: Match[]): { roundKey: string; matches: Match[] }[] {
+  const byRound: Record<string, Match[]> = {}
+  for (const m of matches) {
+    const key = m.match_round != null ? String(m.match_round) : 'unscheduled'
+    ;(byRound[key] ??= []).push(m)
+  }
+  return Object.entries(byRound)
+    .sort(([a], [b]) => {
+      if (a === 'unscheduled') return 1
+      if (b === 'unscheduled') return -1
+      return Number(a) - Number(b)
+    })
+    .map(([roundKey, matches]) => ({ roundKey, matches }))
+}
+
+function PoolScheduleView({
+  sport,
+  matches,
+  teamMap,
+  companyMap,
+  multiTeamKeys,
+}: {
+  sport: Sport
+  matches: Match[]
+  teamMap: Record<string, Team>
+  companyMap: Record<string, Company>
+  multiTeamKeys: Set<string>
+}) {
+  const { data: brackets = [] } = useQuery<Bracket[]>({
+    queryKey: ['brackets', sport.id],
+    queryFn: () => getBrackets(sport.id),
+    refetchInterval: 10_000,
+  })
+
+  const sortedBrackets = useMemo(() =>
+    [...brackets].sort((a, b) => {
+      if (a.phase === 'pool' && b.phase !== 'pool') return -1
+      if (a.phase !== 'pool' && b.phase === 'pool') return 1
+      return compareBracketNames(a.name, b.name)
+    }),
+    [brackets]
+  )
+
+  const { bracketMatchMap, unassigned } = useMemo(() => {
+    const bracketMatchMap: Record<string, Match[]> = {}
+    const unassigned: Match[] = []
+    for (const m of matches) {
+      if (m.bracket_id) {
+        ;(bracketMatchMap[m.bracket_id] ??= []).push(m)
+      } else {
+        unassigned.push(m)
+      }
+    }
+    return { bracketMatchMap, unassigned }
+  }, [matches])
+
+  const venueHeader = sport.venue ? (
+    <div className="px-4 py-1.5 border-t border-gray-100 bg-white">
+      <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{sport.venue}</span>
+    </div>
+  ) : null
+
+  if (sortedBrackets.length === 0) {
+    return (
+      <>
+        {venueHeader}
+        {groupMatchesByRound(matches).map(({ roundKey, matches: roundMatches }) => (
+          <div key={roundKey}>
+            <div className="px-4 py-1.5 bg-white border-t border-gray-100">
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                {roundKey === 'unscheduled' ? 'Unscheduled' : `Round ${roundKey}`}
+              </span>
+            </div>
+            {roundMatches.map(match => (
+              <MatchRow key={match.id} match={match} teamMap={teamMap} companyMap={companyMap} bracketType={sport.bracket_type} multiTeamKeys={multiTeamKeys} />
+            ))}
+          </div>
+        ))}
+      </>
+    )
+  }
+
+  return (
+    <>
+      {venueHeader}
+      {sortedBrackets.map(bracket => {
+        const bracketMatches = bracketMatchMap[bracket.id] ?? []
+        if (bracketMatches.length === 0) return null
+        const rounds = groupMatchesByRound(bracketMatches)
+        const label = bracket.phase === 'bracket' ? 'Bracket Phase' : bracket.name
+
+        return (
+          <div key={bracket.id}>
+            <div className="px-4 py-2 border-t-2 border-slate-200 bg-slate-100 flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                {label}
+              </span>
+            </div>
+            {rounds.map(({ roundKey, matches: roundMatches }) => (
+              <div key={roundKey}>
+                <div className="px-4 py-1 bg-white border-t border-gray-100">
+                  <span className="text-xs text-gray-400">
+                    {roundKey === 'unscheduled' ? 'Unscheduled' : `Round ${roundKey}`}
+                  </span>
+                </div>
+                {roundMatches.map(match => (
+                  <MatchRow key={match.id} match={match} teamMap={teamMap} companyMap={companyMap} bracketType={sport.bracket_type} multiTeamKeys={multiTeamKeys} />
+                ))}
+              </div>
+            ))}
+          </div>
+        )
+      })}
+      {unassigned.length > 0 && (
+        <div>
+          <div className="px-4 py-2 border-t-2 border-slate-200 bg-slate-100">
+            <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Bracket Phase</span>
+          </div>
+          {groupMatchesByRound(unassigned).map(({ roundKey, matches: roundMatches }) => (
+            <div key={roundKey}>
+              {roundMatches.map(match => (
+                <MatchRow key={match.id} match={match} teamMap={teamMap} companyMap={companyMap} bracketType={sport.bracket_type} multiTeamKeys={multiTeamKeys} />
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  )
+}
+
 // ── By Sport view ────────────────────────────────────────────────────────────
 
 function SportCard({
@@ -531,15 +664,16 @@ function SportCard({
               companyMap={companyMap}
               multiTeamKeys={multiTeamKeys}
             />
+          ) : sport.bracket_type === 'pool_swiss' || sport.bracket_type === 'pool_bracket' ? (
+            <PoolScheduleView
+              sport={sport}
+              matches={rounds.flatMap(r => r.matches)}
+              teamMap={teamMap}
+              companyMap={companyMap}
+              multiTeamKeys={multiTeamKeys}
+            />
           ) : (
             <>
-              {sport.venue && sport.bracket_type === 'pool_swiss' && (
-                <div className="px-4 py-1.5 border-t border-gray-100 bg-white">
-                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                    {sport.venue}
-                  </span>
-                </div>
-              )}
               {rounds.map(({ roundKey, matches: roundMatches }) => (
                 <div key={roundKey}>
                   <div className="px-4 py-1.5 bg-white border-t border-gray-100">
@@ -555,7 +689,7 @@ function SportCard({
                       companyMap={companyMap}
                       bracketType={sport.bracket_type}
                       multiTeamKeys={multiTeamKeys}
-                      venue={sport.bracket_type === 'pool_swiss' ? undefined : sport.venue}
+                      venue={sport.venue}
                     />
                   ))}
                 </div>

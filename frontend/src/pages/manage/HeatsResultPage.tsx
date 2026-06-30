@@ -8,6 +8,7 @@ import { getCompanies } from '../../api/companies'
 import { getMatches, submitHeatResult } from '../../api/matches'
 import { getBrackets } from '../../api/brackets'
 import type { Match, Team, Company, Sport, Bracket } from '../../types'
+import { compareBracketNames } from '../../lib/bracketHelpers'
 
 // ── constants ─────────────────────────────────────────────────────────────────
 
@@ -428,7 +429,7 @@ export default function HeatsResultPage() {
     const ao = PHASE_CONFIG[a.phase ?? '']?.order ?? 99
     const bo = PHASE_CONFIG[b.phase ?? '']?.order ?? 99
     if (ao !== bo) return ao - bo
-    return a.name.localeCompare(b.name)
+    return compareBracketNames(a.name, b.name)
   }), [brackets])
 
   const bracketsByPhase = useMemo(() => {

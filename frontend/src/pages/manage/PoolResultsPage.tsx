@@ -10,7 +10,7 @@ import { getCompanies } from '../../api/companies'
 import { getBrackets } from '../../api/brackets'
 import type { Match, Team, Company, Bracket } from '../../types'
 import MatchResultModal from '../../components/MatchResultModal'
-import { buildMultiTeamKeys, compactLabel } from '../../lib/bracketHelpers'
+import { buildMultiTeamKeys, compactLabel, compareBracketNames } from '../../lib/bracketHelpers'
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [String(item[key]), item]))
@@ -289,7 +289,7 @@ export default function PoolResultsPage() {
   )
 
   const pools: Bracket[] = useMemo(
-    () => (bracketsQuery.data ?? []).filter(b => b.phase === 'pool'),
+    () => (bracketsQuery.data ?? []).filter(b => b.phase === 'pool').sort((a, b) => compareBracketNames(a.name, b.name)),
     [bracketsQuery.data],
   )
 

@@ -9,6 +9,7 @@ import { getBrackets } from '../../api/brackets'
 import { getEventPoints, awardPlacement } from '../../api/event_points'
 import { getSportIcon } from '../../lib/sportIcons'
 import type { Sport, Company, EventPoints, Match, Bracket, Team } from '../../types'
+import { compareBracketNames } from '../../lib/bracketHelpers'
 
 // ── Relay Race scoring ────────────────────────────────────────────────────────
 
@@ -62,7 +63,7 @@ function computeRelayPlacements(
   const sortedBrackets = [...brackets].sort((a, b) => {
     const ao = phaseOrder[a.phase ?? ''] ?? 99
     const bo = phaseOrder[b.phase ?? ''] ?? 99
-    return ao !== bo ? ao - bo : a.name.localeCompare(b.name)
+    return ao !== bo ? ao - bo : compareBracketNames(a.name, b.name)
   })
 
   const tiers: { teamId: string; tier: number; heatRank: number | null; phase: string; forfeited: boolean }[] = []

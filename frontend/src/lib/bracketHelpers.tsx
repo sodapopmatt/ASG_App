@@ -7,6 +7,13 @@ import { createTheme } from '@g-loot/react-tournament-brackets'
 import type { MatchType } from '@g-loot/react-tournament-brackets'
 import type { Match, Team, Company } from '../types'
 
+// Sorts bracket/pool names correctly when names exceed Z (Excel-style: A…Z, AA, AB…).
+// Plain localeCompare puts AA before B; length-first fixes that.
+export function compareBracketNames(a: string, b: string): number {
+  if (a.length !== b.length) return a.length - b.length
+  return a.localeCompare(b)
+}
+
 export function buildMultiTeamKeys(teamMap: Record<string, Team>): Set<string> {
   const counts: Record<string, number> = {}
   for (const t of Object.values(teamMap)) {

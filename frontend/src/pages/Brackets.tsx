@@ -16,7 +16,7 @@ import { getCompanies } from '../api/companies'
 import { getBrackets } from '../api/brackets'
 import { getDonationCounts } from '../api/donation_counts'
 import type { Match, Team, Company, Sport, Bracket, DonationCount } from '../types'
-import { toLibraryMatch, stableSortMatches, lightTheme, bracketOptions, BracketSvgWrapper, compactLabel, buildMultiTeamKeys } from '../lib/bracketHelpers'
+import { toLibraryMatch, stableSortMatches, lightTheme, bracketOptions, BracketSvgWrapper, compactLabel, buildMultiTeamKeys, compareBracketNames } from '../lib/bracketHelpers'
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [item[key], item]))
@@ -198,7 +198,7 @@ function HeatsStandingsView({
     const ao = HEAT_PHASE_ORDER[a.phase ?? ''] ?? 99
     const bo = HEAT_PHASE_ORDER[b.phase ?? ''] ?? 99
     if (ao !== bo) return ao - bo
-    return a.name.localeCompare(b.name)
+    return compareBracketNames(a.name, b.name)
   }), [brackets])
 
   const bracketsByPhase = useMemo(() => {
@@ -285,7 +285,10 @@ function PoolPlayView({
     queryFn: () => getStandings(sportId),
     refetchInterval: 5000,
   })
-  const standings = standingsQuery.data ?? []
+  const standings = useMemo(
+    () => [...(standingsQuery.data ?? [])].sort((a, b) => compareBracketNames(a.name, b.name)),
+    [standingsQuery.data],
+  )
 
   const poolBracketIds = useMemo(
     () => new Set(brackets.filter(b => b.phase === 'pool').map(b => b.id)),
