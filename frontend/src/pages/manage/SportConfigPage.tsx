@@ -12,7 +12,16 @@ import type { Match, Team, Company, Location as LocationRow } from '../../types'
 
 const GENERATABLE = new Set(['single_elimination', 'double_elimination', 'heats', 'pool_bracket', 'pool_swiss'])
 
-const poolName = (i: number) => `Pool ${String.fromCharCode(65 + i)}`
+const poolLabel = (i: number): string => {
+  let label = ''
+  let n = i
+  do {
+    label = String.fromCharCode(65 + (n % 26)) + label
+    n = Math.floor(n / 26) - 1
+  } while (n >= 0)
+  return label
+}
+const poolName = (i: number) => `Pool ${poolLabel(i)}`
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [String(item[key]), item]))
