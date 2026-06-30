@@ -7,7 +7,7 @@ import type { Sport } from '../types'
 const BRACKET_TYPE_LABELS: Record<string, string> = {
   single_elimination: 'Single Elimination',
   double_elimination: 'Double Elimination',
-  pool_bracket: 'Pool + Bracket',
+  pool_bracket: 'Pool + Single Elimination',
   pool_swiss: 'Pool (Swiss)',
   heats: 'Heats',
   points_based: 'Points Based',

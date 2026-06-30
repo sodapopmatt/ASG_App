@@ -9,7 +9,7 @@ import { getSportIcon } from '../../lib/sportIcons'
 const BRACKET_LABELS: Record<string, string> = {
   single_elimination: 'Single elim',
   double_elimination: 'Double elim',
-  pool_bracket: 'Pool + bracket',
+  pool_bracket: 'Pool + Single Elimination',
   pool_swiss: 'Pool + Swiss',
   heats: 'Heats',
   points_based: 'Points based',
