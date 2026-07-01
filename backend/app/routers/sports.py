@@ -27,6 +27,16 @@ class HeatSpec(BaseModel):
     scheduled_at: str | None = None  # ISO timestamp; if omitted, derived from schedule_start
 
 
+class SeedOrderRequest(BaseModel):
+    team_ids: list[str]  # ordered â€” index 0 is the top seed
+
+
+class PoolSetupRequest(BaseModel):
+    pool_count: int | None = None
+    team_pool: dict[str, int] = {}   # team_id -> pool index override (-2 = unassigned)
+    court_pool: dict[str, int] = {}  # location_id -> pool index override (-1 = shared)
+
+
 class GenerateBracketRequest(BaseModel):
     team_ids: list[str] = []  # ordered by seed â€” index 0 is the top seed
     clear_existing: bool = False
@@ -80,6 +90,27 @@ def reset_brackets(sport_id: str, _=Depends(require_admin)):
     clear_brackets(sport_id, supabase)
     if sport.data[0].get("bracket_type") == "heats":
         supabase.table("event_points").delete().eq("sport_id", sport_id).execute()
+
+
+@router.put("/{sport_id}/seed-order", status_code=204)
+def set_seed_order(sport_id: str, body: SeedOrderRequest, _=Depends(require_admin)):
+    """Persist a full seed order in one request (one auth check, sequential writes)
+    instead of one PATCH per team from the client — avoids a burst of concurrent
+    requests against Supabase when reordering a large team list."""
+    for i, team_id in enumerate(body.team_ids):
+        supabase.table("teams").update({"seed": i}).eq("id", team_id).eq("sport_id", sport_id).execute()
+
+
+@router.put("/{sport_id}/pool-setup", status_code=204)
+def set_pool_setup(sport_id: str, body: PoolSetupRequest, _=Depends(require_admin)):
+    """Persist pool count + team/court pool overrides in one request, same
+    concurrency rationale as set_seed_order."""
+    if body.pool_count is not None:
+        supabase.table("sports").update({"pool_count": body.pool_count}).eq("id", sport_id).execute()
+    for team_id, idx in body.team_pool.items():
+        supabase.table("teams").update({"pool_index": idx}).eq("id", team_id).eq("sport_id", sport_id).execute()
+    for loc_id, idx in body.court_pool.items():
+        supabase.table("locations").update({"pool_index": idx}).eq("id", loc_id).eq("sport_id", sport_id).execute()
 
 
 @router.post("/{sport_id}/generate-bracket")

@@ -2,9 +2,9 @@
 import { useParams, Navigate } from 'react-router-dom'
 import BackLink from '../../components/BackLink'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getSports, generateBracket, resetBrackets, updateSport, getStandings, type DivisionSpec, type PoolSpec, type HeatSpec } from '../../api/sports'
+import { getSports, generateBracket, resetBrackets, updateSport, setSeedOrder, setPoolSetup, getStandings, type DivisionSpec, type PoolSpec, type HeatSpec } from '../../api/sports'
 import { getMatches, patchMatch } from '../../api/matches'
-import { getTeams, updateTeam } from '../../api/teams'
+import { getTeams } from '../../api/teams'
 import { getCompanies } from '../../api/companies'
 import { getLocations, createLocation, deleteLocation, updateLocation } from '../../api/locations'
 import { getBrackets } from '../../api/brackets'
@@ -257,6 +257,36 @@ function DivToggle({
         </button>
       ))}
     </div>
+  )
+}
+
+function SeedPositionInput({
+  position,
+  max,
+  onCommit,
+}: {
+  position: number // 1-based
+  max: number
+  onCommit: (position: number) => void
+}) {
+  const [draft, setDraft] = useState(String(position))
+  useEffect(() => setDraft(String(position)), [position])
+  return (
+    <input
+      type="number"
+      inputMode="numeric"
+      min={1}
+      max={max}
+      value={draft}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={() => {
+        const n = Number(draft)
+        if (n) onCommit(n)
+        else setDraft(String(position))
+      }}
+      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+      className="w-11 text-xs font-bold text-gray-600 text-center border border-gray-200 rounded-md px-1 py-1 shrink-0"
+    />
   )
 }
 
@@ -680,6 +710,9 @@ export default function SportConfigPage() {
   // Generate bracket state
   const [seeds, setSeeds] = useState<Team[]>([])
   const [seedsInit, setSeedsInit] = useState(false)
+  const [seedsDirty, setSeedsDirty] = useState(false)
+  const [seedSaving, setSeedSaving] = useState(false)
+  const [seedSavedFeedback, setSeedSavedFeedback] = useState(false)
   const [seedSaveError, setSeedSaveError] = useState<string | null>(null)
   const [genError, setGenError] = useState<string | null>(null)
   const [numHeats, setNumHeats] = useState(1)
@@ -710,15 +743,9 @@ export default function SportConfigPage() {
     setGroupsSaveError(null)
     setGroupsSaving(true)
     try {
-      if (poolCount != null) await updateSport(sportId, { pool_count: poolCount })
-      // Sequential, not Promise.all — firing every update at once overwhelms Supabase
-      // under larger groupings and surfaces as opaque "Failed to fetch" errors.
-      for (const [teamId, idx] of Object.entries(teamPool)) {
-        await updateTeam(teamId, { pool_index: idx })
-      }
-      for (const [locId, idx] of Object.entries(courtPool)) {
-        await updateLocation(locId, { pool_index: idx })
-      }
+      // One request for the whole group setup — avoids firing a burst of
+      // concurrent PATCH requests (each with its own auth check) at Supabase.
+      await setPoolSetup(sportId, { pool_count: poolCount, team_pool: teamPool, court_pool: courtPool })
       qc.invalidateQueries({ queryKey: ['teams'] })
       qc.invalidateQueries({ queryKey: ['locations', sportId] })
       qc.invalidateQueries({ queryKey: ['sports'] })
@@ -831,7 +858,6 @@ export default function SportConfigPage() {
 
 
   const isHeats = sport?.bracket_type === 'heats'
-  const isRandomized = sport?.bracket_type === 'double_elimination'
   const isElimination = sport?.bracket_type === 'single_elimination' || sport?.bracket_type === 'double_elimination'
   const isPool = sport?.bracket_type === 'pool_bracket' || sport?.bracket_type === 'pool_swiss'
   const isPoolBracket = sport?.bracket_type === 'pool_bracket'
@@ -967,7 +993,7 @@ export default function SportConfigPage() {
   // Division assignment with sensible defaults: teams alternate (keeps the top
   // seeds apart), courts split first half / second half (courts at the same
   // venue are usually created together).
-  const orderedTeams = isRandomized ? sportTeams : seeds
+  const orderedTeams = seeds
   const teamDivOf = (teamId: string): 0 | 1 => {
     if (teamDiv[teamId] !== undefined) return teamDiv[teamId]
     const idx = orderedTeams.findIndex(t => t.id === teamId)
@@ -1000,9 +1026,7 @@ const genMutation = useMutation({
       // Flat heats (Human Pyramid): no seeding order needed — use live sportTeams so
       // newly registered teams are always included, not just those present at page load.
       if (isHeats) return generateBracket(sportId!, sportTeams.map(t => t.id), false)
-      return isRandomized
-        ? generateBracket(sportId!, sportTeams.map(t => t.id), false)
-        : generateBracket(sportId!, seeds.map(t => t.id), false)
+      return generateBracket(sportId!, seeds.map(t => t.id), false)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['matches'] })
@@ -1078,21 +1102,52 @@ const genMutation = useMutation({
     }
   }
 
-  // Persists the full seed order (not just the swapped pair) on every move, so
-  // it's durable on the backend immediately — no separate "save" step to forget,
-  // and no risk of some teams keeping a stale/null seed after a partial save.
-  async function move(idx: number, dir: -1 | 1) {
+  // Rearranging is purely local state — no network call per move. This avoids
+  // firing a request every time you nudge a team while still deciding on an
+  // order, and means a network blip mid-edit can't corrupt anything. Nothing
+  // is durable until "Save Seed Order" is clicked (below), matching the
+  // existing "Save Groups" pattern for pool setup.
+  function reorderSeeds(next: Team[]) {
+    setSeeds(next)
+    setSeedsDirty(true)
+  }
+
+  function move(idx: number, dir: -1 | 1) {
     const next = [...seeds]
     const swap = idx + dir
     if (swap < 0 || swap >= next.length) return
     ;[next[idx], next[swap]] = [next[swap], next[idx]]
-    setSeeds(next)
+    reorderSeeds(next)
+  }
+
+  // Jump a team directly to a 1-based seed position, so reordering a long list
+  // doesn't require clicking an arrow repeatedly.
+  function moveTeamToPosition(teamId: string, position: number) {
+    if (!Number.isFinite(position)) return
+    const from = seeds.findIndex(t => t.id === teamId)
+    if (from < 0) return
+    const to = Math.min(Math.max(Math.trunc(position) - 1, 0), seeds.length - 1)
+    if (to === from) return
+    const next = [...seeds]
+    const [team] = next.splice(from, 1)
+    next.splice(to, 0, team)
+    reorderSeeds(next)
+  }
+
+  async function saveSeedOrder() {
+    if (!sportId) return
     setSeedSaveError(null)
+    setSeedSaving(true)
     try {
-      await Promise.all(next.map((t, i) => updateTeam(t.id, { seed: i })))
+      await setSeedOrder(sportId, seeds.map(t => t.id))
       qc.invalidateQueries({ queryKey: ['teams'] })
+      setSeedsDirty(false)
+      setSeedSavedFeedback(true)
+      setTimeout(() => setSeedSavedFeedback(false), 2000)
     } catch (e) {
       setSeedSaveError(e instanceof Error ? e.message : 'Failed to save seed order')
+    } finally {
+      setSeedSaving(false)
     }
   }
 
@@ -1415,15 +1470,6 @@ const genMutation = useMutation({
           </div>
         ) : (
           <>
-            {isRandomized && (
-              <p className="text-sm text-slate-500 italic">
-                {sport.name} matchups are randomized automatically.
-                {locations.length > 0
-                  ? ` Matches will be distributed across ${locations.length} court${locations.length !== 1 ? 's' : ''}.`
-                  : ' Add courts above to enable court assignment and scheduling.'}
-              </p>
-            )}
-
             {isElimination && sportTeams.length >= 4 && (
               <label className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2.5 border border-gray-200 cursor-pointer">
                 <input
@@ -1459,10 +1505,15 @@ const genMutation = useMutation({
                 </div>
 
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Teams</p>
+                {seedSaveError && <p className="text-sm text-red-600">{seedSaveError}</p>}
                 <div className="space-y-1">
                   {orderedTeams.map((team, idx) => (
                     <div key={team.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
-                      {!isRandomized && <span className="text-xs font-bold text-gray-400 w-5 text-center">{idx + 1}</span>}
+                      <SeedPositionInput
+                        position={idx + 1}
+                        max={seeds.length}
+                        onCommit={p => moveTeamToPosition(team.id, p)}
+                      />
                       <span className="flex-1 text-sm text-slate-700 truncate min-w-0">
                         {companyMap[team.company_id]?.name ?? '—'}
                         {team.name && <span className="text-gray-400"> · {team.name}</span>}
@@ -1472,15 +1523,20 @@ const genMutation = useMutation({
                         names={divNames}
                         onChange={v => setTeamDiv(prev => ({ ...prev, [team.id]: v }))}
                       />
-                      {!isRandomized && (
-                        <div className="flex gap-0.5">
-                          <button onClick={() => move(idx, -1)} disabled={idx === 0} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><UpIcon /></button>
-                          <button onClick={() => move(idx, 1)} disabled={idx === seeds.length - 1} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><DownIcon /></button>
-                        </div>
-                      )}
+                      <div className="flex gap-0.5">
+                        <button onClick={() => move(idx, -1)} disabled={idx === 0} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><UpIcon /></button>
+                        <button onClick={() => move(idx, 1)} disabled={idx === seeds.length - 1} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><DownIcon /></button>
+                      </div>
                     </div>
                   ))}
                 </div>
+                <button
+                  onClick={saveSeedOrder}
+                  disabled={seedSaving || !seedsDirty}
+                  className="w-full py-2 rounded-lg border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {seedSaving ? 'Saving…' : seedSavedFeedback ? 'Seed order saved ✓' : seedsDirty ? 'Save Seed Order' : 'Seed order saved'}
+                </button>
 
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Courts</p>
                 {locations.length === 0 ? (
@@ -1506,14 +1562,18 @@ const genMutation = useMutation({
                   </p>
                 )}
               </div>
-            ) : !isRandomized ? (
+            ) : (
               <>
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Seed order</p>
                 {seedSaveError && <p className="text-sm text-red-600">{seedSaveError}</p>}
                 <div className="space-y-1">
                   {seeds.map((team, idx) => (
                     <div key={team.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
-                      <span className="text-xs font-bold text-gray-400 w-5 text-center">{idx + 1}</span>
+                      <SeedPositionInput
+                        position={idx + 1}
+                        max={seeds.length}
+                        onCommit={p => moveTeamToPosition(team.id, p)}
+                      />
                       <span className="flex-1 text-sm text-slate-700">
                         {companyMap[team.company_id]?.name ?? '—'}
                         {team.name && <span className="text-gray-400"> · {team.name}</span>}
@@ -1525,8 +1585,15 @@ const genMutation = useMutation({
                     </div>
                   ))}
                 </div>
+                <button
+                  onClick={saveSeedOrder}
+                  disabled={seedSaving || !seedsDirty}
+                  className="w-full py-2 rounded-lg border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {seedSaving ? 'Saving…' : seedSavedFeedback ? 'Seed order saved ✓' : seedsDirty ? 'Save Seed Order' : 'Seed order saved'}
+                </button>
               </>
-            ) : null}
+            )}
           </>
         )}
 

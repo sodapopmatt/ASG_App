@@ -94,3 +94,24 @@ export function updateSport(sportId: string, body: Partial<Sport>) {
     body: JSON.stringify(body),
   })
 }
+
+// Persists a full seed order in one request instead of one PATCH per team,
+// avoiding a burst of concurrent requests when reordering a large team list.
+export function setSeedOrder(sportId: string, teamIds: string[]) {
+  return apiFetch<void>(`/sports/${sportId}/seed-order`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ team_ids: teamIds }),
+  })
+}
+
+export function setPoolSetup(
+  sportId: string,
+  body: { pool_count?: number | null; team_pool?: Record<string, number>; court_pool?: Record<string, number> },
+) {
+  return apiFetch<void>(`/sports/${sportId}/pool-setup`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
