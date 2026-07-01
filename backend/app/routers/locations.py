@@ -19,11 +19,13 @@ class Location(BaseModel):
     sport_id: UUID
     name: str
     court_number: int | None = None
+    pool_index: int | None = None  # manual pool-assignment override; -1 = shared across all pools
 
 
 class LocationUpdate(BaseModel):
     court_number: int | None = None  # For regular sports â€” re-derives name
     name: str | None = None           # For donation sports free-text
+    pool_index: int | None = None     # manual pool-assignment override; -1 = shared across all pools
 
 
 def _derive_name(label: str, court_number: int) -> str:
@@ -39,7 +41,7 @@ def _get_sport_label(sport_id: str) -> str:
 
 @router.get("", response_model=list[Location])
 def list_locations(sport_id: str | None = Query(None)):
-    q = supabase.table("locations").select("id, sport_id, name, court_number").order("court_number", nullsfirst=False)
+    q = supabase.table("locations").select("id, sport_id, name, court_number, pool_index").order("court_number", nullsfirst=False)
     if sport_id:
         q = q.eq("sport_id", sport_id)
     return q.execute().data
@@ -82,8 +84,11 @@ def update_location(location_id: str, body: LocationUpdate, _=Depends(require_ad
     elif body.name is not None:
         updates["name"] = body.name
 
+    if body.pool_index is not None:
+        updates["pool_index"] = body.pool_index
+
     if not updates:
-        raise HTTPException(status_code=422, detail="Provide either court_number or name")
+        raise HTTPException(status_code=422, detail="Provide either court_number, name, or pool_index")
 
     try:
         result = (

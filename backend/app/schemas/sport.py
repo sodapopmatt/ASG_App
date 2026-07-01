@@ -31,6 +31,7 @@ class SportCreate(BaseModel):
     location_label: str = "Court"
     venue: Optional[str] = None
     assumed_courts_per_group: Optional[int] = None
+    pool_count: Optional[int] = None
 
 
 class SportUpdate(BaseModel):
@@ -47,6 +48,7 @@ class SportUpdate(BaseModel):
     location_label: str | None = None
     venue: str | None = None
     assumed_courts_per_group: int | None = None
+    pool_count: int | None = None
 
 
 class Sport(SportCreate):

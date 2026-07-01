@@ -6,7 +6,6 @@ and auto-completes any bye slots.
 """
 
 import math
-import random
 from datetime import datetime, timedelta
 
 from supabase import Client
@@ -33,17 +32,18 @@ def _fetch_company_map(team_ids: list[str], db: Client) -> dict[str, str]:
     return {r["id"]: r["company_id"] for r in rows.data}
 
 
-def _shuffle_avoiding_same_company(
+def _resolve_same_company_conflicts(
     team_ids: list[str],
     company_map: dict[str, str],
 ) -> list[str]:
-    """Shuffle teams randomly, then resolve same-company first-round pairs.
+    """Apply standard seed positions to team_ids, then resolve same-company
+    first-round pairs with minimal swaps. Deterministic: the same team_ids
+    order always produces the same bracket.
 
     After each swap the scan restarts from the beginning so that swaps never
     silently introduce new conflicts earlier in the bracket.
     """
     teams = list(team_ids)
-    random.shuffle(teams)
 
     n = len(teams)
     size = _next_power_of_2(n)
@@ -247,9 +247,10 @@ def persist_bracket(
         bracket_type_override: Generate this bracket type regardless of the sport's
                                own bracket_type — used for the bracket phase of
                                pool_bracket sports (single elimination after pools).
-        shuffle:               If False, keep team_ids exactly as given (no random
-                               shuffle / same-company swap). Used when seeding comes
-                               from pool standings and must be preserved.
+        shuffle:               If False, keep team_ids exactly as given (no
+                               same-company conflict resolution). Used when
+                               seeding comes from pool standings and must be
+                               preserved exactly.
 
     Returns:
         Summary dict with bracket_ids, match_count, final_match_id (the root
@@ -272,7 +273,7 @@ def persist_bracket(
 
     if shuffle:
         company_map = _fetch_company_map(team_ids, db)
-        team_ids = _shuffle_avoiding_same_company(team_ids, company_map)
+        team_ids = _resolve_same_company_conflicts(team_ids, company_map)
 
     slots: list[MatchSlot] = generator(team_ids)
 

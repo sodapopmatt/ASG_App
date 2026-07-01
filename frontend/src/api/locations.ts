@@ -23,7 +23,7 @@ export function deleteLocation(locationId: string): Promise<void> {
 
 export function updateLocation(
   locationId: string,
-  update: { court_number: number } | string,
+  update: { court_number: number } | { pool_index: number } | string,
 ): Promise<Location> {
   const body = typeof update === 'string' ? { name: update } : update
   return apiFetch<Location>(`/locations/${locationId}`, {

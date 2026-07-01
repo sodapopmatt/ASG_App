@@ -1,5 +1,6 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from app.routers import (
     companies,
     sports,
@@ -24,6 +25,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(Exception)
+def unhandled_exception_handler(request: Request, exc: Exception):
+    # Registering this handler keeps the response inside CORSMiddleware's scope,
+    # so the browser sees a real 500 + message instead of an opaque CORS/network failure.
+    return JSONResponse(status_code=500, content={"detail": f"Internal server error: {exc}"})
+
 
 app.include_router(companies.router,    prefix="/companies",    tags=["companies"])
 app.include_router(sports.router,       prefix="/sports",       tags=["sports"])

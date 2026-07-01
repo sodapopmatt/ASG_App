@@ -11,8 +11,12 @@ class TeamCreate(BaseModel):
 
 class TeamUpdate(BaseModel):
     name: str | None = None
+    seed: int | None = None        # bracket seed rank, 0 = top seed
+    pool_index: int | None = None  # manual pool-assignment override; -2 = unassigned
 
 
 class Team(TeamCreate):
     id: UUID
     created_at: datetime
+    seed: int | None = None
+    pool_index: int | None = None

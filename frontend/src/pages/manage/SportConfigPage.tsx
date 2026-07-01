@@ -4,7 +4,7 @@ import BackLink from '../../components/BackLink'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getSports, generateBracket, resetBrackets, updateSport, getStandings, type DivisionSpec, type PoolSpec, type HeatSpec } from '../../api/sports'
 import { getMatches, patchMatch } from '../../api/matches'
-import { getTeams } from '../../api/teams'
+import { getTeams, updateTeam } from '../../api/teams'
 import { getCompanies } from '../../api/companies'
 import { getLocations, createLocation, deleteLocation, updateLocation } from '../../api/locations'
 import { getBrackets } from '../../api/brackets'
@@ -351,10 +351,10 @@ function PoolBucketRow({
     : []
 
   return (
-    <div className="rounded-xl border border-gray-200 overflow-hidden">
+    <div className="rounded-xl border border-gray-200">
       <button
         onClick={onToggle}
-        className="w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 text-left hover:bg-gray-100 transition-colors"
+        className={`w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 text-left hover:bg-gray-100 transition-colors rounded-t-xl ${!isOpen ? 'rounded-b-xl' : ''}`}
       >
         <span className="text-sm font-semibold text-slate-800">{poolName(poolIndex)}</span>
         <div className="flex items-center gap-2">
@@ -680,6 +680,7 @@ export default function SportConfigPage() {
   // Generate bracket state
   const [seeds, setSeeds] = useState<Team[]>([])
   const [seedsInit, setSeedsInit] = useState(false)
+  const [seedSaveError, setSeedSaveError] = useState<string | null>(null)
   const [genError, setGenError] = useState<string | null>(null)
   const [numHeats, setNumHeats] = useState(1)
 
@@ -694,25 +695,40 @@ export default function SportConfigPage() {
   const [teamDiv, setTeamDiv] = useState<Record<string, 0 | 1>>({})
   const [courtDiv, setCourtDiv] = useState<Record<string, 0 | 1>>({})
 
-  // Pool play state — restored from localStorage only if the user explicitly saved groups
-  const [poolCount, setPoolCount] = useState<number | null>(() => {
-    try { return JSON.parse(localStorage.getItem(`pool-count-${sportId}`) ?? 'null') } catch { return null }
-  })
-  const [teamPool, setTeamPool] = useState<Record<string, number>>(() => {
-    try { return JSON.parse(localStorage.getItem(`pool-teams-${sportId}`) ?? 'null') ?? {} } catch { return {} }
-  })
-  const [courtPool, setCourtPool] = useState<Record<string, number>>(() => {
-    try { return JSON.parse(localStorage.getItem(`pool-courts-${sportId}`) ?? 'null') ?? {} } catch { return {} }
-  })
+  // Pool play state — persisted to the backend (teams.pool_index, locations.pool_index,
+  // sports.pool_count) so groups are the same on every device, not just this browser.
+  const [poolCount, setPoolCount] = useState<number | null>(null)
+  const [teamPool, setTeamPool] = useState<Record<string, number>>({})
+  const [courtPool, setCourtPool] = useState<Record<string, number>>({})
+  const [poolInit, setPoolInit] = useState(false)
   const [groupsSavedFeedback, setGroupsSavedFeedback] = useState(false)
+  const [groupsSaving, setGroupsSaving] = useState(false)
+  const [groupsSaveError, setGroupsSaveError] = useState<string | null>(null)
 
-  function saveGroups() {
+  async function saveGroups() {
     if (!sportId) return
-    localStorage.setItem(`pool-count-${sportId}`, JSON.stringify(poolCount))
-    localStorage.setItem(`pool-teams-${sportId}`, JSON.stringify(teamPool))
-    localStorage.setItem(`pool-courts-${sportId}`, JSON.stringify(courtPool))
-    setGroupsSavedFeedback(true)
-    setTimeout(() => setGroupsSavedFeedback(false), 2000)
+    setGroupsSaveError(null)
+    setGroupsSaving(true)
+    try {
+      if (poolCount != null) await updateSport(sportId, { pool_count: poolCount })
+      // Sequential, not Promise.all — firing every update at once overwhelms Supabase
+      // under larger groupings and surfaces as opaque "Failed to fetch" errors.
+      for (const [teamId, idx] of Object.entries(teamPool)) {
+        await updateTeam(teamId, { pool_index: idx })
+      }
+      for (const [locId, idx] of Object.entries(courtPool)) {
+        await updateLocation(locId, { pool_index: idx })
+      }
+      qc.invalidateQueries({ queryKey: ['teams'] })
+      qc.invalidateQueries({ queryKey: ['locations', sportId] })
+      qc.invalidateQueries({ queryKey: ['sports'] })
+      setGroupsSavedFeedback(true)
+      setTimeout(() => setGroupsSavedFeedback(false), 2000)
+    } catch (e) {
+      setGroupsSaveError(e instanceof Error ? e.message : 'Failed to save groups')
+    } finally {
+      setGroupsSaving(false)
+    }
   }
 
   // Bracket phase state (pool_bracket, after pool play)
@@ -743,10 +759,30 @@ export default function SportConfigPage() {
     })
   }, [matches])
 
-  // Init seeds once sport teams are loaded
+  // Init seeds once sport teams are loaded — sorted by persisted seed rank
+  // (nulls last, in whatever order the API returned them) so a saved seed
+  // order is honored on every device instead of resetting each page load.
   if (sport && !seedsInit && sportTeams.length > 0) {
-    setSeeds([...sportTeams])
+    const sorted = [...sportTeams].sort((a, b) => {
+      if (a.seed == null && b.seed == null) return 0
+      if (a.seed == null) return 1
+      if (b.seed == null) return -1
+      return a.seed - b.seed
+    })
+    setSeeds(sorted)
     setSeedsInit(true)
+  }
+
+  // Init pool groups once from persisted backend fields, not localStorage
+  if (sport && !poolInit && sportTeams.length > 0) {
+    const tp: Record<string, number> = {}
+    for (const t of sportTeams) if (t.pool_index != null) tp[t.id] = t.pool_index
+    const cp: Record<string, number> = {}
+    for (const l of locations) if (l.pool_index != null) cp[l.id] = l.pool_index
+    setTeamPool(tp)
+    setCourtPool(cp)
+    setPoolCount(sport.pool_count ?? null)
+    setPoolInit(true)
   }
 
   const effectiveDuration = configDuration ?? sport?.match_duration_minutes ?? 30
@@ -973,11 +1009,7 @@ const genMutation = useMutation({
       qc.invalidateQueries({ queryKey: ['brackets'] })
       qc.invalidateQueries({ queryKey: ['sports'] })
       setGenError(null)
-      if (isPool && sportId) {
-        localStorage.setItem(`pool-count-${sportId}`, JSON.stringify(poolCount))
-        localStorage.setItem(`pool-teams-${sportId}`, JSON.stringify(teamPool))
-        localStorage.setItem(`pool-courts-${sportId}`, JSON.stringify(courtPool))
-      }
+      if (isPool && sportId) saveGroups()
     },
     onError: (e) => setGenError(e instanceof Error ? e.message : 'Failed to generate bracket'),
   })
@@ -1046,12 +1078,22 @@ const genMutation = useMutation({
     }
   }
 
-  function move(idx: number, dir: -1 | 1) {
+  // Persists the full seed order (not just the swapped pair) on every move, so
+  // it's durable on the backend immediately — no separate "save" step to forget,
+  // and no risk of some teams keeping a stale/null seed after a partial save.
+  async function move(idx: number, dir: -1 | 1) {
     const next = [...seeds]
     const swap = idx + dir
     if (swap < 0 || swap >= next.length) return
     ;[next[idx], next[swap]] = [next[swap], next[idx]]
     setSeeds(next)
+    setSeedSaveError(null)
+    try {
+      await Promise.all(next.map((t, i) => updateTeam(t.id, { seed: i })))
+      qc.invalidateQueries({ queryKey: ['teams'] })
+    } catch (e) {
+      setSeedSaveError(e instanceof Error ? e.message : 'Failed to save seed order')
+    }
   }
 
   function moveAdvancing(idx: number, dir: -1 | 1) {
@@ -1077,14 +1119,6 @@ const genMutation = useMutation({
 
   function handleReset() {
     if (!window.confirm(`Reset all brackets for ${sport?.name}? This will delete all matches and cannot be undone.`)) return
-    if (sportId) {
-      localStorage.removeItem(`pool-count-${sportId}`)
-      localStorage.removeItem(`pool-teams-${sportId}`)
-      localStorage.removeItem(`pool-courts-${sportId}`)
-    }
-    setTeamPool({})
-    setCourtPool({})
-    setPoolCount(null)
     resetMutation.mutate()
   }
 
@@ -1370,11 +1404,13 @@ const genMutation = useMutation({
                 Each pool needs at least 2 teams.
               </p>
             )}
+            {groupsSaveError && <p className="text-sm text-red-600">{groupsSaveError}</p>}
             <button
               onClick={saveGroups}
-              className="w-full py-2 rounded-lg border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50"
+              disabled={groupsSaving}
+              className="w-full py-2 rounded-lg border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 disabled:opacity-50"
             >
-              {groupsSavedFeedback ? 'Groups saved ✓' : 'Save Groups'}
+              {groupsSaving ? 'Saving…' : groupsSavedFeedback ? 'Groups saved ✓' : 'Save Groups'}
             </button>
           </div>
         ) : (
@@ -1473,6 +1509,7 @@ const genMutation = useMutation({
             ) : !isRandomized ? (
               <>
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Seed order</p>
+                {seedSaveError && <p className="text-sm text-red-600">{seedSaveError}</p>}
                 <div className="space-y-1">
                   {seeds.map((team, idx) => (
                     <div key={team.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">

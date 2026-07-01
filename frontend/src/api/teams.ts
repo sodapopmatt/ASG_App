@@ -21,7 +21,7 @@ export function createTeam(body: { company_id: string; sport_id: string; name?: 
   })
 }
 
-export function updateTeam(id: string, body: { name?: string | null }) {
+export function updateTeam(id: string, body: { name?: string | null; seed?: number; pool_index?: number }) {
   return apiFetch<Team>(`/teams/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },

@@ -21,6 +21,7 @@ export interface Sport {
   location_label: string
   venue: string | null
   assumed_courts_per_group: number | null
+  pool_count: number | null
   created_at: string
 }
 
@@ -38,6 +39,8 @@ export interface Team {
   company_id: string
   sport_id: string
   name: string | null
+  seed: number | null
+  pool_index: number | null
   created_at: string
 }
 
@@ -85,6 +88,7 @@ export interface Location {
   sport_id: string
   name: string
   court_number: number | null
+  pool_index: number | null
 }
 
 export interface RosterEntry {

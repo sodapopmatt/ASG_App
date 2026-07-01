@@ -22,7 +22,10 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 
 
 def get_current_profile(user=Depends(get_current_user)) -> UserProfile:
-    response = supabase.table("user_profiles").select("role, company_id").eq("id", str(user.id)).limit(1).execute()
+    try:
+        response = supabase.table("user_profiles").select("role, company_id").eq("id", str(user.id)).limit(1).execute()
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Could not verify user profile, please retry")
     if not response.data:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No profile found for this user")
     row = response.data[0]
