@@ -1259,17 +1259,19 @@ const genMutation = useMutation({
             className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
           />
         </label>
-        <label className="space-y-1 block">
-          <span className="text-xs text-gray-400">Venue label (shown on schedule when no court assigned)</span>
-          <input
-            type="text"
-            placeholder='e.g. "Cornhole Area", "Soccer Fields"'
-            value={effectiveVenue}
-            onChange={e => setConfigVenue(e.target.value)}
-            className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-          />
-        </label>
-        {isPool && (
+        {!isHeats && (
+          <label className="space-y-1 block">
+            <span className="text-xs text-gray-400">Venue label (shown on schedule when no court assigned)</span>
+            <input
+              type="text"
+              placeholder='e.g. "Cornhole Area", "Soccer Fields"'
+              value={effectiveVenue}
+              onChange={e => setConfigVenue(e.target.value)}
+              className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+            />
+          </label>
+        )}
+        {isPoolSwiss && (
           <label className="space-y-1 block">
             <span className="text-xs text-gray-400">Assumed boards/courts per group (used for scheduling when no courts are assigned)</span>
             <input
@@ -1496,7 +1498,7 @@ const genMutation = useMutation({
           </div>
         ) : (
           <>
-            {isElimination && sportTeams.length >= 4 && (
+            {isElimination && sport.name === 'Basketball' && sportTeams.length >= 4 && (
               <label className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2.5 border border-gray-200 cursor-pointer">
                 <input
                   type="checkbox"

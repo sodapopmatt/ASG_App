@@ -140,7 +140,7 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
     Other combinations return a 422.
     """
     sport_row = supabase.table("sports").select(
-        "bracket_type, match_duration_minutes, schedule_start, assumed_courts_per_group"
+        "name, bracket_type, match_duration_minutes, schedule_start, assumed_courts_per_group"
     ).eq("id", sport_id).limit(1).execute()
 
     if not sport_row.data:
@@ -151,6 +151,9 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
 
     if body.divisions is not None and bracket_type not in ("single_elimination", "double_elimination"):
         raise HTTPException(status_code=422, detail="Divisions are only supported for elimination brackets")
+
+    if body.divisions is not None and sport.get("name") != "Basketball":
+        raise HTTPException(status_code=422, detail="Divisions are only supported for Basketball")
 
     if body.pools is not None and bracket_type not in ("pool_bracket", "pool_swiss"):
         raise HTTPException(status_code=422, detail="Pools are only supported for pool-based bracket types")

@@ -37,10 +37,13 @@ def _compute_estimated_starts(
 
     Pass 2 â€” feeder adjustment: for each match, estimated_start must be at least
     as late as the finish time of both upstream feeder matches (via
-    winner_next_match_id / loser_next_match_id). Processed in round order so
-    feeders are always resolved before their downstream matches.
+    winner_next_match_id / loser_next_match_id). Processed in topological
+    (dependency) order â€” not raw match_round â€” so feeders are always resolved
+    before their downstream matches, even across brackets (e.g. a Grand Final
+    match_round doesn't reflect its true depth in the dependency graph).
     """
     from datetime import timedelta
+    from collections import deque
 
     heats_bracket_ids = heats_bracket_ids or set()
 
@@ -105,18 +108,37 @@ def _compute_estimated_starts(
                 seen_heat_brackets[bracket_id] = result.get(m["id"])
 
     # Pass 2: feeder adjustment
-    # Build reverse map: match_id -> list of upstream match_ids that feed into it
+    # Build reverse map: match_id -> list of upstream match_ids that feed into it,
+    # and the forward map needed to walk the dependency graph in topological order.
     match_by_id = {m["id"]: m for m in matches}
     upstream_of: dict[str, list[str]] = {}
+    downstream_of: dict[str, list[str]] = {}
     for m in matches:
         for key in ("winner_next_match_id", "loser_next_match_id"):
             next_id = m.get(key)
             if next_id and next_id in match_by_id:
                 upstream_of.setdefault(next_id, []).append(m["id"])
+                downstream_of.setdefault(m["id"], []).append(next_id)
 
-    # Process in round order so each match's feeders are already resolved
-    for m in sorted(matches, key=lambda m: (m.get("match_round") or 0)):
-        mid = m["id"]
+    # Process in dependency order (topological sort via Kahn's algorithm), not raw
+    # match_round â€” a Grand Final match can have match_round=1 while its feeders
+    # (e.g. a winners-bracket final at round 6) sit at a higher round number, so
+    # sorting by match_round alone would resolve the final before its feeders.
+    in_degree = {m["id"]: len(upstream_of.get(m["id"], [])) for m in matches}
+    queue = deque(sorted(
+        (mid for mid, deg in in_degree.items() if deg == 0),
+        key=lambda mid: (match_by_id[mid].get("match_round") or 0),
+    ))
+    topo_order: list[str] = []
+    while queue:
+        mid = queue.popleft()
+        topo_order.append(mid)
+        for nxt in downstream_of.get(mid, []):
+            in_degree[nxt] -= 1
+            if in_degree[nxt] == 0:
+                queue.append(nxt)
+
+    for mid in topo_order:
         feeders = upstream_of.get(mid)
         if not feeders:
             continue

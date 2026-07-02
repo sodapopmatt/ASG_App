@@ -225,8 +225,9 @@ Per-company donation totals for donation-style sports (Canned Food Drive). Write
 - Court assignment is done at generation time using subtree grouping (WB) and round-robin (LB)
 - Grand final gets no pre-assigned court; inherits from first semifinal winner
 
-### Divisions (venue split — e.g., Basketball across two gyms)
+### Divisions (venue split — Basketball only, across two gyms)
 - `generate-bracket` accepts optional `divisions: [{name, team_ids, location_ids}]` (elimination types only, ≥2 divisions, ≥2 teams each; teams/courts cannot repeat across divisions)
+- Restricted to the Basketball sport specifically (by `sports.name`) — enforced both in the frontend (SportConfigPage hides the "Split into two divisions" toggle for all other sports) and the backend (`generate-bracket` returns 422 if `divisions` is set for a non-Basketball sport)
 - Each division gets its own independent bracket on its own courts; bracket rows are tagged with `division` and names are prefixed (e.g., "Main Gym — Winners Bracket")
 - A single championship match (bracket "Championship", phase `finals`, division NULL) is created; each division's root match gets `winner_next_match_id` pointed at it, so division winners advance into it automatically via the existing engine
 - Championship court is unassigned (dynamic claim by first division to finish; admin can PATCH `location_id`)
@@ -238,6 +239,7 @@ Per-company donation totals for donation-style sports (Canned Food Drive). Write
 - Courts round-robin within each pool's courts; times sequential per court from `schedule_start`
 - `GET /sports/{id}/standings` computes W-L per pool from terminal matches (completed/forfeit → winner W / opponent L; double_forfeit → both L); rank by wins desc, losses asc; identical records share a rank
 - **No score-based tiebreakers** — V1 has no scores; admins break ties manually when seeding the bracket phase
+- "Assumed boards/courts per group" scheduling field (`sports.assumed_courts_per_group`) is `pool_swiss`-only (Cornhole) in SportConfigPage — `pool_bracket` sports (Soccer, Ultimate Frisbee, Pickleball) use real named `locations` (Courts section) instead
 - Bracket phase (`pool_bracket` only): calling `generate-bracket` again with `team_ids` (no `pools`) generates a single-elimination bracket via `persist_bracket(bracket_type_override="single_elimination", shuffle=False)` — seed order is preserved exactly (frontend pre-fills it from standings: pool winners first, then runners-up); pool matches are kept; `clear_existing=true` is rejected on this path; bracket-phase start time = last scheduled match + one duration slot
 - `pool_swiss`: pools generate the same way; calling with `team_ids` returns 422 (Swiss rounds not built — Cornhole championship is manual)
 
