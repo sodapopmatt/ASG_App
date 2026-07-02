@@ -10,7 +10,7 @@ import { getCompanies } from '../../api/companies'
 import { getBrackets } from '../../api/brackets'
 import type { Match, Team, Company, Bracket } from '../../types'
 import MatchResultModal from '../../components/MatchResultModal'
-import { buildMultiTeamKeys, compactLabel, compareBracketNames } from '../../lib/bracketHelpers'
+import { buildMultiTeamKeys, compactLabel, compareBracketNames, groupMatchesByCourt, SingleBracketView } from '../../lib/bracketHelpers'
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [String(item[key]), item]))
@@ -70,6 +70,66 @@ function MatchCard({
         )}
       </div>
     </button>
+  )
+}
+
+function CourtQueue({
+  matches,
+  teamMap,
+  companyMap,
+  multiTeamKeys,
+  selectedCourt,
+  onSelectCourt,
+  onMatchClick,
+}: {
+  matches: Match[]
+  teamMap: Record<string, Team>
+  companyMap: Record<string, Company>
+  multiTeamKeys: Set<string>
+  selectedCourt: string
+  onSelectCourt: (court: string) => void
+  onMatchClick: (match: Match) => void
+}) {
+  const groups = useMemo(() => groupMatchesByCourt(matches), [matches])
+  const courtNames = [...groups.keys()]
+  if (courtNames.length === 0) return <p className="text-center text-gray-500 py-12">No matches yet.</p>
+
+  const activeCourt = groups.has(selectedCourt) ? selectedCourt : courtNames[0]
+  const activeMatches = groups.get(activeCourt) ?? []
+
+  return (
+    <div>
+      {courtNames.length > 1 && (
+        <div className="flex gap-2 mb-4 overflow-x-auto -mx-4 px-4 pb-1">
+          {courtNames.map(court => (
+            <button
+              key={court}
+              type="button"
+              onClick={() => onSelectCourt(court)}
+              className={`shrink-0 px-3.5 py-1.5 rounded-full text-sm font-semibold transition-colors ${
+                court === activeCourt
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-slate-600 active:bg-gray-200'
+              }`}
+            >
+              {court}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="space-y-2">
+        {activeMatches.map(m => (
+          <MatchCard
+            key={m.id}
+            match={m}
+            teamMap={teamMap}
+            companyMap={companyMap}
+            multiTeamKeys={multiTeamKeys}
+            onClick={() => onMatchClick(m)}
+          />
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -309,7 +369,18 @@ export default function PoolResultsPage() {
   )
   const hasBracketPhase = bracketPhaseMatches.length > 0
 
+  const bracketPhaseMatchById = useMemo(
+    () => indexBy(bracketPhaseMatches, 'id') as Record<string, Match>,
+    [bracketPhaseMatches],
+  )
+  const handleBracketPhaseMatchClick = (matchId: string) => {
+    const match = bracketPhaseMatchById[matchId]
+    if (match) setActiveMatch(match)
+  }
+
   const [phase, setPhase] = useTabMemory<'pools' | 'bracket'>(`pool-results-phase-${sportId ?? ''}`, 'pools')
+  const [bracketView, setBracketView] = useTabMemory<'bracket' | 'court'>(`pool-results-bracketview-${sportId ?? ''}`, 'bracket')
+  const [activeCourt, setActiveCourt] = useTabMemory<string>(`pool-results-court-${sportId ?? ''}`, '')
 
   const standingsByBracket = useMemo(() => {
     const map: Record<string, TeamStanding[]> = {}
@@ -378,6 +449,23 @@ export default function PoolResultsPage() {
             {showCornhole ? 'Championship' : 'Bracket Phase'}
           </button>
         </div>
+
+        {phase === 'bracket' && bracketPhaseMatches.length > 0 && (
+          <div className="flex rounded-lg bg-gray-100 p-1 mb-4">
+            <button
+              onClick={() => setBracketView('bracket')}
+              className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${bracketView === 'bracket' ? 'bg-white shadow-sm text-slate-800' : 'text-gray-500'}`}
+            >
+              Bracket
+            </button>
+            <button
+              onClick={() => setBracketView('court')}
+              className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${bracketView === 'court' ? 'bg-white shadow-sm text-slate-800' : 'text-gray-500'}`}
+            >
+              By Courts
+            </button>
+          </div>
+        )}
 
         {phase === 'pools' ? (
           pools.length === 0 ? (
@@ -505,6 +593,16 @@ export default function PoolResultsPage() {
               </div>
             </>
           )
+        ) : bracketView === 'court' ? (
+          <CourtQueue
+            matches={bracketPhaseMatches}
+            teamMap={teamMap}
+            companyMap={companyMap}
+            multiTeamKeys={multiTeamKeys}
+            selectedCourt={activeCourt}
+            onSelectCourt={setActiveCourt}
+            onMatchClick={setActiveMatch}
+          />
         ) : showCornhole ? (
           <ChampionshipTab
             bracketPhaseMatches={bracketPhaseMatches}
@@ -519,25 +617,12 @@ export default function PoolResultsPage() {
             error={swissError}
           />
         ) : hasBracketPhase ? (
-          <div className="space-y-4">
-            {byRound(bracketPhaseMatches).map(([roundKey, roundMatches]) => (
-              <div key={roundKey}>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Round {roundKey}</p>
-                <div className="space-y-2">
-                  {roundMatches.map(m => (
-                    <MatchCard
-                      key={m.id}
-                      match={m}
-                      teamMap={teamMap}
-                      companyMap={companyMap}
-                      multiTeamKeys={multiTeamKeys}
-                      onClick={() => setActiveMatch(m)}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+          <SingleBracketView
+            matches={bracketPhaseMatches}
+            teamMap={teamMap}
+            companyMap={companyMap}
+            onMatchClick={handleBracketPhaseMatchClick}
+          />
         ) : (
           <p className="text-center text-gray-500 py-12">Bracket phase not generated yet.</p>
         )}

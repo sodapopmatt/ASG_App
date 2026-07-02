@@ -1,20 +1,19 @@
 ﻿import React, { useState, useMemo } from 'react'
 import { useParams } from 'react-router-dom'
 import BackLink from '../../components/BackLink'
+import { useTabMemory } from '../../lib/useTabMemory'
 import { useQuery } from '@tanstack/react-query'
 import {
-  SingleEliminationBracket,
   DoubleEliminationBracket,
-  Match as LibMatch,
 } from '@g-loot/react-tournament-brackets'
-import type { MatchType, MatchComponentProps } from '@g-loot/react-tournament-brackets'
+import type { MatchType } from '@g-loot/react-tournament-brackets'
 import { getMatches } from '../../api/matches'
 import { getSports } from '../../api/sports'
 import { getTeams } from '../../api/teams'
 import { getCompanies } from '../../api/companies'
 import { getBrackets } from '../../api/brackets'
 import type { Match, Team, Company } from '../../types'
-import { toLibraryMatch, stableSortMatches, lightTheme, bracketOptions, BracketSvgWrapper, buildMultiTeamKeys } from '../../lib/bracketHelpers'
+import { toLibraryMatch, stableSortMatches, buildMultiTeamKeys, groupMatchesByCourt, MatchComponent, SingleBracketView, lightTheme, bracketOptions, BracketSvgWrapper } from '../../lib/bracketHelpers'
 import MatchResultModal from '../../components/MatchResultModal'
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
@@ -34,62 +33,7 @@ function fullLabel(
   return team.name ? `${base} · ${team.name}` : base
 }
 
-// â”€â”€â”€ Custom match component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-function MatchComponent(props: MatchComponentProps) {
-  const isPlaying = props.match.state === 'PLAYING'
-  const openModal = () => props.onMatchClick({ match: props.match, topWon: props.topWon, bottomWon: props.bottomWon, event: {} as React.MouseEvent<HTMLAnchorElement> })
-  return (
-    <div style={{ position: 'relative', height: '100%' }}>
-      <LibMatch {...props} onMatchClick={undefined} onPartyClick={openModal} />
-      {isPlaying && (
-        <span style={{
-          position: 'absolute', top: 4, right: 8,
-          display: 'flex', alignItems: 'center', gap: 4,
-          fontSize: 10, fontWeight: 600, color: '#92400e',
-          fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-          pointerEvents: 'none',
-        }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#eab308', display: 'inline-block' }} />
-          In Progress
-        </span>
-      )}
-    </div>
-  )
-}
-
-// â”€â”€â”€ Bracket views â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-function SingleBracketView({
-  matches,
-  teamMap,
-  companyMap,
-  onMatchClick,
-}: {
-  matches: Match[]
-  teamMap: Record<string, Team>
-  companyMap: Record<string, Company>
-  onMatchClick: (matchId: string) => void
-}) {
-  const libMatches = useMemo(() => {
-    const ids = new Set(matches.map(m => m.id))
-    const multiTeamKeys = buildMultiTeamKeys(teamMap)
-    return stableSortMatches(matches).map(m => toLibraryMatch(m, teamMap, companyMap, ids, multiTeamKeys))
-  }, [matches, teamMap, companyMap])
-
-  if (libMatches.length === 0) return <p className="text-center text-gray-500 py-12">No matches yet.</p>
-
-  return (
-    <SingleEliminationBracket
-      matches={libMatches}
-      matchComponent={MatchComponent}
-      theme={lightTheme}
-      options={bracketOptions}
-      onMatchClick={({ match }) => onMatchClick(String(match.id))}
-      svgWrapper={BracketSvgWrapper}
-    />
-  )
-}
+// ── Bracket views ──────────────────────────────────────────────────────────
 
 function DoubleBracketView({
   matches,
@@ -174,6 +118,111 @@ function ChampionshipCard({
   )
 }
 
+function CourtQueueCard({
+  match,
+  teamMap,
+  companyMap,
+  onClick,
+}: {
+  match: Match
+  teamMap: Record<string, Team>
+  companyMap: Record<string, Company>
+  onClick: () => void
+}) {
+  const isDone = match.status === 'completed' || match.status === 'forfeit' || match.status === 'double_forfeit' || match.status === 'draw'
+  const isLive = match.status === 'in_progress'
+  const effectiveTime = match.estimated_start ?? match.scheduled_at
+  const time = effectiveTime
+    ? new Date(effectiveTime).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+    : null
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full text-left bg-white rounded-xl border-2 shadow-sm px-4 py-3 ${isLive ? 'border-amber-400' : 'border-gray-200'} hover:border-blue-400 transition-colors`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          {time && <p className="text-xs text-gray-400 mb-1 tabular-nums">{time}</p>}
+          <p className={`text-sm truncate ${match.winner_id && match.winner_id === match.home_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'} ${!match.home_team_id ? 'italic text-gray-400 font-normal' : ''}`}>
+            {fullLabel(match.home_team_id, teamMap, companyMap)}
+          </p>
+          <p className="text-xs text-gray-400 my-0.5">vs</p>
+          <p className={`text-sm truncate ${match.winner_id && match.winner_id === match.away_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'} ${!match.away_team_id ? 'italic text-gray-400 font-normal' : ''}`}>
+            {fullLabel(match.away_team_id, teamMap, companyMap)}
+          </p>
+        </div>
+        {isLive ? (
+          <span className="shrink-0 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full animate-pulse">Live</span>
+        ) : isDone ? (
+          <span className="shrink-0 text-xs text-gray-400">
+            {match.status === 'double_forfeit' ? 'Dbl Forfeit' : match.status === 'forfeit' ? 'Forfeit' : 'Final'}
+          </span>
+        ) : (
+          <span className="shrink-0 text-xs text-blue-400">Tap to enter</span>
+        )}
+      </div>
+    </button>
+  )
+}
+
+function CourtView({
+  matches,
+  teamMap,
+  companyMap,
+  selectedCourt,
+  onSelectCourt,
+  onMatchClick,
+}: {
+  matches: Match[]
+  teamMap: Record<string, Team>
+  companyMap: Record<string, Company>
+  selectedCourt: string
+  onSelectCourt: (court: string) => void
+  onMatchClick: (matchId: string) => void
+}) {
+  const groups = useMemo(() => groupMatchesByCourt(matches), [matches])
+
+  const courtNames = [...groups.keys()]
+  if (courtNames.length === 0) return <p className="text-center text-gray-500 py-12">No matches yet.</p>
+
+  const activeCourt = groups.has(selectedCourt) ? selectedCourt : courtNames[0]
+  const activeMatches = groups.get(activeCourt) ?? []
+
+  return (
+    <div>
+      {courtNames.length > 1 && (
+        <div className="flex gap-2 mb-4 overflow-x-auto -mx-4 px-4 pb-1">
+          {courtNames.map(court => (
+            <button
+              key={court}
+              type="button"
+              onClick={() => onSelectCourt(court)}
+              className={`shrink-0 px-3.5 py-1.5 rounded-full text-sm font-semibold transition-colors ${
+                court === activeCourt
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-slate-600 active:bg-gray-200'
+              }`}
+            >
+              {court}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="space-y-2">
+        {activeMatches.map(m => (
+          <CourtQueueCard
+            key={m.id}
+            match={m}
+            teamMap={teamMap}
+            companyMap={companyMap}
+            onClick={() => onMatchClick(m.id)}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function Skeleton() {
   return (
     <div className="p-4 mt-2 space-y-3">
@@ -190,6 +239,8 @@ export default function BracketResultsPage() {
   const { sportId } = useParams<{ sportId: string }>()
   const [activeMatch, setActiveMatch] = useState<Match | null>(null)
   const [divisionTab, setDivisionTab] = useState<string>('')
+  const [viewMode, setViewMode] = useTabMemory<'bracket' | 'court'>(`bracket-results-view-${sportId ?? ''}`, 'bracket')
+  const [activeCourt, setActiveCourt] = useTabMemory<string>(`bracket-results-court-${sportId ?? ''}`, '')
 
   const matchesQuery   = useQuery({ queryKey: ['matches'],           queryFn: () => getMatches() })
   const sportsQuery    = useQuery({ queryKey: ['sports'],            queryFn: getSports,        staleTime: Infinity })
@@ -346,8 +397,32 @@ export default function BracketResultsPage() {
         <h2 className="text-xl font-bold text-slate-800 mt-3 mb-1">{sport?.name ?? 'Bracket'}</h2>
         <p className="text-xs text-gray-400 mb-4">Tap a match to enter the result</p>
 
+        <div className="flex rounded-lg bg-gray-100 p-1 mb-4">
+          <button
+            onClick={() => setViewMode('bracket')}
+            className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${viewMode === 'bracket' ? 'bg-white shadow-sm text-slate-800' : 'text-gray-500'}`}
+          >
+            Bracket
+          </button>
+          <button
+            onClick={() => setViewMode('court')}
+            className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${viewMode === 'court' ? 'bg-white shadow-sm text-slate-800' : 'text-gray-500'}`}
+          >
+            By Courts
+          </button>
+        </div>
+
         {sportMatches.length === 0 ? (
           <p className="text-center text-gray-500 py-12">No matches for this sport yet.</p>
+        ) : viewMode === 'court' ? (
+          <CourtView
+            matches={bracketType === 'pool_bracket' ? bracketPhaseMatches : sportMatches}
+            teamMap={teamMap}
+            companyMap={companyMap}
+            selectedCourt={activeCourt}
+            onSelectCourt={setActiveCourt}
+            onMatchClick={handleMatchClick}
+          />
         ) : bracketType === 'single_elimination' || bracketType === 'double_elimination' ? (
           renderBrackets()
         ) : bracketType === 'pool_bracket' ? (

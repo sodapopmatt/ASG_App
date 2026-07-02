@@ -1,10 +1,10 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 import { TransformWrapper, TransformComponent, useControls } from 'react-zoom-pan-pinch'
 
 // Module-level: persists transform state across navigation
 const savedBracketTransforms: Record<string, { x: number; y: number; scale: number }> = {}
-import { createTheme } from '@g-loot/react-tournament-brackets'
-import type { MatchType } from '@g-loot/react-tournament-brackets'
+import { createTheme, SingleEliminationBracket, Match as LibMatch } from '@g-loot/react-tournament-brackets'
+import type { MatchType, MatchComponentProps } from '@g-loot/react-tournament-brackets'
 import type { Match, Team, Company } from '../types'
 
 // Sorts bracket/pool names correctly when names exceed Z (Excel-style: A…Z, AA, AB…).
@@ -44,6 +44,28 @@ export function formatMatchTime(iso: string | null | undefined): string {
   const d = new Date(iso)
   if (isNaN(d.getTime())) return ''
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+}
+
+// Groups matches by court name for the "By Courts" queue view (bye matches are
+// excluded — they never actually get played on a court). Each group is sorted
+// by estimated/scheduled time so a ref sees their court's queue in order.
+export function groupMatchesByCourt(matches: Match[]): Map<string, Match[]> {
+  const playable = matches.filter(m => m.home_slot_state !== 'bye' && m.away_slot_state !== 'bye')
+  const byCourt = new Map<string, Match[]>()
+  for (const m of playable) {
+    const key = m.locations?.name ?? 'No court assigned'
+    const list = byCourt.get(key) ?? []
+    list.push(m)
+    byCourt.set(key, list)
+  }
+  for (const list of byCourt.values()) {
+    list.sort((a, b) => {
+      const ta = a.estimated_start ?? a.scheduled_at ?? ''
+      const tb = b.estimated_start ?? b.scheduled_at ?? ''
+      return ta.localeCompare(tb)
+    })
+  }
+  return new Map([...byCourt.entries()].sort(([a], [b]) => a.localeCompare(b)))
 }
 
 export function stableSortMatches(matches: Match[]): Match[] {
@@ -267,5 +289,61 @@ export function ZoomableBracket({ children, bracketWidth, bracketHeight }: {
         </TransformWrapper>
       )}
     </div>
+  )
+}
+
+// ─── Shared single-elimination chart (used by BracketResultsPage and the pool
+// sports' Bracket Phase tab, which shares the same single-elim bracket shape) ──
+
+export function MatchComponent(props: MatchComponentProps) {
+  const isPlaying = props.match.state === 'PLAYING'
+  const openModal = () => props.onMatchClick({ match: props.match, topWon: props.topWon, bottomWon: props.bottomWon, event: {} as React.MouseEvent<HTMLAnchorElement> })
+  return (
+    <div style={{ position: 'relative', height: '100%' }}>
+      <LibMatch {...props} onMatchClick={undefined} onPartyClick={openModal} />
+      {isPlaying && (
+        <span style={{
+          position: 'absolute', top: 4, right: 8,
+          display: 'flex', alignItems: 'center', gap: 4,
+          fontSize: 10, fontWeight: 600, color: '#92400e',
+          fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+          pointerEvents: 'none',
+        }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#eab308', display: 'inline-block' }} />
+          In Progress
+        </span>
+      )}
+    </div>
+  )
+}
+
+export function SingleBracketView({
+  matches,
+  teamMap,
+  companyMap,
+  onMatchClick,
+}: {
+  matches: Match[]
+  teamMap: Record<string, Team>
+  companyMap: Record<string, Company>
+  onMatchClick: (matchId: string) => void
+}) {
+  const libMatches = useMemo(() => {
+    const ids = new Set(matches.map(m => m.id))
+    const multiTeamKeys = buildMultiTeamKeys(teamMap)
+    return stableSortMatches(matches).map(m => toLibraryMatch(m, teamMap, companyMap, ids, multiTeamKeys))
+  }, [matches, teamMap, companyMap])
+
+  if (libMatches.length === 0) return <p className="text-center text-gray-500 py-12">No matches yet.</p>
+
+  return (
+    <SingleEliminationBracket
+      matches={libMatches}
+      matchComponent={MatchComponent}
+      theme={lightTheme}
+      options={bracketOptions}
+      onMatchClick={({ match }) => onMatchClick(String(match.id))}
+      svgWrapper={BracketSvgWrapper}
+    />
   )
 }

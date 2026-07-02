@@ -253,12 +253,13 @@ function MatchRow({
   multiTeamKeys?: Set<string>
   venue?: string | null
 }) {
-  const home = compactLabel(match.home_team_id ?? null, teamMap, companyMap, undefined, multiTeamKeys)
-  const away = compactLabel(match.away_team_id ?? null, teamMap, companyMap, undefined, multiTeamKeys)
+  const home = compactLabel(match.home_team_id ?? null, teamMap, companyMap, match.home_slot_state, multiTeamKeys)
+  const away = compactLabel(match.away_team_id ?? null, teamMap, companyMap, match.away_slot_state, multiTeamKeys)
   const effectiveTime = match.estimated_start ?? match.scheduled_at
   const time = effectiveTime ? formatTime(effectiveTime) : null
   const isSingleTeam = bracketType === 'heats'
-  const courtName = match.locations?.name ?? venue ?? undefined
+  const isBye = match.home_slot_state === 'bye' || match.away_slot_state === 'bye'
+  const courtName = match.locations?.name ?? venue ?? (isBye ? undefined : 'TBD')
   const hasScore = match.home_score != null && match.away_score != null
 
   if (isSingleTeam) {
