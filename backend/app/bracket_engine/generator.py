@@ -109,13 +109,16 @@ def _assign_courts_subtree(slots: list[MatchSlot], courts: list[str]) -> dict[in
         if s.bracket_phase == "finals":
             assignment[i] = None
 
-    # Winners bracket: group R1 into C blocks then propagate up
+    # Winners bracket: group R1 into C blocks then propagate up.
+    # Byes are included here (unlike the rest of the WB set) so that a court
+    # still gets forwarded to a R2+ match even when both of its R1 feeders
+    # were byes — otherwise that match would end up with no court at all.
     wb_phases = {"winners", "bracket"}
-    wb_non_bye = [i for i, s in enumerate(slots) if s.bracket_phase in wb_phases and not s.is_bye]
+    wb_all = [i for i, s in enumerate(slots) if s.bracket_phase in wb_phases]
 
-    if wb_non_bye:
-        min_round = min(slots[i].match_round for i in wb_non_bye)
-        r1 = [i for i in wb_non_bye if slots[i].match_round == min_round]
+    if wb_all:
+        min_round = min(slots[i].match_round for i in wb_all)
+        r1 = [i for i in wb_all if slots[i].match_round == min_round]
 
         # Adjacent R1 pairs feed the same R2 match, so assign in contiguous blocks
         group_size = max(1, len(r1) // C)
@@ -126,7 +129,7 @@ def _assign_courts_subtree(slots: list[MatchSlot], courts: list[str]) -> dict[in
         # Propagate court up through winner_next_idx (slots are ordered by round,
         # so iterating by index is already topological order within the WB)
         for i, s in enumerate(slots):
-            if s.bracket_phase not in wb_phases or s.is_bye:
+            if s.bracket_phase not in wb_phases:
                 continue
             if i not in assignment:
                 continue
@@ -202,10 +205,8 @@ def _compute_scheduled_times(
     return scheduled
 
 
-def clear_brackets(sport_id: str, db: Client) -> None:
-    """Delete all brackets and matches for a sport, safely handling FK self-references."""
-    existing = db.table("brackets").select("id").eq("sport_id", sport_id).execute()
-    bracket_ids = [b["id"] for b in existing.data]
+def _delete_brackets_by_id(bracket_ids: list[str], db: Client) -> None:
+    """Delete the given brackets and their matches, safely handling FK self-references."""
     for bid in bracket_ids:
         db.table("matches").update({
             "winner_next_match_id": None,
@@ -214,8 +215,22 @@ def clear_brackets(sport_id: str, db: Client) -> None:
         db.table("matches").delete().eq("bracket_id", bid).execute()
         db.table("brackets").delete().eq("id", bid).execute()
 
+
+def clear_brackets(sport_id: str, db: Client) -> None:
+    """Delete all brackets and matches for a sport, safely handling FK self-references."""
+    existing = db.table("brackets").select("id").eq("sport_id", sport_id).execute()
+    _delete_brackets_by_id([b["id"] for b in existing.data], db)
+
     # Delete unbucketed matches (e.g. heats, where bracket_id is null)
     db.table("matches").delete().eq("sport_id", sport_id).is_("bracket_id", "null").execute()
+
+
+def clear_bracket_phase(sport_id: str, db: Client) -> None:
+    """Delete only the elimination bracket-phase brackets/matches for a pool_bracket
+    sport (phase != 'pool'), leaving pool play untouched. Used to restart the
+    seeded bracket phase without wiping pool results."""
+    existing = db.table("brackets").select("id").eq("sport_id", sport_id).neq("phase", "pool").execute()
+    _delete_brackets_by_id([b["id"] for b in existing.data], db)
 
 
 def persist_bracket(

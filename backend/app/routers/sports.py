@@ -2,7 +2,7 @@
 from app.database import supabase
 from app.auth import require_admin
 from app.schemas.sport import Sport, SportCreate, SportUpdate
-from app.bracket_engine import persist_bracket, persist_pools, clear_brackets
+from app.bracket_engine import persist_bracket, persist_pools, clear_brackets, clear_bracket_phase
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -90,6 +90,19 @@ def reset_brackets(sport_id: str, _=Depends(require_admin)):
     clear_brackets(sport_id, supabase)
     if sport.data[0].get("bracket_type") == "heats":
         supabase.table("event_points").delete().eq("sport_id", sport_id).execute()
+
+
+@router.delete("/{sport_id}/bracket-phase", status_code=204)
+def reset_bracket_phase(sport_id: str, _=Depends(require_admin)):
+    """Delete only the seeded elimination bracket phase for a pool_bracket sport
+    (phase != 'pool'), leaving pool play matches and standings untouched. Lets an
+    admin restart the bracket-phase seeding without wiping pool results."""
+    sport = supabase.table("sports").select("id, bracket_type").eq("id", sport_id).limit(1).execute()
+    if not sport.data:
+        raise HTTPException(status_code=404, detail="Sport not found")
+    if sport.data[0].get("bracket_type") != "pool_bracket":
+        raise HTTPException(status_code=422, detail="Only pool_bracket sports have a separate bracket phase")
+    clear_bracket_phase(sport_id, supabase)
 
 
 @router.put("/{sport_id}/seed-order", status_code=204)
