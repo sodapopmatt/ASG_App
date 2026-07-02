@@ -102,12 +102,16 @@ function isResolved(m: Match): boolean {
   return m.status === 'completed' || m.status === 'forfeit' || m.status === 'double_forfeit' || m.status === 'draw'
 }
 
+function isBye(m: Match): boolean {
+  return m.home_slot_state === 'bye' || m.away_slot_state === 'bye'
+}
+
 function matchesStatusFilter(m: Match, f: StatusFilter): boolean {
   if (f === 'all')       return true
   if (f === 'active')    return m.status === 'scheduled' || m.status === 'in_progress'
   if (f === 'upcoming')  return m.status === 'scheduled'
   if (f === 'live')      return m.status === 'in_progress'
-  if (f === 'completed') return isResolved(m)
+  if (f === 'completed') return isResolved(m) && !isBye(m)
   return true
 }
 
@@ -245,8 +249,8 @@ function MatchRow({
   const effectiveTime = match.estimated_start ?? match.scheduled_at
   const time = effectiveTime ? formatTime(effectiveTime) : null
   const isSingleTeam = bracketType === 'heats'
-  const isBye = match.home_slot_state === 'bye' || match.away_slot_state === 'bye'
-  const courtName = match.locations?.name ?? venue ?? (isBye ? undefined : 'TBD')
+  const isByeMatch = isBye(match)
+  const courtName = match.locations?.name ?? venue ?? (isByeMatch ? undefined : 'TBD')
   const hasScore = match.home_score != null && match.away_score != null
 
   if (isSingleTeam) {

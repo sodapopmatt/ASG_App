@@ -4,7 +4,7 @@ import { getSports } from '../api/sports'
 import { getSportIcon } from '../lib/sportIcons'
 import type { Sport } from '../types'
 
-const BRACKET_TYPE_LABELS: Record<string, string> = {
+export const BRACKET_TYPE_LABELS: Record<string, string> = {
   single_elimination: 'Single Elimination',
   double_elimination: 'Double Elimination',
   pool_bracket: 'Pool + Single Elimination',

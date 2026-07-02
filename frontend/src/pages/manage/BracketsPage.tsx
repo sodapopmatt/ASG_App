@@ -5,15 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { getSports } from '../../api/sports'
 import { getTeams } from '../../api/teams'
 import { getSportIcon } from '../../lib/sportIcons'
-
-const BRACKET_LABELS: Record<string, string> = {
-  single_elimination: 'Single elim',
-  double_elimination: 'Double elim',
-  pool_bracket: 'Pool + Single Elimination',
-  pool_swiss: 'Pool + Swiss',
-  heats: 'Heats',
-  points_based: 'Points based',
-}
+import { BRACKET_TYPE_LABELS } from '../BracketsSportIndex'
 
 export default function BracketsPage() {
   const { data: sports = [], isLoading } = useQuery({
@@ -64,7 +56,7 @@ export default function BracketsPage() {
                   <span className="truncate">{sport.name}</span>
                 </p>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  {BRACKET_LABELS[sport.bracket_type] ?? sport.bracket_type}
+                  {BRACKET_TYPE_LABELS[sport.bracket_type] ?? sport.bracket_type}
                   {' · '}
                   {teamCount} team{teamCount !== 1 ? 's' : ''}
                 </p>

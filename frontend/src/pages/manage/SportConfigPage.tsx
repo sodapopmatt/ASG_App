@@ -50,6 +50,81 @@ function teamLabel(
   return showSuffix ? `${base} · ${team.name}` : base
 }
 
+function CalendarIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
+  )
+}
+
+function LockedDateField({
+  label,
+  value,
+  onEdit,
+}: {
+  label: string
+  value: string | null
+  onEdit: () => void
+}) {
+  return (
+    <label className="space-y-1 block">
+      <span className="text-xs text-gray-400">{label}</span>
+      <div className="flex items-center justify-between w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-gray-50 text-slate-700">
+        <span>
+          {value ? new Date(value).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Not set'}
+        </span>
+        <button
+          onClick={onEdit}
+          aria-label={`Edit ${label.toLowerCase()}`}
+          className="text-gray-400 hover:text-blue-600 shrink-0"
+        >
+          <CalendarIcon />
+        </button>
+      </div>
+    </label>
+  )
+}
+
+function PencilIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+    </svg>
+  )
+}
+
+function LockedField({
+  label,
+  value,
+  onEdit,
+}: {
+  label: string
+  value: string
+  onEdit: () => void
+}) {
+  return (
+    <label className="space-y-1 block">
+      <span className="text-xs text-gray-400">{label}</span>
+      <div className="flex items-center justify-between w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-gray-50 text-slate-700">
+        <span>{value || 'Not set'}</span>
+        <button
+          onClick={onEdit}
+          aria-label={`Edit ${label.toLowerCase()}`}
+          className="text-gray-400 hover:text-blue-600 shrink-0"
+        >
+          <PencilIcon />
+        </button>
+      </div>
+    </label>
+  )
+}
+
 function UpIcon() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
@@ -82,11 +157,26 @@ function DonationSportConfig({
   locations: LocationRow[]
 }) {
   const qc = useQueryClient()
+  const [isEditingSchedule, setIsEditingSchedule] = useState(false)
+  const [isEditingLocation, setIsEditingLocation] = useState(false)
   const [start, setStart] = useState(toDatetimeLocal(scheduleStart))
   const [end, setEnd] = useState(toDatetimeLocal(scheduleEnd))
   const [locationName, setLocationName] = useState(locations[0]?.name ?? '')
   const [scheduleError, setScheduleError] = useState<string | null>(null)
   const [locationError, setLocationError] = useState<string | null>(null)
+
+  function openScheduleEditor() {
+    setStart(toDatetimeLocal(scheduleStart))
+    setEnd(toDatetimeLocal(scheduleEnd))
+    setScheduleError(null)
+    setIsEditingSchedule(true)
+  }
+
+  function openLocationEditor() {
+    setLocationName(locations[0]?.name ?? '')
+    setLocationError(null)
+    setIsEditingLocation(true)
+  }
 
   const scheduleMutation = useMutation({
     mutationFn: () =>
@@ -97,6 +187,7 @@ function DonationSportConfig({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['sports'] })
       setScheduleError(null)
+      setIsEditingSchedule(false)
     },
     onError: e => setScheduleError(e instanceof Error ? e.message : 'Failed to save'),
   })
@@ -120,6 +211,7 @@ function DonationSportConfig({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['locations', sportId] })
       setLocationError(null)
+      setIsEditingLocation(false)
     },
     onError: e => setLocationError(e instanceof Error ? e.message : 'Failed to save location'),
   })
@@ -134,59 +226,85 @@ function DonationSportConfig({
 
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-4 space-y-3">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Schedule</p>
-        <label className="space-y-1 block">
-          <span className="text-xs text-gray-400">Start time</span>
-          <input
-            type="datetime-local"
-            value={start}
-            onChange={e => setStart(e.target.value)}
-            className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-          />
-        </label>
-        <label className="space-y-1 block">
-          <span className="text-xs text-gray-400">End time</span>
-          <input
-            type="datetime-local"
-            value={end}
-            onChange={e => setEnd(e.target.value)}
-            className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-          />
-        </label>
-        {scheduleError && <p className="text-sm text-red-600">{scheduleError}</p>}
-        <button
-          onClick={() => scheduleMutation.mutate()}
-          disabled={scheduleMutation.isPending}
-          className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
-        >
-          {scheduleMutation.isPending ? 'Saving…' : scheduleMutation.isSuccess ? 'Saved' : 'Save'}
-        </button>
+
+        {isEditingSchedule ? (
+          <>
+            <label className="space-y-1 block">
+              <span className="text-xs text-gray-400">Start time</span>
+              <input
+                type="datetime-local"
+                value={start}
+                onChange={e => setStart(e.target.value)}
+                className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+              />
+            </label>
+            <label className="space-y-1 block">
+              <span className="text-xs text-gray-400">End time</span>
+              <input
+                type="datetime-local"
+                value={end}
+                onChange={e => setEnd(e.target.value)}
+                className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+              />
+            </label>
+            {scheduleError && <p className="text-sm text-red-600">{scheduleError}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setIsEditingSchedule(false)}
+                disabled={scheduleMutation.isPending}
+                className="flex-1 py-2 rounded-lg border border-gray-200 text-slate-600 font-semibold text-sm hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => scheduleMutation.mutate()}
+                disabled={scheduleMutation.isPending}
+                className="flex-1 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
+              >
+                {scheduleMutation.isPending ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <LockedDateField label="Start time" value={scheduleStart} onEdit={openScheduleEditor} />
+            <LockedDateField label="End time" value={scheduleEnd} onEdit={openScheduleEditor} />
+          </>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-4 space-y-3">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Location</p>
-        {locations[0]?.name && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-400">Saved:</span>
-            <span className="text-sm text-gray-400 bg-gray-100 rounded-lg px-2.5 py-1">{locations[0].name}</span>
-          </div>
+        {isEditingLocation ? (
+          <>
+            <input
+              type="text"
+              value={locationName}
+              onChange={e => setLocationName(e.target.value)}
+              placeholder="e.g. Main Lobby"
+              className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+            />
+            {locationError && <p className="text-sm text-red-600">{locationError}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setIsEditingLocation(false)}
+                disabled={locationMutation.isPending}
+                className="flex-1 py-2 rounded-lg border border-gray-200 text-slate-600 font-semibold text-sm hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => locationMutation.mutate()}
+                disabled={locationMutation.isPending}
+                className="flex-1 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
+              >
+                {locationMutation.isPending ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </>
+        ) : (
+          <LockedField label="Name" value={locations[0]?.name ?? ''} onEdit={openLocationEditor} />
         )}
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={locationName}
-            onChange={e => setLocationName(e.target.value)}
-            placeholder="e.g. Main Lobby"
-            className="flex-1 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-          />
-          <button
-            onClick={() => locationMutation.mutate()}
-            disabled={locationMutation.isPending}
-            className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0"
-          >
-            {locationMutation.isPending ? 'Saving…' : 'Save'}
-          </button>
-        </div>
-        {locationError && <p className="text-sm text-red-600">{locationError}</p>}
       </div>
     </div>
   )
@@ -203,7 +321,7 @@ function CollapsibleSection({
   children,
   badge,
   borderColor = 'border-gray-100',
-  defaultOpen = true,
+  defaultOpen = false,
 }: {
   title: React.ReactNode
   children: React.ReactNode
@@ -610,7 +728,7 @@ function HeatLocationEditor({
 }) {
   const [name, setName] = useState(locations[0]?.name ?? '')
   const [error, setError] = useState<string | null>(null)
-  const [, setSaved] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
 
   useEffect(() => { setName(locations[0]?.name ?? '') }, [locations])
 
@@ -632,39 +750,49 @@ function HeatLocationEditor({
     onSuccess: () => {
       onSuccess()
       setError(null)
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
+      setIsEditing(false)
     },
     onError: e => setError(e instanceof Error ? e.message : 'Failed to save'),
   })
 
-  const savedName = locations[0]?.name
+  function openEditor() {
+    setName(locations[0]?.name ?? '')
+    setError(null)
+    setIsEditing(true)
+  }
 
   return (
     <div className="space-y-3">
-      {savedName && (
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400">Saved:</span>
-          <span className="text-sm text-gray-400 bg-gray-100 rounded-lg px-2.5 py-1">{savedName}</span>
-        </div>
+      {isEditing ? (
+        <>
+          <input
+            type="text"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="e.g. Track"
+            className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+          />
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setIsEditing(false)}
+              disabled={mutation.isPending}
+              className="flex-1 py-2 rounded-lg border border-gray-200 text-slate-600 font-semibold text-sm hover:bg-gray-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => mutation.mutate()}
+              disabled={mutation.isPending}
+              className="flex-1 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
+            >
+              {mutation.isPending ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </>
+      ) : (
+        <LockedField label="Name" value={locations[0]?.name ?? ''} onEdit={openEditor} />
       )}
-      <div className="flex gap-2">
-        <input
-          type="text"
-          value={name}
-          onChange={e => setName(e.target.value)}
-          placeholder="e.g. Track"
-          className="flex-1 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-        />
-        <button
-          onClick={() => mutation.mutate()}
-          disabled={mutation.isPending}
-          className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0"
-        >
-          {mutation.isPending ? 'Saving…' : 'Save'}
-        </button>
-      </div>
-      {error && <p className="text-sm text-red-600">{error}</p>}
     </div>
   )
 }
@@ -700,6 +828,7 @@ export default function SportConfigPage() {
   // Schedule config state
   const [configDuration, setConfigDuration] = useState<number | null>(null)
   const [configStart, setConfigStart] = useState<string | null>(null)
+  const [isEditingSchedule, setIsEditingSchedule] = useState(false)
   const [configError, setConfigError] = useState<string | null>(null)
   const [configVenue, setConfigVenue] = useState<string | null>(null)
   const [configAssumedCourts, setConfigAssumedCourts] = useState<number | null>(null)
@@ -831,9 +960,28 @@ export default function SportConfigPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['sports'] })
       setConfigError(null)
+      setIsEditingSchedule(false)
     },
     onError: (e) => setConfigError(e instanceof Error ? e.message : 'Failed to save config'),
   })
+
+  function openScheduleEditor() {
+    setConfigDuration(null)
+    setConfigStart(null)
+    setConfigVenue(null)
+    setConfigAssumedCourts(null)
+    setConfigError(null)
+    setIsEditingSchedule(true)
+  }
+
+  function cancelScheduleEdit() {
+    setConfigDuration(null)
+    setConfigStart(null)
+    setConfigVenue(null)
+    setConfigAssumedCourts(null)
+    setConfigError(null)
+    setIsEditingSchedule(false)
+  }
 
   const createCourtMutation = useMutation({
     mutationFn: (courtNumberOrName: number | string) => createLocation(sportId!, courtNumberOrName),
@@ -1240,57 +1388,81 @@ const genMutation = useMutation({
 
       {/* Schedule Config */}
       <CollapsibleSection title="Scheduling">
-        <label className="space-y-1 block">
-          <span className="text-xs text-gray-400">Start time</span>
-          <input
-            type="datetime-local"
-            value={effectiveStart}
-            onChange={e => setConfigStart(e.target.value)}
-            className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-          />
-        </label>
-        <label className="space-y-1 block">
-          <span className="text-xs text-gray-400">Match duration (min)</span>
-          <input
-            type="number"
-            min={5}
-            value={effectiveDuration}
-            onChange={e => setConfigDuration(Number(e.target.value))}
-            className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-          />
-        </label>
-        {!isHeats && (
-          <label className="space-y-1 block">
-            <span className="text-xs text-gray-400">Venue label (shown on schedule when no court assigned)</span>
-            <input
-              type="text"
-              placeholder='e.g. "Cornhole Area", "Soccer Fields"'
-              value={effectiveVenue}
-              onChange={e => setConfigVenue(e.target.value)}
-              className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-            />
-          </label>
+        {isEditingSchedule ? (
+          <>
+            <label className="space-y-1 block">
+              <span className="text-xs text-gray-400">Start time</span>
+              <input
+                type="datetime-local"
+                value={effectiveStart}
+                onChange={e => setConfigStart(e.target.value)}
+                className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+              />
+            </label>
+            <label className="space-y-1 block">
+              <span className="text-xs text-gray-400">Match duration (min)</span>
+              <input
+                type="number"
+                min={5}
+                value={effectiveDuration}
+                onChange={e => setConfigDuration(Number(e.target.value))}
+                className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+              />
+            </label>
+            {!isHeats && (
+              <label className="space-y-1 block">
+                <span className="text-xs text-gray-400">Venue label (shown on schedule when no court assigned)</span>
+                <input
+                  type="text"
+                  placeholder='e.g. "Cornhole Area", "Soccer Fields"'
+                  value={effectiveVenue}
+                  onChange={e => setConfigVenue(e.target.value)}
+                  className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+                />
+              </label>
+            )}
+            {isPoolSwiss && (
+              <label className="space-y-1 block">
+                <span className="text-xs text-gray-400">Assumed boards/courts per group (used for scheduling when no courts are assigned)</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={effectiveAssumedCourts}
+                  onChange={e => setConfigAssumedCourts(Number(e.target.value))}
+                  className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+                />
+              </label>
+            )}
+            {configError && <p className="text-sm text-red-600">{configError}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={cancelScheduleEdit}
+                disabled={configMutation.isPending}
+                className="flex-1 py-2 rounded-lg border border-gray-200 text-slate-600 font-semibold text-sm hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => configMutation.mutate()}
+                disabled={configMutation.isPending}
+                className="flex-1 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
+              >
+                {configMutation.isPending ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <LockedDateField label="Start time" value={sport.schedule_start} onEdit={openScheduleEditor} />
+            <LockedField label="Match duration (min)" value={String(effectiveDuration)} onEdit={openScheduleEditor} />
+            {!isHeats && (
+              <LockedField label="Venue label" value={effectiveVenue} onEdit={openScheduleEditor} />
+            )}
+            {isPoolSwiss && (
+              <LockedField label="Assumed boards/courts per group" value={String(effectiveAssumedCourts)} onEdit={openScheduleEditor} />
+            )}
+          </>
         )}
-        {isPoolSwiss && (
-          <label className="space-y-1 block">
-            <span className="text-xs text-gray-400">Assumed boards/courts per group (used for scheduling when no courts are assigned)</span>
-            <input
-              type="number"
-              min={1}
-              value={effectiveAssumedCourts}
-              onChange={e => setConfigAssumedCourts(Number(e.target.value))}
-              className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-            />
-          </label>
-        )}
-        {configError && <p className="text-sm text-red-600">{configError}</p>}
-        <button
-          onClick={() => configMutation.mutate()}
-          disabled={configMutation.isPending}
-          className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
-        >
-          {configMutation.isPending ? 'Saving…' : configMutation.isSuccess ? 'Saved' : 'Save'}
-        </button>
       </CollapsibleSection>
 
       {/* Courts — hidden for pool_swiss (uses venue label + assumed boards instead) */}
@@ -1781,7 +1953,7 @@ const genMutation = useMutation({
       </CollapsibleSection>
 
       {/* Danger zone */}
-      <CollapsibleSection title="Danger Zone" borderColor="border-red-100" defaultOpen={false}>
+      <CollapsibleSection title="Reset" borderColor="border-red-100" defaultOpen={false}>
         {resetMutation.isError && <p className="text-sm text-red-600">{genError}</p>}
         <button
           onClick={handleReset}
