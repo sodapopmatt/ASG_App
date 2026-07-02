@@ -69,6 +69,36 @@ def assert_all_scheduled_have_estimates(matches, est):
         )
 
 
+def assert_plan_priority(matches, est, minutes):
+    """Dynamically-timed matches (no scheduled_at) must queue behind every
+    still-pending explicitly scheduled match on their court — a round-2 game
+    must never leapfrog a planned round-1 game into a gap."""
+    horizon = {}
+    for m in matches:
+        loc = m.get("location_id")
+        if not loc or not m.get("scheduled_at"):
+            continue
+        if m["status"] != "scheduled" or m.get("actual_start"):
+            continue
+        finish_parts = m["scheduled_at"].replace("Z", "+00:00")
+        from datetime import datetime
+        finish = datetime.fromisoformat(finish_parts) + duration_of(m, minutes)
+        if loc not in horizon or finish > horizon[loc]:
+            horizon[loc] = finish
+
+    for m in matches:
+        loc = m.get("location_id")
+        t = est.get(m["id"])
+        if loc is None or t is None or m.get("scheduled_at") or is_bye_autocomplete(m):
+            continue
+        bound = horizon.get(loc)
+        if bound is not None:
+            assert t >= bound, (
+                f"unscheduled match {m['id']} (round {m.get('match_round')}) starts {t}, "
+                f"jumping ahead of planned matches on court {loc} (last ends {bound})"
+            )
+
+
 def assert_court_load_balanced(real_matches, n_courts):
     """Real (playable) matches must spread across courts so that no court hosts
     more than ceil(count / n_courts) of them — an overloaded court stretches the

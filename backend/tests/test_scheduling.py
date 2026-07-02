@@ -16,6 +16,7 @@ from invariants import (
     assert_feeder_ordering,
     assert_all_scheduled_have_estimates,
     assert_court_load_balanced,
+    assert_plan_priority,
     is_bye_autocomplete,
 )
 
@@ -65,6 +66,7 @@ def test_generation_schedule_invariants(bracket_type, n_teams, n_courts):
     assert_no_court_overlap(rows, est, DUR)
     assert_feeder_ordering(rows, est, DUR)
     assert_all_scheduled_have_estimates(rows, est)
+    assert_plan_priority(rows, est, DUR)
 
 
 @pytest.mark.parametrize("bracket_type", ["single_elimination", "double_elimination"])
@@ -132,6 +134,7 @@ def test_full_tournament_progression(bracket_type, n_teams, n_courts):
         rows, est = estimates(db, sport_id)
         assert_no_court_overlap(rows, est, DUR)
         assert_feeder_ordering(rows, est, DUR)
+        assert_plan_priority(rows, est, DUR)
 
         playable = [
             m for m in rows

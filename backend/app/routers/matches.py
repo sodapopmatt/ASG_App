@@ -81,6 +81,23 @@ def _compute_estimated_starts(
 
     feeder_finish: dict[str, datetime] = {}  # match_id -> latest feeder finish
 
+    # Explicitly scheduled, still-pending matches reserve their court: a
+    # dynamically-timed match (later round, losers bracket) queues behind the
+    # whole plan rather than jumping into a gap. Without this, a round-2 match
+    # with a bye feeder becomes "ready" after a single round-1 game and
+    # leapfrogs round-1 games the admin scheduled later on the same court.
+    court_horizon: dict[str, datetime] = {}
+    for m in matches:
+        loc = m.get("location_id")
+        scheduled = _parse_dt(m.get("scheduled_at"))
+        if not loc or scheduled is None:
+            continue
+        if m.get("status") != "scheduled" or m.get("actual_start"):
+            continue  # finished or started matches no longer hold their slot
+        planned_finish = scheduled + _duration(m)
+        if loc not in court_horizon or planned_finish > court_horizon[loc]:
+            court_horizon[loc] = planned_finish
+
     def _ready(m: dict) -> datetime | None:
         actual = _parse_dt(m.get("actual_start"))
         if actual:
@@ -94,6 +111,10 @@ def _compute_estimated_starts(
                 sport_start = sport_start_map.get(m.get("sport_id", ""))
                 if sport_start and (m.get("home_team_id") or m.get("away_team_id")):
                     constraints.append(sport_start)
+                if not _is_bye_autocomplete(m):
+                    horizon = court_horizon.get(m.get("location_id") or "")
+                    if horizon:
+                        constraints.append(horizon)
             finish = feeder_finish.get(m["id"])
             if finish:
                 constraints.append(finish)
@@ -127,6 +148,10 @@ def _compute_estimated_starts(
             est = actual
             if loc:
                 court_free[loc] = actual + _duration(m)  # anchor the timeline
+        elif _is_bye_autocomplete(m):
+            # Byes need no court: they resolve the moment their feeder ends,
+            # without waiting for the court or holding it
+            est = _ready(m)
         else:
             est = _ready(m)
             if est is not None and loc:

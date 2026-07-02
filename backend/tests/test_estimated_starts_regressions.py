@@ -120,6 +120,32 @@ def test_completed_match_keeps_slot_and_next_follows():
     assert est["next"] == START + timedelta(minutes=DUR)
 
 
+def test_bye_fed_r2_does_not_leapfrog_planned_r1():
+    """Basketball divisions bug: an R2 match with a bye feeder becomes 'ready'
+    after a single R1 game and used to jump into the court's schedule ahead of
+    R1 games planned later on that court. It must queue behind the whole plan."""
+    matches = [
+        _match("r1a", home_team_id="t1", away_team_id="t2", location_id="north",
+               scheduled_at=START.isoformat(), winner_next_match_id="r2"),
+        _match("r1b", home_team_id="t3", away_team_id="t4", location_id="north",
+               scheduled_at=(START + timedelta(minutes=DUR)).isoformat()),
+        _match("r1c", home_team_id="t5", away_team_id="t6", location_id="north",
+               scheduled_at=(START + timedelta(minutes=2 * DUR)).isoformat()),
+        # WB R1 bye, auto-completed at generation: its winner sits in r2 already
+        _match("bye", home_team_id="t7", away_slot_state="bye",
+               status="completed", winner_id="t7", winner_next_match_id="r2"),
+        _match("r2", match_round=2, home_team_id="t7", location_id="north"),
+    ]
+    est = _compute(matches)
+
+    # Planned R1 games keep their slots — no leapfrogging
+    assert est["r1a"] == START
+    assert est["r1b"] == START + timedelta(minutes=DUR)
+    assert est["r1c"] == START + timedelta(minutes=2 * DUR)
+    # R2 queues behind the whole planned block even though its feeder ended early
+    assert est["r2"] == START + timedelta(minutes=3 * DUR)
+
+
 def test_completed_bye_has_no_estimate():
     """An auto-completed bye with no scheduled_at carries no estimate at all."""
     matches = [
