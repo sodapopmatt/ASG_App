@@ -48,6 +48,20 @@ def create_team(body: TeamCreate, _=Depends(require_admin)):
 
 @router.patch("/{team_id}", response_model=Team)
 def update_team(team_id: str, body: TeamUpdate, _=Depends(require_admin)):
+    if body.name is not None:
+        current = supabase.table("teams").select("company_id, sport_id").eq("id", team_id).limit(1).execute()
+        if not current.data:
+            raise HTTPException(status_code=404, detail="Team not found")
+        row = current.data[0]
+        existing = (
+            supabase.table("teams").select("id")
+            .eq("company_id", row["company_id"]).eq("sport_id", row["sport_id"]).eq("name", body.name)
+            .neq("id", team_id)
+            .execute()
+        )
+        if existing.data:
+            raise HTTPException(status_code=422, detail=f"A team named '{body.name}' already exists for this company and sport")
+
     return supabase.table("teams").update(body.model_dump(exclude_none=True)).eq("id", team_id).execute().data[0]
 
 

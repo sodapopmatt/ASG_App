@@ -273,6 +273,14 @@ export default function BracketResultsPage() {
     return map
   }, [bracketsQuery.data])
 
+  const bracketNameMap = useMemo((): Record<string, string> => {
+    const map: Record<string, string> = {}
+    for (const b of (bracketsQuery.data ?? [])) {
+      map[b.id] = b.name
+    }
+    return map
+  }, [bracketsQuery.data])
+
   const divisionNames = useMemo(
     () => [...new Set((bracketsQuery.data ?? []).map(b => b.division).filter((d): d is string => !!d))],
     [bracketsQuery.data],
@@ -350,7 +358,7 @@ export default function BracketResultsPage() {
       })),
       ...(championship.length > 0 ? [{
         key: '__final_game',
-        title: 'Final Game',
+        title: bracketNameMap[championship[0].bracket_id ?? ''] ?? 'Championship',
         content: (
           <div className="space-y-2">
             {championship.map(m => (

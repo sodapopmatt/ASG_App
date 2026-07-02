@@ -112,6 +112,65 @@ def test_pool_standings_after_results(monkeypatch):
     assert_team_states_consistent(db.rows("matches"))
 
 
+def test_pool_bracket_standings_ignore_scores_on_ties(monkeypatch):
+    """Locked V1 rule: pool_bracket sports (Soccer/Ultimate/Pickleball) rank by
+    wins/losses only — ties are NOT broken by score. Two teams with identical
+    records but very different scores must share a rank."""
+    db, sport_id, pools = make_pool_sport([4])
+    h = RouterHarness(db, monkeypatch)
+    h.generate(sport_id, pools=pools)
+
+    a, b, c, d = pools[0].team_ids
+    rows = db.rows("matches")
+
+    def match_between(x, y):
+        return next(m for m in rows if {m["home_team_id"], m["away_team_id"]} == {x, y})
+
+    # a and b both go 2-1, but a's wins are blowouts (huge goal_diff) and b's
+    # are narrow — under the old code this separated their rank, it must not.
+    h.result(match_between(a, b)["id"], a, home_score=10, away_score=0)
+    h.result(match_between(a, c)["id"], a, home_score=5, away_score=4)
+    h.result(match_between(a, d)["id"], d, home_score=0, away_score=1)
+    h.result(match_between(b, c)["id"], b, home_score=1, away_score=0)
+    h.result(match_between(b, d)["id"], b, home_score=1, away_score=0)
+    h.result(match_between(c, d)["id"], d, home_score=0, away_score=1)
+
+    standings = h.standings(sport_id)
+    table = {row["team_id"]: row for row in standings[0]["standings"]}
+
+    assert table[a]["wins"] == 2 and table[b]["wins"] == 2
+    assert table[a]["goal_diff"] != table[b]["goal_diff"]  # scores genuinely differ
+    assert table[a]["rank"] == table[b]["rank"] == 1  # but rank ties anyway
+
+
+def test_pool_swiss_standings_use_score_based_tiebreak(monkeypatch):
+    """Cornhole (pool_swiss) is genuinely scored by points, so its ranking
+    intentionally breaks ties by goal_diff — this is a deliberate exception
+    to the pool_bracket no-score rule, not a violation of it."""
+    db, sport_id, pools = make_pool_sport([4], bracket_type="pool_swiss")
+    h = RouterHarness(db, monkeypatch)
+    h.generate(sport_id, pools=pools)
+
+    a, b, c, d = pools[0].team_ids
+    rows = db.rows("matches")
+
+    def match_between(x, y):
+        return next(m for m in rows if {m["home_team_id"], m["away_team_id"]} == {x, y})
+
+    h.result(match_between(a, b)["id"], a, home_score=10, away_score=0)
+    h.result(match_between(a, c)["id"], a, home_score=5, away_score=4)
+    h.result(match_between(a, d)["id"], d, home_score=0, away_score=1)
+    h.result(match_between(b, c)["id"], b, home_score=1, away_score=0)
+    h.result(match_between(b, d)["id"], b, home_score=1, away_score=0)
+    h.result(match_between(c, d)["id"], d, home_score=0, away_score=1)
+
+    standings = h.standings(sport_id)
+    table = {row["team_id"]: row for row in standings[0]["standings"]}
+
+    assert table[a]["tournament_points"] == table[b]["tournament_points"]
+    assert table[a]["rank"] != table[b]["rank"]  # goal_diff breaks the tie here
+
+
 def test_draw_rejected_for_bracket_matches(monkeypatch):
     """Draws are pool-only: a match with advancement links must reject one."""
     from app.bracket_engine.generator import persist_bracket
@@ -177,6 +236,19 @@ def test_bracket_phase_rejects_clear_existing(monkeypatch):
     h.generate(sport_id, pools=pools)
     with pytest.raises(HTTPException) as exc:
         h.generate(sport_id, team_ids=pools[0].team_ids, clear_existing=True)
+    assert exc.value.status_code == 422
+
+
+def test_pool_generation_rejects_duplicate_court_across_pools(monkeypatch):
+    """A court assigned to two pools must be rejected — otherwise both pools'
+    matches can be scheduled on the same physical court simultaneously."""
+    db, sport_id, pools = make_pool_sport([4, 4])
+    h = RouterHarness(db, monkeypatch)
+    shared_court = pools[0].location_ids[0]
+    pools[1].location_ids = [shared_court]
+
+    with pytest.raises(HTTPException) as exc:
+        h.generate(sport_id, pools=pools)
     assert exc.value.status_code == 422
 
 

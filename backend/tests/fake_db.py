@@ -14,7 +14,8 @@ _TABLE_COLUMNS = {
         "id", "name", "bracket_type", "teams_per_company", "scoring_direction",
         "multi_team_rule", "points_scale", "match_duration_minutes", "schedule_start",
     ],
-    "teams": ["id", "company_id", "sport_id", "name"],
+    "teams": ["id", "company_id", "sport_id", "name", "created_at", "seed", "pool_index"],
+    "companies": ["id", "name", "short_id", "logo_url", "created_at"],
     "brackets": ["id", "sport_id", "name", "phase", "division"],
     "matches": [
         "id", "sport_id", "bracket_id", "home_team_id", "away_team_id",
@@ -25,8 +26,21 @@ _TABLE_COLUMNS = {
         "home_slot_state", "away_slot_state", "time_ms",
     ],
     "locations": ["id", "sport_id", "name", "pool_index"],
-    "event_points": ["id", "company_id", "sport_id", "placement", "points"],
+    "event_points": ["id", "company_id", "sport_id", "placement", "points", "notes", "created_at"],
 }
+
+
+_FIXED_CREATED_AT = "2000-01-01T00:00:00+00:00"
+
+
+def _new_row(defaults, item):
+    row = {col: None for col in defaults}
+    row.update(item)
+    if not row.get("id"):
+        row["id"] = str(uuid.uuid4())
+    if "created_at" in row and row["created_at"] is None:
+        row["created_at"] = _FIXED_CREATED_AT
+    return row
 
 
 class _Result:
@@ -66,6 +80,12 @@ class _Query:
     def insert(self, payload):
         self._op = "insert"
         self._payload = payload
+        return self
+
+    def upsert(self, payload, on_conflict=None):
+        self._op = "upsert"
+        self._payload = payload
+        self._on_conflict = on_conflict
         return self
 
     def update(self, payload):
@@ -115,13 +135,28 @@ class _Query:
             payload = self._payload if isinstance(self._payload, list) else [self._payload]
             inserted = []
             for item in payload:
-                row = {col: None for col in defaults}
-                row.update(item)
-                if not row.get("id"):
-                    row["id"] = str(uuid.uuid4())
+                row = _new_row(defaults, item)
                 rows.append(row)
                 inserted.append(deepcopy(row))
             return _Result(inserted)
+
+        if self._op == "upsert":
+            payload = self._payload if isinstance(self._payload, list) else [self._payload]
+            conflict_cols = (self._on_conflict or "id").split(",")
+            upserted = []
+            for item in payload:
+                match = next(
+                    (r for r in rows if all(r.get(c) == item.get(c) for c in conflict_cols)),
+                    None,
+                )
+                if match is not None:
+                    match.update(item)
+                    upserted.append(deepcopy(match))
+                else:
+                    row = _new_row(defaults, item)
+                    rows.append(row)
+                    upserted.append(deepcopy(row))
+            return _Result(upserted)
 
         if self._op == "update":
             updated = []

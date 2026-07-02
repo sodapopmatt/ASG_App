@@ -393,7 +393,10 @@ export default function PoolResultsPage() {
   const showGameScores    = sport?.name?.toLowerCase() === 'pickleball'
   const showSoccerStats   = sport?.name?.toLowerCase() === 'soccer'
   const showCornhole      = sport?.bracket_type === 'pool_swiss'
-  const showDraw          = sport?.name?.toLowerCase() === 'soccer' || showCornhole
+  // Draws are valid for any pool play match (no winner_next_match_id), not
+  // just Soccer/Cornhole — the backend's /matches/{id}/draw endpoint accepts
+  // this for all pool_bracket / pool_swiss sports (Ultimate, Pickleball too).
+  const showDraw          = sport?.bracket_type === 'pool_bracket' || sport?.bracket_type === 'pool_swiss'
 
   const [activePoolId, setActivePoolId] = useTabMemory<string>(
     `pool-results-tabs-${sportId ?? ''}`,

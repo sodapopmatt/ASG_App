@@ -1314,7 +1314,11 @@ const genMutation = useMutation({
                   <div key={loc.id} className="flex items-center gap-1.5 bg-gray-100 border border-gray-200 rounded-lg px-2.5 py-1.5">
                     <span className="text-sm text-slate-700">{loc.name}</span>
                     <button
-                      onClick={() => deleteCourtMutation.mutate(loc.id)}
+                      onClick={() => {
+                        if (confirm(`Remove court "${loc.name}"? Any scheduled matches on it will lose their court assignment.`)) {
+                          deleteCourtMutation.mutate(loc.id)
+                        }
+                      }}
                       disabled={deleteCourtMutation.isPending}
                       className="text-gray-400 hover:text-red-500 disabled:opacity-40 leading-none text-base"
                     >

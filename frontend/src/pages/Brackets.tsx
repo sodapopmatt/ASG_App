@@ -15,7 +15,8 @@ import { getTeams } from '../api/teams'
 import { getCompanies } from '../api/companies'
 import { getBrackets } from '../api/brackets'
 import { getDonationCounts } from '../api/donation_counts'
-import type { Match, Team, Company, Sport, Bracket, DonationCount } from '../types'
+import { getEventPoints } from '../api/event_points'
+import type { Match, Team, Company, Sport, Bracket, DonationCount, EventPoints } from '../types'
 import { toLibraryMatch, stableSortMatches, lightTheme, bracketOptions, BracketSvgWrapper, compactLabel, buildMultiTeamKeys, compareBracketNames } from '../lib/bracketHelpers'
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
@@ -23,18 +24,10 @@ function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
 }
 
 // ---- Donation counts view --------------------------------------------------
-
-function donationPointsFor(counts: number[]): Record<number, number> {
-  const distinct = Array.from(new Set(counts)).sort((a, b) => b - a)
-  const map: Record<number, number> = {}
-  distinct.forEach((c, i) => {
-    if (i === 0) map[c] = 15
-    else if (i === 1) map[c] = 10
-    else if (c >= 10) map[c] = 5
-    else map[c] = 0
-  })
-  return map
-}
+// Rank and points are the backend's computed event_points, not recomputed
+// here — the bucket rules (top=15, second=10, >=10 items=5, else=0) live
+// only in /donation-counts on the server per the "no business logic
+// duplication" rule.
 
 function DonationCountsView({
   sportId,
@@ -43,24 +36,25 @@ function DonationCountsView({
   sportId: string
   companyMap: Record<string, Company>
 }) {
-  const { data: donations = [], isLoading } = useQuery<DonationCount[]>({
+  const { data: donations = [], isLoading: donationsLoading } = useQuery<DonationCount[]>({
     queryKey: ['donation-counts', sportId],
     queryFn: () => getDonationCounts({ sport_id: sportId }),
   })
+  const { data: eventPoints = [], isLoading: pointsLoading } = useQuery<EventPoints[]>({
+    queryKey: ['event-points', sportId],
+    queryFn: () => getEventPoints({ sport_id: sportId }),
+  })
+  const isLoading = donationsLoading || pointsLoading
 
   const rows = useMemo(() => {
-    const ptMap = donationPointsFor(donations.map(d => d.item_count))
-    const distinctDesc = Object.keys(ptMap).map(Number).sort((a, b) => b - a)
-    const rankFor: Record<number, number> = {}
-    distinctDesc.forEach((c, i) => { rankFor[c] = i + 1 })
+    const pointsByCompany = indexBy(eventPoints, 'company_id')
     return [...donations]
       .sort((a, b) => b.item_count - a.item_count)
-      .map(d => ({
-        donation: d,
-        rank: rankFor[d.item_count],
-        points: ptMap[d.item_count] ?? 0,
-      }))
-  }, [donations])
+      .map(d => {
+        const ep = pointsByCompany[d.company_id]
+        return { donation: d, rank: ep?.placement ?? null, points: ep?.points ?? 0 }
+      })
+  }, [donations, eventPoints])
 
   if (isLoading) return <p className="text-center text-gray-400 py-12">Loading…</p>
   if (rows.length === 0) {
@@ -83,7 +77,7 @@ function DonationCountsView({
             const company = companyMap[donation.company_id]
             return (
               <tr key={donation.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
-                <td className="px-3 py-2 font-bold text-gray-400 tabular-nums">{rank}</td>
+                <td className="px-3 py-2 font-bold text-gray-400 tabular-nums">{rank ?? '—'}</td>
                 <td className="px-3 py-2 text-slate-800">{company?.name ?? '—'}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-slate-700">{donation.item_count}</td>
                 <td className="px-3 py-2 text-right tabular-nums font-bold text-blue-600">{points}</td>
@@ -710,6 +704,14 @@ export default function BracketView() {
     return map
   }, [bracketsQuery.data])
 
+  const bracketNameMap = useMemo((): Record<string, string> => {
+    const map: Record<string, string> = {}
+    for (const b of (bracketsQuery.data ?? [])) {
+      map[b.id] = b.name
+    }
+    return map
+  }, [bracketsQuery.data])
+
   const divisionNames = useMemo(
     () => [...new Set((bracketsQuery.data ?? []).map(b => b.division).filter((d): d is string => !!d))],
     [bracketsQuery.data],
@@ -788,9 +790,10 @@ export default function BracketView() {
         sections.push({ key: div, title: div, content: renderElimination(byDivision[div] ?? []) })
       }
       if (championship.length > 0) {
+        const championshipName = bracketNameMap[championship[0].bracket_id ?? ''] ?? 'Championship'
         sections.push({
           key: '__final_game',
-          title: 'Final Game',
+          title: championshipName,
           content: <FallbackMatchList matches={championship} teamMap={teamMap} companyMap={companyMap} />,
         })
       }

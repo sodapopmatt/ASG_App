@@ -476,6 +476,8 @@ def _generate_pool_play(
         raise HTTPException(status_code=422, detail="Pool names must be unique")
 
     all_location_ids = [lid for p in pools for lid in p.location_ids]
+    if len(set(all_location_ids)) != len(all_location_ids):
+        raise HTTPException(status_code=422, detail="A court cannot be assigned to more than one pool")
     sport_location_set = set(sport_location_ids)
     bad_locations = [lid for lid in all_location_ids if lid not in sport_location_set]
     if bad_locations:
@@ -582,8 +584,14 @@ def _build_records(matches: list[dict], is_pool_swiss: bool = False) -> dict[str
 def _rank_standings(records: dict[str, dict], is_pool_swiss: bool = False) -> list[dict]:
     """Sort and assign ranks to standings records.
 
-    pool_swiss (Cornhole): sort by tournament_points â†’ goal_diff â†’ goals_for
-    Others: sort by wins â†’ goal_diff â†’ goals_for â†’ game_wins â†’ point_diff â†’ total_points
+    pool_swiss (Cornhole): sort by tournament_points â†’ goal_diff â†’ goals_for.
+    Cornhole is scored by bag points, so this ranking is intentionally
+    score-based (see docstrings above on tournament_points / goal_diff).
+
+    Others (pool_bracket: Soccer, Ultimate Frisbee, Pickleball): wins desc,
+    losses asc, ties share a rank. Per the locked V1 rule, pool play has no
+    score-based tiebreakers here â€” admins break ties manually when seeding
+    the bracket phase.
     """
     if is_pool_swiss:
         standings = sorted(
@@ -598,11 +606,11 @@ def _rank_standings(records: dict[str, dict], is_pool_swiss: bool = False) -> li
     else:
         standings = sorted(
             records.values(),
-            key=lambda r: (-r["wins"], -r["goal_diff"], -r["goals_for"], -r["game_wins"], -r["point_diff"], -r["total_points"]),
+            key=lambda r: (-r["wins"], r["losses"]),
         )
         prev_key = None
         for i, row in enumerate(standings):
-            key = (row["wins"], row["goal_diff"], row["goals_for"], row["game_wins"], row["point_diff"], row["total_points"])
+            key = (row["wins"], row["losses"])
             row["rank"] = standings[i - 1]["rank"] if key == prev_key else i + 1
             prev_key = key
     return standings

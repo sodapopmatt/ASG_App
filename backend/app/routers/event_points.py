@@ -41,7 +41,7 @@ def list_event_points(
 def award_placement(
     company_id: str,
     sport_id: str,
-    placement: int,
+    placement: int = Query(ge=1),
     tied_through: int | None = Query(None, description="Last place sharing this placement; points are averaged over the range"),
     _=Depends(require_admin),
 ):
@@ -55,6 +55,10 @@ def award_placement(
     sport = supabase.table("sports").select("points_scale").eq("id", sport_id).limit(1).execute()
     if not sport.data:
         raise HTTPException(status_code=404, detail="Sport not found")
+
+    company = supabase.table("companies").select("id").eq("id", company_id).limit(1).execute()
+    if not company.data:
+        raise HTTPException(status_code=404, detail="Company not found")
 
     points = _compute_points(placement, sport.data[0].get("points_scale"), tied_through)
     payload = {"company_id": company_id, "sport_id": sport_id, "placement": placement, "points": points}

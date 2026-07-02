@@ -194,7 +194,11 @@ export default function AlertsPage() {
                     {isExpired(a) && a.active ? ' · expired' : ''}
                   </span>
                   <button
-                    onClick={() => deleteMutation.mutate(a.id)}
+                    onClick={() => {
+                      if (confirm('Delete this alert? This cannot be undone.')) {
+                        deleteMutation.mutate(a.id)
+                      }
+                    }}
                     disabled={deleteMutation.isPending}
                     className="text-xs text-red-600 font-semibold hover:underline"
                   >
