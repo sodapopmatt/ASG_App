@@ -34,6 +34,10 @@ export default function MatchResultModal({
   const multiTeamKeys = useMemo(() => buildMultiTeamKeys(teamMap), [teamMap])
   const homeLabel = compactLabel(match.home_team_id, teamMap, companyMap, undefined, multiTeamKeys)
   const awayLabel = compactLabel(match.away_team_id, teamMap, companyMap, undefined, multiTeamKeys)
+  const hasBothScores = homeScore.trim() !== '' && awayScore.trim() !== ''
+  const isTiedScore = hasBothScores && Number(homeScore) === Number(awayScore)
+  const homeLosingByScore = hasBothScores && Number(homeScore) < Number(awayScore)
+  const awayLosingByScore = hasBothScores && Number(awayScore) < Number(homeScore)
   const isScheduled = match.status === 'scheduled'
   const isDone = match.status === 'completed' || match.status === 'forfeit' || match.status === 'double_forfeit' || match.status === 'draw'
 
@@ -238,14 +242,14 @@ export default function MatchResultModal({
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => resultMutation.mutate(match.home_team_id!)}
-                  disabled={isPending || !match.home_team_id}
+                  disabled={isPending || !match.home_team_id || isTiedScore || homeLosingByScore}
                   className="py-3 px-2 rounded-xl bg-gray-50 border-2 border-blue-200 text-sm font-semibold text-slate-800 hover:border-blue-500 hover:bg-blue-50 disabled:opacity-40 transition-colors"
                 >
                   {homeLabel}
                 </button>
                 <button
                   onClick={() => resultMutation.mutate(match.away_team_id!)}
-                  disabled={isPending || !match.away_team_id}
+                  disabled={isPending || !match.away_team_id || isTiedScore || awayLosingByScore}
                   className="py-3 px-2 rounded-xl bg-gray-50 border-2 border-blue-200 text-sm font-semibold text-slate-800 hover:border-blue-500 hover:bg-blue-50 disabled:opacity-40 transition-colors"
                 >
                   {awayLabel}
