@@ -7,8 +7,9 @@ import { getCompanies } from '../../api/companies'
 import { getMatches } from '../../api/matches'
 import { getBrackets } from '../../api/brackets'
 import { getEventPoints, awardPlacement } from '../../api/event_points'
+import { getDonationCounts } from '../../api/donation_counts'
 import { getSportIcon } from '../../lib/sportIcons'
-import type { Sport, Company, EventPoints, Match, Bracket, Team } from '../../types'
+import type { Sport, Company, EventPoints, Match, Bracket, Team, DonationCount } from '../../types'
 import { compareBracketNames } from '../../lib/bracketHelpers'
 
 // ── Relay Race scoring ────────────────────────────────────────────────────────
@@ -389,6 +390,95 @@ function StandardScoringSection({
   )
 }
 
+// ── Donation scoring (read-only ranking by can count) ────────────────────────
+
+function DonationScoringSection({
+  sport,
+  companies,
+  eventPoints,
+}: {
+  sport: Sport
+  companies: Company[]
+  eventPoints: EventPoints[]
+}) {
+  const { data: donations = [] } = useQuery<DonationCount[]>({
+    queryKey: ['donation-counts', sport.id],
+    queryFn: () => getDonationCounts({ sport_id: sport.id }),
+  })
+
+  const countByCompany = useMemo(
+    () => Object.fromEntries(donations.map(d => [d.company_id, d.item_count])),
+    [donations],
+  )
+  const pointsByCompany = useMemo(
+    () => Object.fromEntries(
+      eventPoints.filter(ep => ep.sport_id === sport.id).map(ep => [ep.company_id, ep.points])
+    ),
+    [eventPoints, sport.id],
+  )
+
+  const sorted = useMemo(
+    () =>
+      [...companies]
+        .map(c => ({ company: c, count: countByCompany[c.id] ?? 0, pts: pointsByCompany[c.id] ?? 0 }))
+        .sort((a, b) => b.count - a.count),
+    [companies, countByCompany, pointsByCompany],
+  )
+
+  const hasAny = sorted.some(r => r.count > 0)
+
+  if (!hasAny) {
+    return (
+      <p className="text-sm text-gray-400 text-center py-6">
+        No donations recorded yet. Enter counts from Enter Results first.
+      </p>
+    )
+  }
+
+  // Assign ranks with ties
+  let rank = 1
+  const ranked = sorted.map((row, i) => {
+    if (i > 0 && row.count < sorted[i - 1].count) rank = i + 1
+    return { ...row, rank: row.count > 0 ? rank : null }
+  })
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div
+          className="grid gap-2 px-4 py-2 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-400 uppercase tracking-wider"
+          style={{ gridTemplateColumns: '2rem 1fr auto auto' }}
+        >
+          <span>#</span><span>Company</span><span className="text-right">Cans</span><span className="text-right">Pts</span>
+        </div>
+        <div className="divide-y divide-gray-50">
+          {ranked.map(row => (
+            <div
+              key={row.company.id}
+              className="grid items-center px-4 py-2.5 gap-2"
+              style={{ gridTemplateColumns: '2rem 1fr auto auto' }}
+            >
+              <span className="text-xs font-bold text-gray-400 tabular-nums">
+                {row.rank ?? '—'}
+              </span>
+              <span className="text-sm font-semibold text-slate-800 truncate">{row.company.name}</span>
+              <span className="text-sm tabular-nums text-slate-600 text-right">
+                {row.count > 0 ? row.count : '—'}
+              </span>
+              <span className={`text-sm font-bold tabular-nums text-right ${row.pts > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
+                {row.pts}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <p className="text-xs text-gray-400 text-center">
+        Points auto-compute when donations are entered. Top donor: 15 pts · 2nd: 10 pts · ≥ 10 items: 5 pts.
+      </p>
+    </div>
+  )
+}
+
 // ── Sport detail (scoring UI for one sport) ───────────────────────────────────
 
 function SportScoringDetail({
@@ -410,6 +500,7 @@ function SportScoringDetail({
     enabled: sport.bracket_type === 'heats',
   })
 
+  const isDonation = sport.scoring_mode === 'donation_count'
   const isRelayRace = sport.bracket_type === 'heats' && sportBrackets.length > 0
   const sportTeams = useMemo(() => teams.filter(t => t.sport_id === sport.id), [teams, sport.id])
 
@@ -428,7 +519,9 @@ function SportScoringDetail({
         </h2>
       </div>
 
-      {isRelayRace ? (
+      {isDonation ? (
+        <DonationScoringSection sport={sport} companies={companies} eventPoints={eventPoints} />
+      ) : isRelayRace ? (
         <RelayRaceScoringSection sport={sport} companies={companies} teams={sportTeams} />
       ) : (
         <StandardScoringSection sport={sport} companies={companies} eventPoints={eventPoints} />
@@ -466,7 +559,7 @@ export default function ScoringPage() {
   })
 
   const placementSports = useMemo(
-    () => sports.filter(s => s.scoring_mode !== 'donation_count').sort((a, b) => a.name.localeCompare(b.name)),
+    () => [...sports].sort((a, b) => a.name.localeCompare(b.name)),
     [sports],
   )
 
@@ -511,7 +604,11 @@ export default function ScoringPage() {
       <h2 className="text-xl font-bold text-slate-800">Award Placements</h2>
 
       {placementSports.map(sport => {
+        const isDonation = sport.scoring_mode === 'donation_count'
         const placed = placedCountBySport.get(sport.id) ?? 0
+        const subtitle = isDonation
+          ? 'Ranked by donation count'
+          : placed === 0 ? 'No placements yet' : `${placed} ${placed === 1 ? 'company' : 'companies'} placed`
         return (
           <button
             key={sport.id}
@@ -521,11 +618,9 @@ export default function ScoringPage() {
             <span className="text-xl leading-none shrink-0">{getSportIcon(sport.name)}</span>
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-slate-800 truncate">{sport.name}</p>
-              <p className="text-xs text-gray-400 mt-0.5">
-                {placed === 0 ? 'No placements yet' : `${placed} ${placed === 1 ? 'company' : 'companies'} placed`}
-              </p>
+              <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>
             </div>
-            {placed > 0 && (
+            {!isDonation && placed > 0 && (
               <span className="shrink-0 text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
                 {placed}
               </span>

@@ -59,6 +59,8 @@ def _recompute_event_points(sport_id: str) -> None:
         .execute()
         .data
     )
+    # Only companies with at least one item count toward scoring.
+    rows = [r for r in rows if r["item_count"] > 0]
 
     # Clear existing event_points for this sport, then re-insert from scratch.
     supabase.table("event_points").delete().eq("sport_id", sport_id).execute()

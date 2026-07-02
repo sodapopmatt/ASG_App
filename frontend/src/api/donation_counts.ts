@@ -19,3 +19,7 @@ export function upsertDonationCount(company_id: string, sport_id: string, item_c
 export function deleteDonationCount(id: string) {
   return apiFetch<void>(`/donation-counts/${id}`, { method: 'DELETE' })
 }
+
+export function recomputeDonationPoints(sport_id: string) {
+  return apiFetch<void>(`/donation-counts/sports/${sport_id}/recompute`, { method: 'POST' })
+}
