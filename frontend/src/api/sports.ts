@@ -6,6 +6,9 @@ export const getSports = () => apiFetch<Sport[]>('/sports')
 export const resetBrackets = (sportId: string) =>
   apiFetch<void>(`/sports/${sportId}/brackets`, { method: 'DELETE' })
 
+export const resetBracketPhase = (sportId: string) =>
+  apiFetch<void>(`/sports/${sportId}/bracket-phase`, { method: 'DELETE' })
+
 export interface DivisionSpec {
   name: string
   team_ids: string[]

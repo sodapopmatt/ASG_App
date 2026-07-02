@@ -2,12 +2,13 @@
 import { useParams, Navigate } from 'react-router-dom'
 import BackLink from '../../components/BackLink'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getSports, generateBracket, resetBrackets, updateSport, setSeedOrder, setPoolSetup, getStandings, type DivisionSpec, type PoolSpec, type HeatSpec } from '../../api/sports'
+import { getSports, generateBracket, resetBrackets, resetBracketPhase, updateSport, setSeedOrder, setPoolSetup, getStandings, type DivisionSpec, type PoolSpec, type HeatSpec } from '../../api/sports'
 import { getMatches, patchMatch } from '../../api/matches'
 import { getTeams } from '../../api/teams'
 import { getCompanies } from '../../api/companies'
 import { getLocations, createLocation, deleteLocation, updateLocation } from '../../api/locations'
 import { getBrackets } from '../../api/brackets'
+import { buildMultiTeamKeys } from '../../lib/bracketHelpers'
 import type { Match, Team, Company, Location as LocationRow } from '../../types'
 
 const GENERATABLE = new Set(['single_elimination', 'double_elimination', 'heats', 'pool_bracket', 'pool_swiss'])
@@ -38,13 +39,15 @@ function teamLabel(
   teamId: string | null | undefined,
   teamMap: Record<string, Team>,
   companyMap: Record<string, Company>,
+  multiTeamKeys?: Set<string>,
 ): string {
   if (!teamId) return 'TBD'
   const team = teamMap[teamId]
   if (!team) return '—'
   const company = companyMap[team.company_id]
   const base = company?.name ?? 'Unknown'
-  return team.name ? `${base} · ${team.name}` : base
+  const showSuffix = team.name && (multiTeamKeys ? multiTeamKeys.has(`${team.company_id}:${team.sport_id}`) : true)
+  return showSuffix ? `${base} · ${team.name}` : base
 }
 
 function UpIcon() {
@@ -692,6 +695,7 @@ export default function SportConfigPage() {
   const sportTeams = useMemo(() => teams.filter(t => t.sport_id === sportId), [teams, sportId])
   const companyMap = useMemo(() => indexBy(companies, 'id') as Record<string, Company>, [companies])
   const teamMap = useMemo(() => indexBy(teams, 'id') as Record<string, Team>, [teams])
+  const multiTeamKeys = useMemo(() => buildMultiTeamKeys(teamMap), [teamMap])
 
   // Schedule config state
   const [configDuration, setConfigDuration] = useState<number | null>(null)
@@ -944,9 +948,15 @@ export default function SportConfigPage() {
     enabled: !!sportId && showBracketPhaseCard,
   })
 
+  const poolBracketIds = useMemo(
+    () => new Set(brackets.filter(b => b.phase === 'pool').map(b => b.id)),
+    [brackets],
+  )
   const pendingPoolCount = useMemo(
-    () => matches.filter(m => m.status === 'scheduled' || m.status === 'in_progress').length,
-    [matches],
+    () => matches.filter(
+      m => (m.status === 'scheduled' || m.status === 'in_progress') && m.bracket_id && poolBracketIds.has(m.bracket_id),
+    ).length,
+    [matches, poolBracketIds],
   )
 
   // Default advancing order: pool winners first, then runners-up, etc.
@@ -963,10 +973,14 @@ export default function SportConfigPage() {
   const advancing = advOverride ?? defaultAdvancing
 
   const teamRecord = useMemo(() => {
-    const map: Record<string, { wins: number; losses: number; game_wins: number; point_diff: number; total_points: number }> = {}
+    const map: Record<string, {
+      wins: number; losses: number; goal_diff: number; goals_for: number
+      game_wins: number; point_diff: number; total_points: number
+    }> = {}
     for (const pool of standings) {
       for (const row of pool.standings) map[row.team_id] = {
         wins: row.wins, losses: row.losses,
+        goal_diff: row.goal_diff, goals_for: row.goals_for,
         game_wins: row.game_wins, point_diff: row.point_diff, total_points: row.total_points,
       }
     }
@@ -982,7 +996,8 @@ export default function SportConfigPage() {
         return inside && outside &&
           inside.played > 0 &&
           inside.wins === outside.wins &&
-          inside.losses === outside.losses &&
+          inside.goal_diff === outside.goal_diff &&
+          inside.goals_for === outside.goals_for &&
           inside.game_wins === outside.game_wins &&
           inside.point_diff === outside.point_diff &&
           inside.total_points === outside.total_points
@@ -1046,6 +1061,17 @@ const genMutation = useMutation({
       setGenError(null)
     },
     onError: (e) => setGenError(e instanceof Error ? e.message : 'Failed to generate bracket phase'),
+  })
+
+  const restartBracketPhaseMutation = useMutation({
+    mutationFn: () => resetBracketPhase(sportId!),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['matches'] })
+      qc.invalidateQueries({ queryKey: ['brackets'] })
+      setAdvOverride(null)
+      setGenError(null)
+    },
+    onError: (e) => setGenError(e instanceof Error ? e.message : 'Failed to restart bracket phase'),
   })
 
   const resetMutation = useMutation({
@@ -1377,7 +1403,7 @@ const genMutation = useMutation({
               <button
                 onClick={handleRestartPoolPlay}
                 disabled={resetMutation.isPending}
-                className="w-full py-2 rounded-lg border border-amber-200 text-amber-700 font-semibold text-sm hover:bg-amber-50 disabled:opacity-50"
+                className="w-full py-2 rounded-lg border border-red-200 text-red-700 font-semibold text-sm hover:bg-red-50 disabled:opacity-50"
               >
                 {resetMutation.isPending ? 'Resetting…' : 'Restart Pool Play'}
               </button>
@@ -1616,8 +1642,8 @@ const genMutation = useMutation({
         <CollapsibleSection
           title="Generate Bracket Phase"
           badge={hasBracketPhase ? (
-            <span className="text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full shrink-0">
-              Additional bracket
+            <span className="text-xs font-semibold text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full shrink-0">
+              Generated
             </span>
           ) : undefined}
         >
@@ -1647,20 +1673,22 @@ const genMutation = useMutation({
                   <div key={teamId} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
                     <span className="text-xs font-bold text-gray-400 w-5 text-center">{idx + 1}</span>
                     <span className="flex-1 text-sm text-slate-700 truncate min-w-0">
-                      {teamLabel(teamId, teamMap, companyMap)}
+                      {teamLabel(teamId, teamMap, companyMap, multiTeamKeys)}
                     </span>
                     {record && (
                       <span className="text-xs text-gray-400 shrink-0">
-                        {record.wins}–{record.losses}
+                        {record.wins}–{record.losses} · {record.goal_diff >= 0 ? '+' : ''}{record.goal_diff}GD · {record.goals_for}GF
                         {sport?.name === 'Pickleball' && (
                           <> · {record.game_wins}GW · {record.point_diff >= 0 ? '+' : ''}{record.point_diff}PD</>
                         )}
                       </span>
                     )}
-                    <div className="flex gap-0.5">
-                      <button onClick={() => moveAdvancing(idx, -1)} disabled={idx === 0} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><UpIcon /></button>
-                      <button onClick={() => moveAdvancing(idx, 1)} disabled={idx === advancing.length - 1} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><DownIcon /></button>
-                    </div>
+                    {!hasBracketPhase && (
+                      <div className="flex gap-0.5">
+                        <button onClick={() => moveAdvancing(idx, -1)} disabled={idx === 0} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><UpIcon /></button>
+                        <button onClick={() => moveAdvancing(idx, 1)} disabled={idx === advancing.length - 1} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><DownIcon /></button>
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -1668,13 +1696,26 @@ const genMutation = useMutation({
           )}
 
           {genError && <p className="text-sm text-red-600">{genError}</p>}
-          <button
-            onClick={() => bracketPhaseMutation.mutate()}
-            disabled={bracketPhaseMutation.isPending || advancing.length < 2}
-            className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
-          >
-            {bracketPhaseMutation.isPending ? 'Generating…' : 'Generate Bracket Phase'}
-          </button>
+          {hasBracketPhase ? (
+            <button
+              onClick={() => {
+                if (!window.confirm('Restart the bracket phase? This deletes the current bracket and its matches (pool play is untouched) so you can re-seed and regenerate.')) return
+                restartBracketPhaseMutation.mutate()
+              }}
+              disabled={restartBracketPhaseMutation.isPending}
+              className="w-full py-2 rounded-lg border border-red-200 text-red-700 font-semibold text-sm hover:bg-red-50 disabled:opacity-50"
+            >
+              {restartBracketPhaseMutation.isPending ? 'Restarting…' : 'Restart Bracket Phase'}
+            </button>
+          ) : (
+            <button
+              onClick={() => bracketPhaseMutation.mutate()}
+              disabled={bracketPhaseMutation.isPending || advancing.length < 2}
+              className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
+            >
+              {bracketPhaseMutation.isPending ? 'Generating…' : 'Generate Bracket Phase'}
+            </button>
+          )}
         </CollapsibleSection>
       )}
 
@@ -1695,8 +1736,8 @@ const genMutation = useMutation({
                     </p>
                     {roundMatches.map(match => {
                       const label = isHeats
-                        ? teamLabel(match.home_team_id, teamMap, companyMap)
-                        : `${teamLabel(match.home_team_id, teamMap, companyMap)} vs ${teamLabel(match.away_team_id, teamMap, companyMap)}`
+                        ? teamLabel(match.home_team_id, teamMap, companyMap, multiTeamKeys)
+                        : `${teamLabel(match.home_team_id, teamMap, companyMap, multiTeamKeys)} vs ${teamLabel(match.away_team_id, teamMap, companyMap, multiTeamKeys)}`
                       const inputVal = pendingTimes[match.id] ?? toDatetimeLocal(match.scheduled_at)
                       return (
                         <div key={match.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
