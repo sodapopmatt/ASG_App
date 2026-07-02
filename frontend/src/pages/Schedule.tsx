@@ -79,19 +79,6 @@ function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [item[key], item]))
 }
 
-function teamShort(
-  teamId: string | null | undefined,
-  teamMap: Record<string, Team>,
-  companyMap: Record<string, Company>,
-): string {
-  if (!teamId) return 'TBD'
-  const team = teamMap[teamId]
-  if (!team) return '—'
-  const company = companyMap[team.company_id]
-  return company?.short_id ?? company?.name ?? '?'
-}
-
-
 function formatTime(iso: string | null | undefined): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
@@ -747,42 +734,12 @@ function DonationEventCard({ sport }: { sport: Sport }) {
 
 // ── Timeline view ────────────────────────────────────────────────────────────
 
-function MatchChip({
-  match, teamMap, companyMap, bracketType,
-}: {
-  match: Match
-  teamMap: Record<string, Team>
-  companyMap: Record<string, Company>
-  bracketType?: string
-}) {
-  const home = teamShort(match.home_team_id, teamMap, companyMap)
-  const away = teamShort(match.away_team_id, teamMap, companyMap)
-  const cls = match.status === 'in_progress'
-    ? 'bg-green-100 text-green-800'
-    : isResolved(match)
-    ? 'bg-gray-100 text-gray-600'
-    : 'bg-blue-100 text-blue-800'
-  const hasScore = match.home_score != null && match.away_score != null
-  const label = bracketType === 'heats'
-    ? home
-    : hasScore
-    ? `${home} ${match.home_score}–${match.away_score} ${away}`
-    : `${home} vs ${away}`
-  return (
-    <div className={`text-xs rounded px-1.5 py-0.5 mb-0.5 whitespace-nowrap leading-snug ${cls}`}>
-      {label}
-    </div>
-  )
-}
-
 function TimelineView({
-  matches, sports, donationSports, teamMap, companyMap,
+  matches, sports, donationSports,
 }: {
   matches: Match[]
   sports: Sport[]
   donationSports: Sport[]
-  teamMap: Record<string, Team>
-  companyMap: Record<string, Company>
 }) {
   const sportIds = useMemo(() => {
     const ids = [...new Set(matches.map(m => m.sport_id))]
@@ -799,19 +756,13 @@ function TimelineView({
   const timelineSlots = useMemo(() => buildTimelineSlots(matches, extraTimes), [matches, extraTimes])
   const baseMinutes = timelineSlots[0]?.minutes ?? 8 * 60
 
-  const grid = useMemo(() => {
-    const g: Record<string, Record<number, Match[]>> = {}
+  const matchesBySport = useMemo(() => {
+    const g: Record<string, Match[]> = {}
     for (const m of matches) {
-      const timeSource = m.estimated_start ?? m.scheduled_at
-      if (!timeSource) continue
-      const idx = slotIndex(timeSource, baseMinutes)
-      if (idx < 0 || idx >= timelineSlots.length) continue
-      g[m.sport_id] ??= {}
-      g[m.sport_id][idx] ??= []
-      g[m.sport_id][idx].push(m)
+      (g[m.sport_id] ??= []).push(m)
     }
     return g
-  }, [matches, baseMinutes, timelineSlots.length])
+  }, [matches])
 
   const sportMap = useMemo(() => indexBy(sports, 'id') as Record<string, Sport>, [sports])
 
@@ -837,25 +788,61 @@ function TimelineView({
           </div>
         ))}
 
-        {/* Sport rows */}
+        {/* Sport rows — one block spanning each sport's first match start to last match finish */}
         {sportIds.map(sportId => {
           const sport = sportMap[sportId]
-          const slots = grid[sportId] ?? {}
+          const sportMatches = matchesBySport[sportId] ?? []
+          const times = sportMatches
+            .map(m => m.estimated_start ?? m.scheduled_at)
+            .filter(Boolean) as string[]
+          const hasRange = times.length > 0
+          const startTime = hasRange ? times.reduce((a, b) => (a < b ? a : b)) : null
+          const lastStart = hasRange ? times.reduce((a, b) => (a > b ? a : b)) : null
+          const durationMin = sport?.match_duration_minutes ?? 30
+          const endTime = lastStart
+            ? new Date(new Date(lastStart).getTime() + durationMin * 60000).toISOString()
+            : null
+
+          const startIdx = startTime ? slotIndex(startTime, baseMinutes) : -1
+          const rawEndIdx = endTime ? slotIndex(endTime, baseMinutes) : -1
+          const clampedStart = Math.max(0, Math.min(startIdx, timelineSlots.length - 1))
+          const clampedEnd = Math.max(clampedStart, Math.min(rawEndIdx, timelineSlots.length - 1))
+          const span = hasRange ? clampedEnd - clampedStart + 1 : 0
+          const leading = hasRange ? clampedStart : 0
+          const trailing = hasRange ? timelineSlots.length - clampedEnd - 1 : timelineSlots.length
+
+          const hasLive = sportMatches.some(m => m.status === 'in_progress')
+          const allDone = hasRange && sportMatches.every(isResolved)
+          const chipClass = hasLive
+            ? 'bg-green-100 text-green-800'
+            : allDone
+            ? 'bg-gray-100 text-gray-600'
+            : 'bg-blue-100 text-blue-800'
+          const timeLabel = startTime && endTime
+            ? `${formatTime(startTime)} – ${formatTime(endTime)}`
+            : 'Time TBD'
+
           return (
             <Fragment key={sportId}>
               <div className="flex items-center gap-2 px-3 py-3 border-b border-gray-100">
                 <span className="text-base leading-none shrink-0" aria-hidden="true">{getSportIcon(sport?.name ?? '')}</span>
                 <span className="text-xs font-medium text-slate-700 truncate">{sport?.name}</span>
               </div>
-              {timelineSlots.map((_, idx) => (
+              {Array.from({ length: leading }).map((_, i) => (
+                <div key={`l-${i}`} className="p-1 border-b border-l border-gray-100 min-h-[48px]" />
+              ))}
+              {hasRange ? (
                 <div
-                  key={idx}
-                  className="p-1 border-b border-l border-gray-100 min-h-[48px] align-top"
+                  className="p-1 border-b border-l border-gray-100 min-h-[48px]"
+                  style={{ gridColumn: `span ${span}` }}
                 >
-                  {(slots[idx] ?? []).map(m => (
-                    <MatchChip key={m.id} match={m} teamMap={teamMap} companyMap={companyMap} bracketType={sportMap[m.sport_id]?.bracket_type} />
-                  ))}
+                  <div className={`text-xs rounded px-1.5 py-0.5 whitespace-nowrap leading-snug truncate ${chipClass}`}>
+                    {timeLabel} · {sportMatches.length} match{sportMatches.length !== 1 ? 'es' : ''}
+                  </div>
                 </div>
+              ) : null}
+              {Array.from({ length: trailing }).map((_, i) => (
+                <div key={`t-${i}`} className="p-1 border-b border-l border-gray-100 min-h-[48px]" />
               ))}
             </Fragment>
           )
@@ -1052,8 +1039,6 @@ export default function Schedule() {
           matches={filteredMatches}
           sports={[...sports].sort((a, b) => a.name.localeCompare(b.name))}
           donationSports={donationSports}
-          teamMap={teamMap}
-          companyMap={companyMap}
         />
       )}
     </div>
