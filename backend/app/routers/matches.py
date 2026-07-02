@@ -328,10 +328,34 @@ def start_match(match_id: str, _=Depends(require_admin)):
     }).eq("id", match_id).execute().data[0]
 
 
+def _ensure_result_changeable(match: dict) -> None:
+    """409 if either downstream match (winner-advance or loser-drop) has been
+    genuinely played. Matches auto-completed by a bye are revertible — the
+    retraction cascade unwinds them — so they do not block a correction."""
+    for key in ("winner_next_match_id", "loser_next_match_id"):
+        next_id = match.get(key)
+        if not next_id:
+            continue
+        downstream = supabase.table("matches").select(
+            "status, home_slot_state, away_slot_state"
+        ).eq("id", next_id).limit(1).execute()
+        if not downstream.data:
+            continue
+        row = downstream.data[0]
+        if row["status"] in ("scheduled", "in_progress"):
+            continue
+        if row["home_slot_state"] == "bye" or row["away_slot_state"] == "bye":
+            continue  # auto-completed by a bye — the retraction cascade reverts it
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot change result: a team from this match has already played further in the bracket.",
+        )
+
+
 @router.post("/{match_id}/result", response_model=Match)
 def post_result(match_id: str, result: MatchResult, _=Depends(require_admin)):
     response = supabase.table("matches").select(
-        "sport_id, home_team_id, away_team_id, winner_id, winner_next_match_id"
+        "sport_id, home_team_id, away_team_id, winner_id, winner_next_match_id, loser_next_match_id"
     ).eq("id", match_id).limit(1).execute()
     if not response.data:
         raise HTTPException(status_code=404, detail="Match not found")
@@ -343,15 +367,7 @@ def post_result(match_id: str, result: MatchResult, _=Depends(require_admin)):
         raise HTTPException(status_code=422, detail="winner_id must be home_team_id or away_team_id")
 
     if match["winner_id"]:
-        if match.get("winner_next_match_id"):
-            downstream = supabase.table("matches").select("status").eq(
-                "id", match["winner_next_match_id"]
-            ).limit(1).execute()
-            if downstream.data and downstream.data[0]["status"] not in ("scheduled", "in_progress"):
-                raise HTTPException(
-                    status_code=409,
-                    detail="Cannot change result: the advanced team has already played further in the bracket.",
-                )
+        _ensure_result_changeable(match)
         prev_winner = match["winner_id"]
         prev_loser = match["away_team_id"] if prev_winner == match["home_team_id"] else match["home_team_id"]
         retract_winner(match_id, prev_winner, prev_loser, supabase)
@@ -383,7 +399,7 @@ def post_result(match_id: str, result: MatchResult, _=Depends(require_admin)):
 @router.post("/{match_id}/forfeit", response_model=Match)
 def post_forfeit(match_id: str, body: MatchForfeit, _=Depends(require_admin)):
     response = supabase.table("matches").select(
-        "sport_id, home_team_id, away_team_id, winner_id, winner_next_match_id"
+        "sport_id, home_team_id, away_team_id, winner_id, winner_next_match_id, loser_next_match_id"
     ).eq("id", match_id).limit(1).execute()
     if not response.data:
         raise HTTPException(status_code=404, detail="Match not found")
@@ -397,15 +413,7 @@ def post_forfeit(match_id: str, body: MatchForfeit, _=Depends(require_admin)):
     winner_id = match["away_team_id"] if forfeiting_id == match["home_team_id"] else match["home_team_id"]
 
     if match["winner_id"]:
-        if match.get("winner_next_match_id"):
-            downstream = supabase.table("matches").select("status").eq(
-                "id", match["winner_next_match_id"]
-            ).limit(1).execute()
-            if downstream.data and downstream.data[0]["status"] not in ("scheduled", "in_progress"):
-                raise HTTPException(
-                    status_code=409,
-                    detail="Cannot change result: the advanced team has already played further in the bracket.",
-                )
+        _ensure_result_changeable(match)
         prev_winner = match["winner_id"]
         prev_loser = match["away_team_id"] if prev_winner == match["home_team_id"] else match["home_team_id"]
         retract_winner(match_id, prev_winner, prev_loser, supabase)

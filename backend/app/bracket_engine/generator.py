@@ -652,11 +652,33 @@ def advance_double_forfeit(match_id: str, db: Client) -> None:
 
 
 def _clear_team_from_slot(match_id: str, team_id: str, db: Client) -> None:
-    """Set to NULL whichever slot in match_id contains team_id."""
-    row = db.table("matches").select("home_team_id, away_team_id").eq("id", match_id).limit(1).execute()
+    """Set to NULL whichever slot in match_id contains team_id.
+
+    If the match auto-completed via a bye with team_id as its winner (settle
+    advances a team through bye slots without play), the auto-completion is
+    reverted and the team is recursively pulled back out of downstream matches
+    first — otherwise a retraction leaves the team advanced in two places and
+    the completed match with a dangling winner."""
+    row = db.table("matches").select(
+        "home_team_id, away_team_id, status, winner_id, "
+        "home_slot_state, away_slot_state, winner_next_match_id"
+    ).eq("id", match_id).limit(1).execute()
     if not row.data:
         return
     slot = row.data[0]
+    if team_id not in (slot["home_team_id"], slot["away_team_id"]):
+        return
+
+    has_bye_slot = slot["home_slot_state"] == "bye" or slot["away_slot_state"] == "bye"
+    if slot["status"] == "completed" and has_bye_slot and slot["winner_id"] == team_id:
+        if slot["winner_next_match_id"]:
+            _clear_team_from_slot(slot["winner_next_match_id"], team_id, db)
+        db.table("matches").update({
+            "status": "scheduled",
+            "winner_id": None,
+            "played_at": None,
+        }).eq("id", match_id).execute()
+
     if slot["home_team_id"] == team_id:
         db.table("matches").update({"home_team_id": None}).eq("id", match_id).execute()
     elif slot["away_team_id"] == team_id:

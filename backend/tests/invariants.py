@@ -99,6 +99,38 @@ def assert_plan_priority(matches, est, minutes):
             )
 
 
+def assert_team_states_consistent(matches):
+    """Structural sanity of the bracket state, checked after every action:
+    - a completed/forfeited match's winner is one of its own teams
+    - a completed match never has an empty slot unless that slot is a bye
+    - no team occupies two pending matches at once (a team plays one game
+      at a time; being in two means a retraction left a stale copy behind)
+    """
+    terminal = {"completed", "forfeit", "double_forfeit", "draw"}
+    pending_slot: dict = {}
+    for m in matches:
+        if m["status"] in ("completed", "forfeit"):
+            assert m["winner_id"], f"terminal match {m['id']} has no winner"
+            assert m["winner_id"] in (m["home_team_id"], m["away_team_id"]), (
+                f"match {m['id']} has winner {m['winner_id']} "
+                f"but teams {m['home_team_id']} / {m['away_team_id']}"
+            )
+        if m["status"] == "completed":
+            for side in ("home", "away"):
+                if m[f"{side}_team_id"] is None:
+                    assert m[f"{side}_slot_state"] == "bye", (
+                        f"completed match {m['id']} has an empty non-bye {side} slot"
+                    )
+        if m["status"] not in terminal:
+            for team in (m["home_team_id"], m["away_team_id"]):
+                if team:
+                    assert team not in pending_slot, (
+                        f"team {team} sits in two pending matches: "
+                        f"{pending_slot[team]} and {m['id']}"
+                    )
+                    pending_slot[team] = m["id"]
+
+
 def assert_court_load_balanced(real_matches, n_courts):
     """Real (playable) matches must spread across courts so that no court hosts
     more than ceil(count / n_courts) of them — an overloaded court stretches the

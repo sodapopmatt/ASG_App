@@ -19,11 +19,13 @@ _TABLE_COLUMNS = {
     "matches": [
         "id", "sport_id", "bracket_id", "home_team_id", "away_team_id",
         "location_id", "winner_id", "home_score", "away_score",
+        "home_games_won", "away_games_won", "home_points_total", "away_points_total",
         "winner_next_match_id", "loser_next_match_id", "status", "match_round",
         "scheduled_at", "actual_start", "played_at", "notes",
-        "home_slot_state", "away_slot_state",
+        "home_slot_state", "away_slot_state", "time_ms",
     ],
-    "locations": ["id", "sport_id", "name"],
+    "locations": ["id", "sport_id", "name", "pool_index"],
+    "event_points": ["id", "company_id", "sport_id", "placement", "points"],
 }
 
 
@@ -41,6 +43,21 @@ class _Query:
         self._filters = []
         self._limit = None
         self._range = None
+        self._order = []          # list of (column, desc)
+        self._negate_next = False
+
+    @property
+    def not_(self):
+        self._negate_next = True
+        return self
+
+    def _add_filter(self, predicate):
+        if self._negate_next:
+            self._negate_next = False
+            self._filters.append(lambda r: not predicate(r))
+        else:
+            self._filters.append(predicate)
+        return self
 
     def select(self, *_cols):
         self._op = "select"
@@ -61,30 +78,26 @@ class _Query:
         return self
 
     def eq(self, col, val):
-        self._filters.append(lambda r: r.get(col) == val)
-        return self
+        return self._add_filter(lambda r: r.get(col) == val)
 
     def neq(self, col, val):
-        self._filters.append(lambda r: r.get(col) != val)
-        return self
+        return self._add_filter(lambda r: r.get(col) != val)
 
     def in_(self, col, vals):
         vals = list(vals)
-        self._filters.append(lambda r: r.get(col) in vals)
-        return self
+        return self._add_filter(lambda r: r.get(col) in vals)
 
     def is_(self, col, val):
         if val == "null":
-            self._filters.append(lambda r: r.get(col) is None)
-        else:
-            self._filters.append(lambda r: r.get(col) == val)
-        return self
+            return self._add_filter(lambda r: r.get(col) is None)
+        return self._add_filter(lambda r: r.get(col) == val)
 
     def limit(self, n):
         self._limit = n
         return self
 
-    def order(self, _col, desc=False):
+    def order(self, col, desc=False):
+        self._order.append((col, desc))
         return self
 
     def range(self, start, end):
@@ -125,6 +138,15 @@ class _Query:
             return _Result([deepcopy(r) for r in dropped])
 
         out = [deepcopy(r) for r in self._matching(rows)]
+        # Apply orderings like Postgres: last .order() is the least significant,
+        # NULLS LAST for ascending, NULLS FIRST for descending (PG defaults).
+        # Tuple key never compares a null placeholder with a real value: the
+        # is-None flag differs first, so comparison short-circuits.
+        for col, desc in reversed(self._order):
+            out.sort(
+                key=lambda r, c=col: (r.get(c) is None, r.get(c) if r.get(c) is not None else ""),
+                reverse=desc,
+            )
         if self._range is not None:
             out = out[self._range[0]: self._range[1] + 1]
         if self._limit is not None:
