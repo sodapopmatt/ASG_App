@@ -97,6 +97,63 @@ def test_double_elim_structure(n):
             assert inbound.get(i) == 2
 
 
+@pytest.mark.parametrize("n", range(2, 21))
+def test_single_elim_byes_go_to_top_seeds(n):
+    """Byes are not arbitrary: they must land on the highest-seeded teams
+    (input order = seed order, index 0 = top seed), and the real round-1
+    match(es) must be contested by the lowest-seeded remainder — the same
+    result a human seeding a bracket by hand would produce."""
+    teams = _team_ids(n)
+    slots = generate_single_elimination(teams)
+    size = _next_power_of_2(n)
+    n_byes = size - n
+    top_seeds = set(teams[:n_byes])
+    bottom_seeds = set(teams[n_byes:])
+
+    r1 = [s for s in slots if s.match_round == 1]
+    bye_recipients = {
+        (s.home_team_id or s.away_team_id) for s in r1 if s.is_bye
+    }
+    real_match_teams = {
+        t for s in r1 if not s.is_bye for t in (s.home_team_id, s.away_team_id)
+    }
+
+    assert bye_recipients == top_seeds
+    assert real_match_teams == bottom_seeds
+
+
+@pytest.mark.parametrize("n", [2, 4, 8, 16])
+def test_single_elim_full_bracket_seed_pairing(n):
+    """With no byes needed (n is already a power of 2), round 1 must follow
+    the textbook 1-vs-N, 2-vs-(N-1) pairing — not merely non-overlapping."""
+    teams = _team_ids(n)
+    slots = generate_single_elimination(teams)
+    r1 = [s for s in slots if s.match_round == 1]
+    pairs = {frozenset((s.home_team_id, s.away_team_id)) for s in r1}
+
+    expected = {frozenset((teams[i], teams[n - 1 - i])) for i in range(n // 2)}
+    assert pairs == expected
+
+
+@pytest.mark.parametrize("n", range(2, 21))
+def test_double_elim_wb_byes_go_to_top_seeds(n):
+    """Same top-seeds-get-byes guarantee, applied to the winners bracket of a
+    double-elimination draw (it reuses the same seeding formula)."""
+    teams = _team_ids(n)
+    slots = generate_double_elimination(teams)
+    size = _next_power_of_2(n)
+    n_byes = size - n
+    if n_byes == 0:
+        return
+    top_seeds = set(teams[:n_byes])
+
+    wb_r1 = [s for s in slots if s.bracket_phase == "winners" and s.match_round == 1]
+    bye_recipients = {
+        (s.home_team_id or s.away_team_id) for s in wb_r1 if s.is_bye
+    }
+    assert bye_recipients == top_seeds
+
+
 @pytest.mark.parametrize("n_companies,teams_per", [(4, 2), (5, 2), (8, 2), (3, 3), (6, 2)])
 def test_same_company_never_meets_in_r1_when_avoidable(n_companies, teams_per):
     team_ids = []
