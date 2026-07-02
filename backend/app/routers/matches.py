@@ -137,7 +137,10 @@ def _compute_estimated_starts(
         if is_concurrent and bracket_id not in heat_est:
             heat_est[bracket_id] = est
 
-        result[mid] = est
+        # Bye-autocomplete matches are never actually played — expose no
+        # estimated_start (a time would render as a phantom game in the UI),
+        # but keep propagating their finish so downstream timing stays right.
+        result[mid] = None if _is_bye_autocomplete(m) else est
 
         finish = est + _duration(m) if est is not None else None
         for next_id in downstream_of.get(mid, []):

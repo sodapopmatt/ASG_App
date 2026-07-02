@@ -86,11 +86,13 @@ def test_bye_feeder_adds_no_duration():
     # real finishes at START+DUR; bye-match occupies zero time, so the semi
     # starts right when the real match ends — not a slot later
     assert est["semi"] == START + timedelta(minutes=DUR)
+    # and the bye match itself shows no time — it will never be played
+    assert est["bye-match"] is None
 
 
 def test_bye_match_does_not_block_its_court():
     """A bye-autocomplete match sitting on a court must not push the next real
-    match on that court back by a full slot."""
+    match on that court back by a full slot, and must not display a time."""
     matches = [
         _match("bye-match", home_team_id="t1", away_slot_state="bye",
                location_id="north", scheduled_at=START.isoformat()),
@@ -100,6 +102,7 @@ def test_bye_match_does_not_block_its_court():
     est = _compute(matches)
 
     assert est["real"] == START  # bye takes zero court time
+    assert est["bye-match"] is None  # no phantom game time in the UI
 
 
 def test_completed_match_keeps_slot_and_next_follows():

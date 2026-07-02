@@ -15,6 +15,8 @@ from invariants import (
     assert_no_court_overlap,
     assert_feeder_ordering,
     assert_all_scheduled_have_estimates,
+    assert_court_load_balanced,
+    is_bye_autocomplete,
 )
 
 START = datetime(2026, 7, 4, 8, 0, tzinfo=timezone.utc)
@@ -63,6 +65,53 @@ def test_generation_schedule_invariants(bracket_type, n_teams, n_courts):
     assert_no_court_overlap(rows, est, DUR)
     assert_feeder_ordering(rows, est, DUR)
     assert_all_scheduled_have_estimates(rows, est)
+
+
+@pytest.mark.parametrize("bracket_type", ["single_elimination", "double_elimination"])
+@pytest.mark.parametrize("n_courts", [1, 2, 3, 4])
+@pytest.mark.parametrize("n_teams", range(2, 21))
+def test_court_distribution(bracket_type, n_teams, n_courts):
+    """Courts must share the load: round 1 spreads real matches evenly (byes
+    count for nothing), the losers bracket spreads across all courts, and
+    round 1 finishes as early as an even split allows."""
+    from datetime import timedelta
+
+    db, sport_id, team_ids = make_db(bracket_type, n_teams)
+    courts = [f"court-{c}" for c in range(n_courts)]
+
+    persist_bracket(
+        sport_id, team_ids, db,
+        location_ids=courts, start_time=START, match_duration_minutes=DUR,
+    )
+
+    rows = db.rows("matches")
+    phases = {b["id"]: b["phase"] for b in db.rows("brackets")}
+
+    wb_r1_real = [
+        m for m in rows
+        if phases.get(m["bracket_id"]) in ("winners", "bracket")
+        and m["match_round"] == 1 and not is_bye_autocomplete(m)
+    ]
+    assert_court_load_balanced(wb_r1_real, n_courts)
+
+    lb_all = [m for m in rows if phases.get(m["bracket_id"]) == "losers"]
+    assert_court_load_balanced(lb_all, n_courts)
+
+    # Round 1 must wrap up as early as an even split allows: with the real
+    # matches spread evenly, the last one starts within ceil(count/courts) slots
+    if wb_r1_real:
+        import math
+        slots_needed = math.ceil(len(wb_r1_real) / n_courts)
+        last_start = max(_parse(m["scheduled_at"]) for m in wb_r1_real)
+        assert last_start <= START + timedelta(minutes=(slots_needed - 1) * DUR), (
+            f"round 1's last match starts at {last_start}; an even split across "
+            f"{n_courts} courts finishes starting by slot {slots_needed - 1}"
+        )
+
+
+def _parse(value):
+    from datetime import datetime
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 @pytest.mark.parametrize("bracket_type", ["single_elimination", "double_elimination"])

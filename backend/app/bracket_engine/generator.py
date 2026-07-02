@@ -143,10 +143,24 @@ def _assign_courts_subtree(slots: list[MatchSlot], courts: list[str]) -> dict[in
         min_round = min(slots[i].match_round for i in wb_all)
         r1 = [i for i in wb_all if slots[i].match_round == min_round]
 
-        # Adjacent R1 pairs feed the same R2 match, so assign in contiguous blocks
-        group_size = max(1, len(r1) // C)
-        for pos, i in enumerate(r1):
-            court_idx = min(pos // group_size, C - 1)
+        # Adjacent R1 pairs feed the same R2 match, so assign in contiguous
+        # blocks — balanced by real (non-bye) match count so no court ends up
+        # with a longer round-1 queue than necessary: the first (real % C)
+        # courts take one extra real match. Byes ride along on the current
+        # court without counting toward its load; they occupy no play time and
+        # only exist so a court can propagate up to their R2 match.
+        real_total = sum(1 for i in r1 if not slots[i].is_bye)
+        base, extra = divmod(real_total, C)
+        court_idx = 0
+        filled = 0
+        for i in r1:
+            if not slots[i].is_bye:
+                capacity = base + (1 if court_idx < extra else 0)
+                while filled >= capacity and court_idx < C - 1:
+                    court_idx += 1
+                    filled = 0
+                    capacity = base + (1 if court_idx < extra else 0)
+                filled += 1
             assignment[i] = courts[court_idx]
 
         # Propagate court up through winner_next_idx (slots are ordered by round,
