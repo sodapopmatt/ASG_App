@@ -32,6 +32,23 @@ def _fetch_company_map(team_ids: list[str], db: Client) -> dict[str, str]:
     return {r["id"]: r["company_id"] for r in rows.data}
 
 
+def _count_r1_conflicts(
+    teams: list[str],
+    company_map: dict[str, str],
+    positions: list[int],
+    n: int,
+) -> int:
+    """Number of round-1 pairs where both slots hold teams from the same company."""
+    conflicts = 0
+    for k in range(len(positions) // 2):
+        a_idx, b_idx = positions[2 * k], positions[2 * k + 1]
+        if a_idx >= n or b_idx >= n:
+            continue
+        if company_map.get(teams[a_idx]) == company_map.get(teams[b_idx]):
+            conflicts += 1
+    return conflicts
+
+
 def _resolve_same_company_conflicts(
     team_ids: list[str],
     company_map: dict[str, str],
@@ -40,8 +57,12 @@ def _resolve_same_company_conflicts(
     first-round pairs with minimal swaps. Deterministic: the same team_ids
     order always produces the same bracket.
 
-    After each swap the scan restarts from the beginning so that swaps never
-    silently introduce new conflicts earlier in the bracket.
+    A swap is only accepted when it strictly reduces the total conflict count —
+    a swap that fixes one pair while breaking another is rejected. This
+    guarantees termination even when conflicts are unavoidable (one company
+    holding more than half the slots), in which case the remaining conflicts
+    are left silently. After each accepted swap the scan restarts from the
+    beginning.
     """
     teams = list(team_ids)
 
@@ -53,6 +74,10 @@ def _resolve_same_company_conflicts(
     changed = True
     while changed:
         changed = False
+        conflicts = _count_r1_conflicts(teams, company_map, positions, n)
+        if conflicts == 0:
+            break
+
         for k in range(num_pairs):
             a_idx = positions[2 * k]
             b_idx = positions[2 * k + 1]
@@ -60,28 +85,26 @@ def _resolve_same_company_conflicts(
             if a_idx >= n or b_idx >= n:
                 continue
 
-            a = teams[a_idx]
-            b = teams[b_idx]
-
-            if company_map.get(a) != company_map.get(b):
+            if company_map.get(teams[a_idx]) != company_map.get(teams[b_idx]):
                 continue
 
-            # Search all other pairs for a swap candidate from a different company
+            # Try swapping b with slots from other pairs; keep the first swap
+            # that strictly reduces total conflicts, otherwise revert it.
             for j in range(num_pairs):
                 if j == k:
                     continue
-                c_idx = positions[2 * j]
-                d_idx = positions[2 * j + 1]
-
-                if c_idx < n and company_map.get(teams[c_idx]) != company_map.get(a):
-                    teams[b_idx], teams[c_idx] = teams[c_idx], teams[b_idx]
-                    changed = True
+                for cand_idx in (positions[2 * j], positions[2 * j + 1]):
+                    if cand_idx >= n:
+                        continue
+                    teams[b_idx], teams[cand_idx] = teams[cand_idx], teams[b_idx]
+                    if _count_r1_conflicts(teams, company_map, positions, n) < conflicts:
+                        changed = True
+                        break
+                    teams[b_idx], teams[cand_idx] = teams[cand_idx], teams[b_idx]
+                if changed:
                     break
-
-                if d_idx < n and company_map.get(teams[d_idx]) != company_map.get(a):
-                    teams[b_idx], teams[d_idx] = teams[d_idx], teams[b_idx]
-                    changed = True
-                    break
+            if changed:
+                break
 
     return teams
 

@@ -20,6 +20,11 @@ def _parse_dt(value: str | datetime | None) -> datetime | None:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def _is_bye_autocomplete(m: dict) -> bool:
+    """True when one slot is a permanent bye — the match resolves instantly, zero play time."""
+    return m.get("home_slot_state") == "bye" or m.get("away_slot_state") == "bye"
+
+
 def _compute_estimated_starts(
     matches: list[dict],
     sport_duration_map: dict[str, int],
@@ -28,137 +33,121 @@ def _compute_estimated_starts(
 ) -> dict[str, datetime | None]:
     """Compute estimated start times accounting for court availability and feeder matches.
 
-    Pass 1 â€” per-court ripple: processes each court's chain in scheduled_at order,
-    shifting matches forward when their court isn't free yet.
+    Single unified sweep. Matches are finalized in dependency (topological)
+    order via a priority queue, earliest-ready first. A match's ready time is
+    the max of:
+      - its scheduled_at (if set),
+      - its sport's schedule_start (when playable but never scheduled),
+      - the finish times of its feeder matches (winner_next / loser_next links).
+    Its estimate is then pushed forward to when its court is next free. Court
+    free times only ever advance, so two matches can never overlap on a court.
+
+    Bye-autocomplete matches (one slot a permanent bye) occupy zero court time
+    and add no delay downstream — they resolve the moment their feeder ends.
 
     Heats brackets (concurrent teams): all matches in the same bracket share one
-    estimated_start and occupy the court for exactly one duration slot. Only the
-    first match seen per bracket advances court_free_at; the rest reuse its time.
+    estimated_start and occupy the court for exactly one duration slot.
 
-    Pass 2 â€” feeder adjustment: for each match, estimated_start must be at least
-    as late as the finish time of both upstream feeder matches (via
-    winner_next_match_id / loser_next_match_id). Processed in topological
-    (dependency) order â€” not raw match_round â€” so feeders are always resolved
-    before their downstream matches, even across brackets (e.g. a Grand Final
-    match_round doesn't reflect its true depth in the dependency graph).
+    actual_start anchors a court's timeline when a match is in progress.
+    Terminal matches (completed / forfeit / double_forfeit / draw) keep their
+    scheduled slot if they had one, otherwise carry no estimate.
     """
+    import heapq
     from datetime import timedelta
-    from collections import deque
 
     heats_bracket_ids = heats_bracket_ids or set()
+    sport_start_map = sport_start_map or {}
+    _TERMINAL = ("completed", "forfeit", "double_forfeit", "draw")
 
-    by_court: dict[str | None, list[dict]] = {}
-    for m in matches:
-        by_court.setdefault(m.get("location_id"), []).append(m)
-
-    result: dict[str, datetime | None] = {}
-
-    # Pass 1: per-court ripple
-    for court, court_matches in by_court.items():
-        sorted_matches = sorted(
-            court_matches,
-            key=lambda m: (m.get("scheduled_at") is None, m.get("scheduled_at") or ""),
-        )
-
-        court_free_at: datetime | None = None
-        seen_heat_brackets: dict[str, datetime | None] = {}  # bracket_id -> computed est
-
-        for m in sorted_matches:
-            duration = timedelta(minutes=sport_duration_map.get(m.get("sport_id", ""), 30))
-            bracket_id = m.get("bracket_id")
-            is_concurrent = bracket_id in heats_bracket_ids
-
-            # Concurrent heats: reuse the bracket's already-computed start, skip court advance
-            if is_concurrent and bracket_id in seen_heat_brackets:
-                result[m["id"]] = seen_heat_brackets[bracket_id]
-                continue
-
-            scheduled_at = _parse_dt(m.get("scheduled_at"))
-            actual_start = _parse_dt(m.get("actual_start"))
-            is_playable = bool(m.get("home_team_id") or m.get("away_team_id"))
-            is_completed = m.get("status") in ("completed", "forfeit", "double_forfeit", "draw")
-
-            if actual_start:
-                result[m["id"]] = actual_start
-                court_free_at = actual_start + duration
-            elif scheduled_at:
-                if court is None:
-                    result[m["id"]] = scheduled_at
-                else:
-                    est = scheduled_at
-                    if court_free_at and court_free_at > scheduled_at:
-                        est = court_free_at
-                    result[m["id"]] = est
-                    court_free_at = est + duration
-            elif is_playable and not is_completed:
-                # Seed court_free_at from sport's schedule_start if not yet anchored.
-                # This handles matches generated without scheduled_at (e.g. pool play
-                # generated before schedule_start was saved on the sport).
-                if court_free_at is None and sport_start_map:
-                    court_free_at = sport_start_map.get(m.get("sport_id", ""))
-                if court_free_at:
-                    result[m["id"]] = court_free_at
-                    court_free_at = court_free_at + duration
-                else:
-                    result[m["id"]] = None
-            else:
-                result[m["id"]] = None
-
-            if is_concurrent and bracket_id:
-                seen_heat_brackets[bracket_id] = result.get(m["id"])
-
-    # Pass 2: feeder adjustment
-    # Build reverse map: match_id -> list of upstream match_ids that feed into it,
-    # and the forward map needed to walk the dependency graph in topological order.
     match_by_id = {m["id"]: m for m in matches}
-    upstream_of: dict[str, list[str]] = {}
+    seq = {m["id"]: i for i, m in enumerate(matches)}
+
+    def _duration(m: dict) -> timedelta:
+        if _is_bye_autocomplete(m):
+            return timedelta(0)
+        return timedelta(minutes=sport_duration_map.get(m.get("sport_id", ""), 30))
+
+    # Dependency graph: a match enters the queue only once every feeder that
+    # exists in this match set has been finalized, so feeder finish times are
+    # always complete when a match's ready time is computed.
     downstream_of: dict[str, list[str]] = {}
+    in_degree = {m["id"]: 0 for m in matches}
     for m in matches:
         for key in ("winner_next_match_id", "loser_next_match_id"):
             next_id = m.get(key)
             if next_id and next_id in match_by_id:
-                upstream_of.setdefault(next_id, []).append(m["id"])
                 downstream_of.setdefault(m["id"], []).append(next_id)
+                in_degree[next_id] += 1
 
-    # Process in dependency order (topological sort via Kahn's algorithm), not raw
-    # match_round â€” a Grand Final match can have match_round=1 while its feeders
-    # (e.g. a winners-bracket final at round 6) sit at a higher round number, so
-    # sorting by match_round alone would resolve the final before its feeders.
-    in_degree = {m["id"]: len(upstream_of.get(m["id"], [])) for m in matches}
-    queue = deque(sorted(
-        (mid for mid, deg in in_degree.items() if deg == 0),
-        key=lambda mid: (match_by_id[mid].get("match_round") or 0),
-    ))
-    topo_order: list[str] = []
-    while queue:
-        mid = queue.popleft()
-        topo_order.append(mid)
-        for nxt in downstream_of.get(mid, []):
-            in_degree[nxt] -= 1
-            if in_degree[nxt] == 0:
-                queue.append(nxt)
+    feeder_finish: dict[str, datetime] = {}  # match_id -> latest feeder finish
 
-    for mid in topo_order:
-        feeders = upstream_of.get(mid)
-        if not feeders:
-            continue
+    def _ready(m: dict) -> datetime | None:
+        actual = _parse_dt(m.get("actual_start"))
+        if actual:
+            return actual
+        constraints = []
+        scheduled = _parse_dt(m.get("scheduled_at"))
+        if scheduled:
+            constraints.append(scheduled)
+        if m.get("status") not in _TERMINAL:
+            if scheduled is None:
+                sport_start = sport_start_map.get(m.get("sport_id", ""))
+                if sport_start and (m.get("home_team_id") or m.get("away_team_id")):
+                    constraints.append(sport_start)
+            finish = feeder_finish.get(m["id"])
+            if finish:
+                constraints.append(finish)
+        return max(constraints) if constraints else None
 
-        feeder_finishes = []
-        for fid in feeders:
-            feeder_est = result.get(fid)
-            if feeder_est is not None:
-                feeder_duration = timedelta(
-                    minutes=sport_duration_map.get(match_by_id[fid].get("sport_id", ""), 30)
-                )
-                feeder_finishes.append(feeder_est + feeder_duration)
+    def _key(mid: str) -> tuple:
+        m = match_by_id[mid]
+        ready = _ready(m)
+        ts = ready.timestamp() if ready else float("-inf")
+        return (ts, m.get("match_round") or 0, seq[mid])
 
-        if not feeder_finishes:
-            continue
+    heap = [(_key(m["id"]), m["id"]) for m in matches if in_degree[m["id"]] == 0]
+    heapq.heapify(heap)
 
-        latest_feeder_finish = max(feeder_finishes)
-        current = result.get(mid)
-        if current is None or latest_feeder_finish > current:
-            result[mid] = latest_feeder_finish
+    result: dict[str, datetime | None] = {}
+    court_free: dict[str, datetime] = {}
+    heat_est: dict[str, datetime | None] = {}  # bracket_id -> shared start
+
+    while heap:
+        _, mid = heapq.heappop(heap)
+        m = match_by_id[mid]
+        loc = m.get("location_id")
+        bracket_id = m.get("bracket_id")
+        is_concurrent = bracket_id in heats_bracket_ids
+        actual = _parse_dt(m.get("actual_start"))
+
+        if is_concurrent and bracket_id in heat_est:
+            # Concurrent heat: reuse the bracket's start, no extra court time
+            est = heat_est[bracket_id]
+        elif actual:
+            est = actual
+            if loc:
+                court_free[loc] = actual + _duration(m)  # anchor the timeline
+        else:
+            est = _ready(m)
+            if est is not None and loc:
+                if loc in court_free and court_free[loc] > est:
+                    est = court_free[loc]
+                court_free[loc] = est + _duration(m)
+
+        if is_concurrent and bracket_id not in heat_est:
+            heat_est[bracket_id] = est
+
+        result[mid] = est
+
+        finish = est + _duration(m) if est is not None else None
+        for next_id in downstream_of.get(mid, []):
+            if finish is not None:
+                prev = feeder_finish.get(next_id)
+                if prev is None or finish > prev:
+                    feeder_finish[next_id] = finish
+            in_degree[next_id] -= 1
+            if in_degree[next_id] == 0:
+                heapq.heappush(heap, (_key(next_id), next_id))
 
     return result
 
