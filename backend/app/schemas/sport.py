@@ -32,6 +32,7 @@ class SportCreate(BaseModel):
     venue: Optional[str] = None
     assumed_courts_per_group: Optional[int] = None
     pool_count: Optional[int] = None
+    advance_per_pool: Optional[int] = None
 
 
 class SportUpdate(BaseModel):
@@ -49,6 +50,7 @@ class SportUpdate(BaseModel):
     venue: str | None = None
     assumed_courts_per_group: int | None = None
     pool_count: int | None = None
+    advance_per_pool: int | None = None
 
 
 class Sport(SportCreate):

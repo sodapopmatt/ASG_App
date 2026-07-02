@@ -892,7 +892,12 @@ export default function SportConfigPage() {
   }
 
   // Bracket phase state (pool_bracket, after pool play)
-  const advanceCount = 2
+  // Pickleball's rules only send pool winners into the top bracket; every
+  // other pool_bracket sport (Soccer, Ultimate Frisbee) sends the top 2.
+  const defaultAdvancePerPool = sport?.name === 'Pickleball' ? 1 : 2
+  const [configAdvancePerPool, setConfigAdvancePerPool] = useState<number | null>(null)
+  const [isEditingAdvanceCount, setIsEditingAdvanceCount] = useState(false)
+  const advanceCount = configAdvancePerPool ?? sport?.advance_per_pool ?? defaultAdvancePerPool
   const [advOverride, setAdvOverride] = useState<string[] | null>(null)
 
   // Schedule patch state
@@ -1202,10 +1207,16 @@ const genMutation = useMutation({
   })
 
   const bracketPhaseMutation = useMutation({
-    mutationFn: () => generateBracket(sportId!, advancing, false),
+    mutationFn: async () => {
+      if (configAdvancePerPool !== null && configAdvancePerPool !== (sport?.advance_per_pool ?? defaultAdvancePerPool)) {
+        await updateSport(sportId!, { advance_per_pool: configAdvancePerPool })
+      }
+      return generateBracket(sportId!, advancing, false)
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['matches'] })
       qc.invalidateQueries({ queryKey: ['brackets'] })
+      qc.invalidateQueries({ queryKey: ['sports'] })
       setGenError(null)
     },
     onError: (e) => setGenError(e instanceof Error ? e.message : 'Failed to generate bracket phase'),
@@ -1825,6 +1836,30 @@ const genMutation = useMutation({
             </span>
           ) : undefined}
         >
+
+          {!hasBracketPhase && (
+            isEditingAdvanceCount ? (
+              <label className="space-y-1 block">
+                <span className="text-xs text-gray-400">Teams advancing per pool</span>
+                <input
+                  type="number"
+                  min={1}
+                  autoFocus
+                  value={advanceCount}
+                  onChange={e => setConfigAdvancePerPool(Math.max(1, Number(e.target.value)))}
+                  onBlur={() => setIsEditingAdvanceCount(false)}
+                  onKeyDown={e => { if (e.key === 'Enter') setIsEditingAdvanceCount(false) }}
+                  className="w-24 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+                />
+              </label>
+            ) : (
+              <LockedField
+                label="Teams advancing per pool"
+                value={String(advanceCount)}
+                onEdit={() => setIsEditingAdvanceCount(true)}
+              />
+            )
+          )}
 
           {pendingPoolCount > 0 && (
             <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">

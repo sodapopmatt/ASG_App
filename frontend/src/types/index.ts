@@ -22,6 +22,7 @@ export interface Sport {
   venue: string | null
   assumed_courts_per_group: number | null
   pool_count: number | null
+  advance_per_pool: number | null
   created_at: string
 }
 
