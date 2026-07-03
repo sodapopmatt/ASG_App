@@ -235,14 +235,13 @@ function StatusBadge({ match }: { match: Match }) {
 }
 
 function MatchRow({
-  match, teamMap, companyMap, bracketType, multiTeamKeys, venue,
+  match, teamMap, companyMap, bracketType, multiTeamKeys,
 }: {
   match: Match
   teamMap: Record<string, Team>
   companyMap: Record<string, Company>
   bracketType?: string
   multiTeamKeys?: Set<string>
-  venue?: string | null
 }) {
   const home = compactLabel(match.home_team_id ?? null, teamMap, companyMap, match.home_slot_state, multiTeamKeys)
   const away = compactLabel(match.away_team_id ?? null, teamMap, companyMap, match.away_slot_state, multiTeamKeys)
@@ -250,7 +249,7 @@ function MatchRow({
   const time = effectiveTime ? formatTime(effectiveTime) : null
   const isSingleTeam = bracketType === 'heats'
   const isByeMatch = isBye(match)
-  const courtName = match.locations?.name ?? venue ?? (isByeMatch ? undefined : 'TBD')
+  const courtName = match.locations?.name ?? (isByeMatch || bracketType === 'pool_swiss' ? undefined : 'TBD')
   const hasScore = match.home_score != null && match.away_score != null
 
   if (isSingleTeam) {
@@ -379,19 +378,21 @@ function HeatsScheduleView({
     return map
   }, [sortedBrackets])
 
-  // Flat mode (Human Pyramid) — sequential teams, same court, show location once
+  const locationName = matches.find(m => m.locations?.name)?.locations?.name ?? sport.venue
+  const locationHeader = locationName && (
+    <div className="px-4 py-1.5 border-t border-gray-100 bg-white">
+      <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+        {locationName}
+      </span>
+    </div>
+  )
+
+  // Flat mode (Human Pyramid) — sequential teams, same court
   if (!hasGroupedBrackets) {
     const flatMatches = matchesByBracket['__flat'] ?? matches
-    const locationName = flatMatches.find(m => m.locations?.name)?.locations?.name
     return (
       <div>
-        {locationName && (
-          <div className="px-4 py-1.5 border-t border-gray-100 bg-white">
-            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-              {locationName}
-            </span>
-          </div>
-        )}
+        {locationHeader}
         {flatMatches.map(m => {
           const label = compactLabel(m.home_team_id ?? null, teamMap, companyMap, undefined, multiTeamKeys)
           return (
@@ -407,12 +408,10 @@ function HeatsScheduleView({
 
   return (
     <div>
+      {locationHeader}
       {(['heats', 'bracket', 'finals'] as const).map(phase => {
         const phaseBrackets = bracketsByPhase[phase] ?? []
         if (phaseBrackets.length === 0) return null
-
-        const allPhaseMatches = phaseBrackets.flatMap(b => matchesByBracket[b.id] ?? [])
-        const locationName = allPhaseMatches.find(m => m.locations?.name)?.locations?.name
 
         return (
           <div key={phase}>
@@ -421,9 +420,6 @@ function HeatsScheduleView({
               <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
                 {HEATS_PHASE_LABELS[phase]}
               </span>
-              {locationName && (
-                <span className="text-xs text-gray-400">· {locationName}</span>
-              )}
             </div>
 
             {/* Heats */}
@@ -666,6 +662,13 @@ function SportCard({
             />
           ) : (
             <>
+              {sport.venue && (
+                <div className="px-4 py-1.5 border-t border-gray-100 bg-white">
+                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                    {sport.venue}
+                  </span>
+                </div>
+              )}
               {rounds.map(({ roundKey, matches: roundMatches }) => (
                 <div key={roundKey}>
                   <div className="px-4 py-1.5 bg-white border-t border-gray-100">
@@ -681,7 +684,6 @@ function SportCard({
                       companyMap={companyMap}
                       bracketType={sport.bracket_type}
                       multiTeamKeys={multiTeamKeys}
-                      venue={sport.venue}
                     />
                   ))}
                 </div>

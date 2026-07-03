@@ -717,86 +717,6 @@ function PoolBuckets({
   )
 }
 
-function HeatLocationEditor({
-  sportId,
-  locations,
-  onSuccess,
-}: {
-  sportId: string
-  locations: LocationRow[]
-  onSuccess: () => void
-}) {
-  const [name, setName] = useState(locations[0]?.name ?? '')
-  const [error, setError] = useState<string | null>(null)
-  const [isEditing, setIsEditing] = useState(false)
-
-  useEffect(() => { setName(locations[0]?.name ?? '') }, [locations])
-
-  const mutation = useMutation({
-    mutationFn: async () => {
-      const trimmed = name.trim()
-      const [first, ...rest] = locations
-      if (!trimmed) {
-        for (const loc of locations) await deleteLocation(loc.id)
-        return
-      }
-      if (first) {
-        if (first.name !== trimmed) await updateLocation(first.id, trimmed)
-      } else {
-        await createLocation(sportId, trimmed)
-      }
-      for (const extra of rest) await deleteLocation(extra.id)
-    },
-    onSuccess: () => {
-      onSuccess()
-      setError(null)
-      setIsEditing(false)
-    },
-    onError: e => setError(e instanceof Error ? e.message : 'Failed to save'),
-  })
-
-  function openEditor() {
-    setName(locations[0]?.name ?? '')
-    setError(null)
-    setIsEditing(true)
-  }
-
-  return (
-    <div className="space-y-3">
-      {isEditing ? (
-        <>
-          <input
-            type="text"
-            value={name}
-            onChange={e => setName(e.target.value)}
-            placeholder="e.g. Track"
-            className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-          />
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <div className="flex gap-2">
-            <button
-              onClick={() => setIsEditing(false)}
-              disabled={mutation.isPending}
-              className="flex-1 py-2 rounded-lg border border-gray-200 text-slate-600 font-semibold text-sm hover:bg-gray-50 disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => mutation.mutate()}
-              disabled={mutation.isPending}
-              className="flex-1 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
-            >
-              {mutation.isPending ? 'Saving…' : 'Save'}
-            </button>
-          </div>
-        </>
-      ) : (
-        <LockedField label="Name" value={locations[0]?.name ?? ''} onEdit={openEditor} />
-      )}
-    </div>
-  )
-}
-
 export default function SportConfigPage() {
   const { sportId } = useParams<{ sportId: string }>()
   const qc = useQueryClient()
@@ -1420,30 +1340,16 @@ const genMutation = useMutation({
                 className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
               />
             </label>
-            {!isHeats && (
-              <label className="space-y-1 block">
-                <span className="text-xs text-gray-400">Venue label (shown on schedule when no court assigned)</span>
-                <input
-                  type="text"
-                  placeholder='e.g. "Cornhole Area", "Soccer Fields"'
-                  value={effectiveVenue}
-                  onChange={e => setConfigVenue(e.target.value)}
-                  className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-                />
-              </label>
-            )}
-            {isPoolSwiss && (
-              <label className="space-y-1 block">
-                <span className="text-xs text-gray-400">Assumed boards/courts per group (used for scheduling when no courts are assigned)</span>
-                <input
-                  type="number"
-                  min={1}
-                  value={effectiveAssumedCourts}
-                  onChange={e => setConfigAssumedCourts(Number(e.target.value))}
-                  className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-                />
-              </label>
-            )}
+            <label className="space-y-1 block">
+              <span className="text-xs text-gray-400">Venue label (shown as a header on the schedule when set)</span>
+              <input
+                type="text"
+                placeholder='e.g. "Cornhole Area", "Soccer Fields"'
+                value={effectiveVenue}
+                onChange={e => setConfigVenue(e.target.value)}
+                className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+              />
+            </label>
             {configError && <p className="text-sm text-red-600">{configError}</p>}
             <div className="flex gap-2">
               <button
@@ -1466,108 +1372,92 @@ const genMutation = useMutation({
           <>
             <LockedDateField label="Start time" value={sport.schedule_start} onEdit={openScheduleEditor} />
             <LockedField label="Match duration (min)" value={String(effectiveDuration)} onEdit={openScheduleEditor} />
-            {!isHeats && (
-              <LockedField label="Venue label" value={effectiveVenue} onEdit={openScheduleEditor} />
-            )}
-            {isPoolSwiss && (
-              <LockedField label="Assumed boards/courts per group" value={String(effectiveAssumedCourts)} onEdit={openScheduleEditor} />
-            )}
+            <LockedField label="Venue label" value={effectiveVenue} onEdit={openScheduleEditor} />
           </>
         )}
       </CollapsibleSection>
 
-      {/* Courts — hidden for pool_swiss (uses venue label + assumed boards instead) */}
-      {!isPoolSwiss && (
-      <CollapsibleSection title={isHeats ? 'Location' : 'Courts'}>
-        {isHeats ? (
-          // Heats sports only ever need one location (e.g. "Track")
-          <HeatLocationEditor
-            sportId={sportId!}
-            locations={sortedLocations}
-            onSuccess={() => qc.invalidateQueries({ queryKey: ['locations', sportId] })}
-          />
+      {/* Courts — hidden for pool_swiss and heats sports (both use the venue label instead) */}
+      {!isPoolSwiss && !isHeats && (
+      <CollapsibleSection title="Courts">
+        {/* Chip grid */}
+        {sortedLocations.length === 0 ? (
+          <p className="text-sm text-slate-400 italic">No courts defined — matches will be unassigned.</p>
         ) : (
-          <>
-            {/* Chip grid */}
-            {sortedLocations.length === 0 ? (
-              <p className="text-sm text-slate-400 italic">No courts defined — matches will be unassigned.</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {sortedLocations.map(loc => (
-                  <div key={loc.id} className="flex items-center gap-1.5 bg-gray-100 border border-gray-200 rounded-lg px-2.5 py-1.5">
-                    <span className="text-sm text-slate-700">{loc.name}</span>
-                    <button
-                      onClick={() => {
-                        if (confirm(`Remove court "${loc.name}"? Any scheduled matches on it will lose their court assignment.`)) {
-                          deleteCourtMutation.mutate(loc.id)
-                        }
-                      }}
-                      disabled={deleteCourtMutation.isPending}
-                      className="text-gray-400 hover:text-red-500 disabled:opacity-40 leading-none text-base"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Single add */}
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder='Name or number (e.g. "Main" or 5)'
-                value={newCourtName}
-                onChange={e => setNewCourtName(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && addCourt()}
-                className="flex-1 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-              />
-              <button
-                onClick={addCourt}
-                disabled={newCourtName.trim() === '' || createCourtMutation.isPending}
-                className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0"
-              >
-                {createCourtMutation.isPending ? 'Adding…' : 'Add'}
-              </button>
-            </div>
-
-            {/* Generate numbered */}
-            <div>
-              <p className="text-xs text-gray-400 mb-1.5">Generate numbered</p>
-              <div className="flex items-center gap-2 flex-wrap">
-                <input
-                  type="text"
-                  placeholder="Ct"
-                  value={labelInput ?? ''}
-                  onChange={e => setLabelInput(e.target.value)}
-                  className="w-24 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-                />
-                <span className="text-sm text-gray-400">1 through</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={100}
-                  placeholder="24"
-                  value={bulkCount}
-                  onChange={e => setBulkCount(e.target.value === '' ? '' : Math.max(1, Number(e.target.value)))}
-                  className="w-16 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-                />
+          <div className="flex flex-wrap gap-2">
+            {sortedLocations.map(loc => (
+              <div key={loc.id} className="flex items-center gap-1.5 bg-gray-100 border border-gray-200 rounded-lg px-2.5 py-1.5">
+                <span className="text-sm text-slate-700">{loc.name}</span>
                 <button
-                  onClick={handleBulkGenerate}
-                  disabled={bulkGenerating || !bulkCount}
-                  className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0"
+                  onClick={() => {
+                    if (confirm(`Remove court "${loc.name}"? Any scheduled matches on it will lose their court assignment.`)) {
+                      deleteCourtMutation.mutate(loc.id)
+                    }
+                  }}
+                  disabled={deleteCourtMutation.isPending}
+                  className="text-gray-400 hover:text-red-500 disabled:opacity-40 leading-none text-base"
                 >
-                  {bulkGenerating ? 'Generating…' : 'Generate'}
+                  ×
                 </button>
               </div>
-              <p className="text-xs text-gray-400 mt-1">
-                Skips any that already exist.
-              </p>
-            </div>
-
-            {courtError && <p className="text-sm text-red-600">{courtError}</p>}
-          </>
+            ))}
+          </div>
         )}
+
+        {/* Single add */}
+        <div className="flex gap-2">
+          <input
+            type="text"
+            placeholder='Name or number (e.g. "Main" or 5)'
+            value={newCourtName}
+            onChange={e => setNewCourtName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && addCourt()}
+            className="flex-1 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+          />
+          <button
+            onClick={addCourt}
+            disabled={newCourtName.trim() === '' || createCourtMutation.isPending}
+            className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0"
+          >
+            {createCourtMutation.isPending ? 'Adding…' : 'Add'}
+          </button>
+        </div>
+
+        {/* Generate numbered */}
+        <div>
+          <p className="text-xs text-gray-400 mb-1.5">Generate numbered</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              type="text"
+              placeholder="Ct"
+              value={labelInput ?? ''}
+              onChange={e => setLabelInput(e.target.value)}
+              className="w-24 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+            />
+            <span className="text-sm text-gray-400">1 through</span>
+            <input
+              type="number"
+              min={1}
+              max={100}
+              placeholder="24"
+              value={bulkCount}
+              onChange={e => setBulkCount(e.target.value === '' ? '' : Math.max(1, Number(e.target.value)))}
+              className="w-16 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+            />
+            <button
+              onClick={handleBulkGenerate}
+              disabled={bulkGenerating || !bulkCount}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 shrink-0"
+            >
+              {bulkGenerating ? 'Generating…' : 'Generate'}
+            </button>
+          </div>
+          <p className="text-xs text-gray-400 mt-1">
+            Skips any that already exist.
+          </p>
+        </div>
+
+        {courtError && <p className="text-sm text-red-600">{courtError}</p>}
       </CollapsibleSection>
       )}
 
@@ -1650,6 +1540,20 @@ const genMutation = useMutation({
                 className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
               />
             </label>
+
+            {isPoolSwiss && (
+              <label className="space-y-1 block">
+                <span className="text-xs text-gray-400">Number of Board Sets per Group</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={effectiveAssumedCourts}
+                  onChange={e => setConfigAssumedCourts(Number(e.target.value))}
+                  onBlur={() => configMutation.mutate()}
+                  className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+                />
+              </label>
+            )}
 
             <PoolBuckets
               poolCount={effectivePoolCount}
