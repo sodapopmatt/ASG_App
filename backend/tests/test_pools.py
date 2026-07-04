@@ -271,17 +271,33 @@ def test_bracket_phase_rejects_clear_existing(monkeypatch):
     assert exc.value.status_code == 422
 
 
-def test_pool_generation_rejects_duplicate_court_across_pools(monkeypatch):
-    """A court assigned to two pools must be rejected — otherwise both pools'
-    matches can be scheduled on the same physical court simultaneously."""
-    db, sport_id, pools = make_pool_sport([4, 4])
-    h = RouterHarness(db, monkeypatch)
-    shared_court = pools[0].location_ids[0]
-    pools[1].location_ids = [shared_court]
+def test_pool_generation_allows_shared_courts_via_cohort_scheduling(monkeypatch):
+    """Pools MAY legitimately share courts — unlike divisions, which own
+    disjoint courts, persist_pools's cohort-scheduling pass is built to
+    stagger many pools across a smaller shared set of fields in time (e.g.
+    14 soccer pools on 6 fields). A court appearing in multiple pools'
+    location_ids must be accepted, and the schedule must stay collision-free."""
+    from app.routers.matches import _compute_estimated_starts
+    from invariants import assert_no_court_overlap
 
-    with pytest.raises(HTTPException) as exc:
-        h.generate(sport_id, pools=pools)
-    assert exc.value.status_code == 422
+    db, sport_id, pools = make_pool_sport([4, 4, 4], courts_per_pool=0)
+    h = RouterHarness(db, monkeypatch)
+    shared_courts = [
+        db.table("locations").insert({"sport_id": sport_id, "name": f"Field {i}"}).execute().data[0]["id"]
+        for i in range(2)
+    ]
+    for p in pools:
+        p.location_ids = shared_courts
+
+    h.generate(sport_id, pools=pools)
+
+    rows = db.rows("matches")
+    assert len(rows) == 3 * 6  # 3 pools x C(4,2) matches each
+    est = _compute_estimated_starts(rows, {sport_id: DUR}, {sport_id: START})
+    assert_no_court_overlap(rows, est, DUR)
+    for m in rows:
+        assert m["location_id"] in shared_courts
+        assert est.get(m["id"]) is not None
 
 
 def test_pool_swiss_rejects_bracket_phase(monkeypatch):

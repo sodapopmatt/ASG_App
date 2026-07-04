@@ -481,9 +481,12 @@ def _generate_pool_play(
     if len(set(names)) != len(names):
         raise HTTPException(status_code=422, detail="Pool names must be unique")
 
+    # Unlike divisions, pools MAY legitimately share courts — persist_pools's
+    # cohort-scheduling pass (below) is built specifically to stagger many
+    # pools across a smaller set of shared fields in time (e.g. 14 pools on
+    # 6 courts), so a court appearing in multiple pools' location_ids is the
+    # normal, supported input, not a conflict.
     all_location_ids = [lid for p in pools for lid in p.location_ids]
-    if len(set(all_location_ids)) != len(all_location_ids):
-        raise HTTPException(status_code=422, detail="A court cannot be assigned to more than one pool")
     sport_location_set = set(sport_location_ids)
     bad_locations = [lid for lid in all_location_ids if lid not in sport_location_set]
     if bad_locations:
