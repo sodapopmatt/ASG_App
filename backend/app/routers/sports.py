@@ -72,7 +72,13 @@ def create_sport(body: SportCreate, _=Depends(require_admin)):
 
 @router.patch("/{sport_id}", response_model=Sport)
 def update_sport(sport_id: str, body: SportUpdate, _=Depends(require_admin)):
-    return supabase.table("sports").update(body.model_dump(exclude_none=True, mode="json")).eq("id", sport_id).execute().data[0]
+    # exclude_unset (not exclude_none): a field the caller explicitly sends as
+    # null means "clear it" (e.g. pool_play_rounds back to full round robin);
+    # exclude_none would silently drop that key and leave the old value in place.
+    updates = body.model_dump(exclude_unset=True, mode="json")
+    if not updates:
+        raise HTTPException(status_code=422, detail="No fields to update")
+    return supabase.table("sports").update(updates).eq("id", sport_id).execute().data[0]
 
 
 @router.delete("/{sport_id}", status_code=204)

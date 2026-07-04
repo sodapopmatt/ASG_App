@@ -36,8 +36,13 @@ def create_company(body: CompanyCreate, _=Depends(require_admin)):
 
 @router.patch("/{company_id}", response_model=Company)
 def update_company(company_id: str, body: CompanyUpdate, _=Depends(require_admin)):
+    # exclude_unset (not exclude_none): a caller explicitly sending logo_url:
+    # null means "clear the logo" — exclude_none would silently drop that key.
+    updates = body.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=422, detail="No fields to update")
     try:
-        return supabase.table("companies").update(body.model_dump(exclude_none=True)).eq("id", company_id).execute().data[0]
+        return supabase.table("companies").update(updates).eq("id", company_id).execute().data[0]
     except APIError as exc:
         _handle_unique_violation(exc)
 

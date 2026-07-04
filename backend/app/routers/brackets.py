@@ -29,7 +29,12 @@ def create_bracket(body: BracketCreate, _=Depends(require_admin)):
 
 @router.patch("/{bracket_id}", response_model=Bracket)
 def update_bracket(bracket_id: str, body: BracketUpdate, _=Depends(require_admin)):
-    return supabase.table("brackets").update(body.model_dump(exclude_none=True)).eq("id", bracket_id).execute().data[0]
+    # exclude_unset (not exclude_none): a caller explicitly sending a nullable
+    # field as null means "clear it" — exclude_none would silently drop that key.
+    updates = body.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=422, detail="No fields to update")
+    return supabase.table("brackets").update(updates).eq("id", bracket_id).execute().data[0]
 
 
 @router.delete("/{bracket_id}", status_code=204)

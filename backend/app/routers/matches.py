@@ -520,7 +520,10 @@ def post_heat_result(match_id: str, body: HeatResult, _=Depends(require_admin)):
 
 @router.patch("/{match_id}", response_model=Match)
 def update_match(match_id: str, body: MatchUpdate, _=Depends(require_admin)):
-    updates = body.model_dump(exclude_none=True, mode="json")
+    # exclude_unset (not exclude_none): a caller explicitly sending home_score/
+    # away_score: null means "clear the score" — exclude_none would silently
+    # drop that key and leave the old score in place.
+    updates = body.model_dump(exclude_unset=True, mode="json")
     if not updates:
         raise HTTPException(status_code=422, detail="No fields to update")
     response = supabase.table("matches").select("id").eq("id", match_id).limit(1).execute()

@@ -62,7 +62,12 @@ def update_team(team_id: str, body: TeamUpdate, _=Depends(require_admin)):
         if existing.data:
             raise HTTPException(status_code=422, detail=f"A team named '{body.name}' already exists for this company and sport")
 
-    return supabase.table("teams").update(body.model_dump(exclude_none=True)).eq("id", team_id).execute().data[0]
+    # exclude_unset (not exclude_none): a caller explicitly sending name: null
+    # means "clear the custom name" — exclude_none would silently drop that key.
+    updates = body.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=422, detail="No fields to update")
+    return supabase.table("teams").update(updates).eq("id", team_id).execute().data[0]
 
 
 
