@@ -117,7 +117,7 @@ def list_donation_counts(sport_id: str | None = Query(None), company_id: str | N
     return q.order("item_count", desc=True).execute().data
 
 
-@router.put("/", response_model=DonationCount)
+@router.put("", response_model=DonationCount)
 def upsert_donation_count(body: DonationCountUpsert, _=Depends(require_admin)):
     _ensure_donation_mode(str(body.sport_id))
     payload = {
