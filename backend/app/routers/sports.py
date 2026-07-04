@@ -113,23 +113,72 @@ def reset_bracket_phase(sport_id: str, _=Depends(require_admin)):
 
 @router.put("/{sport_id}/seed-order", status_code=204)
 def set_seed_order(sport_id: str, body: SeedOrderRequest, _=Depends(require_admin)):
-    """Persist a full seed order in one request (one auth check, sequential writes)
-    instead of one PATCH per team from the client — avoids a burst of concurrent
-    requests against Supabase when reordering a large team list."""
-    for i, team_id in enumerate(body.team_ids):
-        supabase.table("teams").update({"seed": i}).eq("id", team_id).eq("sport_id", sport_id).execute()
+    """Persist a full seed order in one request via a single bulk upsert,
+    rather than one sequential PATCH per team — see set_pool_setup's
+    docstring for why a per-row loop doesn't scale (observed crashing at
+    ~100+ teams) and why a full-row upsert is required (partial-column
+    upserts null out any NOT NULL column not included)."""
+    if not body.team_ids:
+        return
+    existing = (
+        supabase.table("teams").select("*")
+        .in_("id", body.team_ids).eq("sport_id", sport_id)
+        .execute().data
+    )
+    seed_by_id = {team_id: i for i, team_id in enumerate(body.team_ids)}
+    rows = []
+    for row in existing:
+        row = dict(row)
+        row["seed"] = seed_by_id[row["id"]]
+        rows.append(row)
+    if rows:
+        supabase.table("teams").upsert(rows).execute()
 
 
 @router.put("/{sport_id}/pool-setup", status_code=204)
 def set_pool_setup(sport_id: str, body: PoolSetupRequest, _=Depends(require_admin)):
-    """Persist pool count + team/court pool overrides in one request, same
-    concurrency rationale as set_seed_order."""
+    """Persist pool count + team/court pool overrides in one request.
+
+    team_pool/court_pool updates are applied via one bulk upsert each rather
+    than one sequential round-trip per row. With ~100+ teams (e.g. Pickleball)
+    the old per-row loop took 10+ seconds and could exhaust the Supabase
+    client's connection pool outright (observed as a live 500 mid-loop).
+    Supabase's upsert replaces the WHOLE row for any column not included in
+    the payload (confirmed empirically: NOT NULL columns omitted come back as
+    NULL), so each row must carry its other columns forward unchanged — pull
+    the full existing rows first, only overwrite pool_index, upsert the rest
+    as-is.
+    """
     if body.pool_count is not None:
         supabase.table("sports").update({"pool_count": body.pool_count}).eq("id", sport_id).execute()
-    for team_id, idx in body.team_pool.items():
-        supabase.table("teams").update({"pool_index": idx}).eq("id", team_id).eq("sport_id", sport_id).execute()
-    for loc_id, idx in body.court_pool.items():
-        supabase.table("locations").update({"pool_index": idx}).eq("id", loc_id).eq("sport_id", sport_id).execute()
+
+    if body.team_pool:
+        existing = (
+            supabase.table("teams").select("*")
+            .in_("id", list(body.team_pool.keys())).eq("sport_id", sport_id)
+            .execute().data
+        )
+        rows = []
+        for row in existing:
+            row = dict(row)
+            row["pool_index"] = body.team_pool[row["id"]]
+            rows.append(row)
+        if rows:
+            supabase.table("teams").upsert(rows).execute()
+
+    if body.court_pool:
+        existing = (
+            supabase.table("locations").select("*")
+            .in_("id", list(body.court_pool.keys())).eq("sport_id", sport_id)
+            .execute().data
+        )
+        rows = []
+        for row in existing:
+            row = dict(row)
+            row["pool_index"] = body.court_pool[row["id"]]
+            rows.append(row)
+        if rows:
+            supabase.table("locations").upsert(rows).execute()
 
 
 @router.post("/{sport_id}/generate-bracket")
@@ -218,6 +267,7 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
                 # All teams in a heat race simultaneously at the same location
                 heat_location_id = location_ids[i % len(location_ids)] if location_ids else None
 
+                heat_rows = []
                 for team_id in heat.team_ids:
                     row: dict = {
                         "sport_id": sport_id,
@@ -230,8 +280,13 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
                         row["scheduled_at"] = scheduled_at
                     if heat_location_id:
                         row["location_id"] = heat_location_id
-                    supabase.table("matches").insert(row).execute()
-                    total_matches += 1
+                    heat_rows.append(row)
+                # One bulk insert per heat instead of one round-trip per team —
+                # see set_pool_setup's docstring for why a per-row loop doesn't
+                # scale (a large heat/team count risks the same crash).
+                if heat_rows:
+                    supabase.table("matches").insert(heat_rows).execute()
+                    total_matches += len(heat_rows)
 
             return {"matches_created": total_matches}
 
@@ -247,7 +302,7 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
             clear_brackets(sport_id, supabase)
 
         concurrent = len(location_ids) or 1
-        matches = []
+        rows = []
         for i, team_id in enumerate(body.team_ids):
             round_num = i // concurrent + 1
             scheduled_at = None
@@ -266,10 +321,11 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
                 row["scheduled_at"] = scheduled_at
             if location_ids:
                 row["location_id"] = location_ids[i % concurrent]
+            rows.append(row)
 
-            m = supabase.table("matches").insert(row).execute().data[0]
-            matches.append(m)
-
+        # One bulk insert instead of one round-trip per team — see
+        # set_pool_setup's docstring for why the per-row version doesn't scale.
+        matches = supabase.table("matches").insert(rows).execute().data if rows else []
         return {"matches_created": len(matches)}
 
     teams = supabase.table("teams").select("id").eq("sport_id", sport_id).execute()
@@ -863,17 +919,19 @@ def generate_swiss_round(sport_id: str, _=Depends(require_admin)):
     if not pairings:
         raise HTTPException(status_code=422, detail="No valid pairings could be generated")
 
-    created = []
-    for home_id, away_id in pairings:
-        match = supabase.table("matches").insert({
+    rows = [
+        {
             "sport_id": sport_id,
             "bracket_id": bracket_id,
             "home_team_id": home_id,
             "away_team_id": away_id,
             "status": "scheduled",
             "match_round": next_round,
-        }).execute().data[0]
-        created.append(match)
+        }
+        for home_id, away_id in pairings
+    ]
+    # One bulk insert instead of one round-trip per pairing.
+    created = supabase.table("matches").insert(rows).execute().data
 
     return {
         "bracket_id": bracket_id,

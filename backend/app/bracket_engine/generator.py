@@ -397,29 +397,58 @@ def persist_bracket(
     for i, slot in enumerate(slots):
         slot.db_id = inserted_ids[i]
 
-    # ── Wire up next-match links ──────────────────────────────────────────────
-    for i, slot in enumerate(slots):
-        update: dict = {}
-        if slot.winner_next_idx is not None:
-            update["winner_next_match_id"] = inserted_ids[slot.winner_next_idx]
-        if slot.loser_next_idx is not None:
-            update["loser_next_match_id"] = inserted_ids[slot.loser_next_idx]
-        if update:
-            db.table("matches").update(update).eq("id", inserted_ids[i]).execute()
+    # ── Wire up next-match links, advance bye winners, mark bye losers ────────
+    # All three used to be one DB round-trip per slot each (UPDATE / SELECT+
+    # UPDATE / SELECT+UPDATE). A double-elim bracket for ~90+ teams (real
+    # data: Dodgeball) has 200+ slots and ~35 byes, which as sequential loops
+    # measured 16s and is worse than the pool-setup crash this exact pattern
+    # already caused once (see set_pool_setup's docstring). Since every slot's
+    # full row is already in memory (`inserted`, the insert's own response)
+    # and the bye/link structure is fully known before any writes happen, all
+    # three can be simulated in Python against local copies and committed with
+    # a single bulk upsert. `_fill_team_slot` / `_fill_bye_slot`'s "first
+    # empty, non-bye slot, home then away" rule is reproduced exactly by
+    # `_local_fill_slot` below, applied in the same iteration order as before
+    # so two byes feeding the same match still resolve home-then-away
+    # identically to the old per-call version.
+    overrides: dict[int, dict] = {}
 
-    # ── Advance bye winners into their next-round slots ───────────────────────
+    def _local_fill_slot(idx: int, team_id: str | None, mark_bye: bool) -> None:
+        state = overrides.setdefault(idx, {})
+        home_team = state.get("home_team_id", inserted[idx]["home_team_id"])
+        home_state = state.get("home_slot_state", inserted[idx]["home_slot_state"])
+        away_team = state.get("away_team_id", inserted[idx]["away_team_id"])
+        away_state = state.get("away_slot_state", inserted[idx]["away_slot_state"])
+        if home_team is None and home_state != "bye":
+            state["home_team_id" if not mark_bye else "home_slot_state"] = team_id if not mark_bye else "bye"
+        elif away_team is None and away_state != "bye":
+            state["away_team_id" if not mark_bye else "away_slot_state"] = team_id if not mark_bye else "bye"
+
+    for i, slot in enumerate(slots):
+        if slot.winner_next_idx is not None:
+            overrides.setdefault(i, {})["winner_next_match_id"] = inserted_ids[slot.winner_next_idx]
+        if slot.loser_next_idx is not None:
+            overrides.setdefault(i, {})["loser_next_match_id"] = inserted_ids[slot.loser_next_idx]
+
     for slot in slots:
         if not slot.is_bye or slot.winner_next_idx is None:
             continue
         winner_team = slot.home_team_id or slot.away_team_id
-        next_id = inserted_ids[slot.winner_next_idx]
-        _fill_team_slot(next_id, winner_team, db)
+        _local_fill_slot(slot.winner_next_idx, winner_team, mark_bye=False)
 
     # A bye match produces no loser — mark its losers-bracket slot as a
     # permanent bye so settle_bracket can auto-advance the team waiting there.
     for slot in slots:
         if slot.is_bye and slot.loser_next_idx is not None:
-            _fill_bye_slot(inserted_ids[slot.loser_next_idx], db)
+            _local_fill_slot(slot.loser_next_idx, None, mark_bye=True)
+
+    if overrides:
+        upsert_rows = []
+        for idx, changes in overrides.items():
+            row = dict(inserted[idx])
+            row.update(changes)
+            upsert_rows.append(row)
+        db.table("matches").upsert(upsert_rows).execute()
 
     # Identify the root match (no winner_next) so callers can chain brackets
     # together — e.g. wiring two division finals into a championship match.
