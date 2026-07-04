@@ -1547,7 +1547,17 @@ const genMutation = useMutation({
                   max={Math.floor(sportTeams.length / 2) || 1}
                   autoFocus
                   value={effectivePoolCount}
-                  onChange={e => setPoolCount(Number(e.target.value))}
+                  onChange={e => {
+                    setPoolCount(Number(e.target.value))
+                    // Stale per-team/court pool overrides from a previous pool
+                    // count would otherwise stay pinned forever (teamPoolOf
+                    // honors any override < effectivePoolCount regardless of
+                    // when it was set), skewing pools out of balance. Clearing
+                    // them here re-triggers the snake distribution for a fresh
+                    // preview; nothing is persisted until "Save Groups".
+                    setTeamPool({})
+                    setCourtPool({})
+                  }}
                   onBlur={() => setIsEditingPoolCount(false)}
                   onKeyDown={e => { if (e.key === 'Enter') setIsEditingPoolCount(false) }}
                   className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
