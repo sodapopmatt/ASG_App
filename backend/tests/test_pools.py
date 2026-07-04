@@ -17,13 +17,14 @@ START = datetime(2026, 7, 4, 8, 0, tzinfo=timezone.utc)
 DUR = 25
 
 
-def make_pool_sport(pool_sizes, courts_per_pool=1, bracket_type="pool_bracket"):
+def make_pool_sport(pool_sizes, courts_per_pool=1, bracket_type="pool_bracket", pool_play_rounds=None):
     db = FakeSupabase()
     sport = db.table("sports").insert({
         "name": "Soccer",
         "bracket_type": bracket_type,
         "match_duration_minutes": DUR,
         "schedule_start": START.isoformat(),
+        "pool_play_rounds": pool_play_rounds,
     }).execute().data[0]
     pools = []
     for p, size in enumerate(pool_sizes):
@@ -73,6 +74,37 @@ def test_pool_round_robin_complete(pool_sizes, monkeypatch):
     assert_no_court_overlap(rows, est, DUR)
     for m in rows:
         assert est.get(m["id"]) is not None, "every pool match should have a time"
+
+
+def test_truncated_round_robin_caps_games_per_team():
+    """pool_play_rounds truncates the circle-method schedule: each team plays
+    exactly max_rounds distinct opponents, none repeated."""
+    from app.bracket_engine.round_robin import generate_round_robin
+
+    teams = [f"t{i}" for i in range(8)]  # 8 teams → full RR is 7 rounds
+    slots = generate_round_robin(teams, max_rounds=3)
+
+    assert max(s.match_round for s in slots) == 3
+    # Every team plays exactly 3 games, all against different opponents
+    for t in teams:
+        opps = [
+            (s.away_team_id if s.home_team_id == t else s.home_team_id)
+            for s in slots
+            if t in (s.home_team_id, s.away_team_id)
+        ]
+        assert len(opps) == 3, f"{t} played {len(opps)} games, expected 3"
+        assert len(set(opps)) == 3, f"{t} faced a repeat opponent: {opps}"
+
+
+def test_truncated_round_robin_caps_at_full_when_over():
+    """max_rounds larger than the natural round count yields a full round robin."""
+    from itertools import combinations
+    from app.bracket_engine.round_robin import generate_round_robin
+
+    teams = [f"t{i}" for i in range(5)]
+    slots = generate_round_robin(teams, max_rounds=99)
+    pairs = {frozenset((s.home_team_id, s.away_team_id)) for s in slots}
+    assert pairs == {frozenset(p) for p in combinations(teams, 2)}
 
 
 def test_pool_standings_after_results(monkeypatch):

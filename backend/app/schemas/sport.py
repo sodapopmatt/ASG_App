@@ -33,6 +33,7 @@ class SportCreate(BaseModel):
     assumed_courts_per_group: Optional[int] = None
     pool_count: Optional[int] = None
     advance_per_pool: Optional[int] = None
+    pool_play_rounds: Optional[int] = None  # None = full round robin; N = N games per team
 
 
 class SportUpdate(BaseModel):
@@ -51,6 +52,7 @@ class SportUpdate(BaseModel):
     assumed_courts_per_group: int | None = None
     pool_count: int | None = None
     advance_per_pool: int | None = None
+    pool_play_rounds: int | None = None
 
 
 class Sport(SportCreate):

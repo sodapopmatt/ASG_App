@@ -140,7 +140,7 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
     Other combinations return a 422.
     """
     sport_row = supabase.table("sports").select(
-        "name, bracket_type, match_duration_minutes, schedule_start, assumed_courts_per_group"
+        "name, bracket_type, match_duration_minutes, schedule_start, assumed_courts_per_group, pool_play_rounds"
     ).eq("id", sport_id).limit(1).execute()
 
     if not sport_row.data:
@@ -289,6 +289,7 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
         return _generate_pool_play(
             sport_id, body, valid_ids, location_ids, start_time, duration,
             assumed_courts_per_group=sport.get("assumed_courts_per_group") or 0,
+            max_rounds=sport.get("pool_play_rounds"),
         )
 
     # Pool types without `pools`: pool_bracket generates its seeded bracket
@@ -454,8 +455,13 @@ def _generate_pool_play(
     start_time,
     duration: int,
     assumed_courts_per_group: int = 0,
+    max_rounds: int | None = None,
 ) -> dict:
-    """Generate one round-robin pool per PoolSpec, each on its own courts."""
+    """Generate one round-robin pool per PoolSpec, each on its own courts.
+
+    `max_rounds` (the sport's `pool_play_rounds`) truncates each pool to that
+    many games per team; None generates a full round robin.
+    """
     pools = body.pools or []
     if len(pools) < 1:
         raise HTTPException(status_code=422, detail="At least 1 pool is required")
@@ -492,6 +498,7 @@ def _generate_pool_play(
             start_time=start_time,
             match_duration_minutes=duration,
             assumed_courts_per_group=assumed_courts_per_group,
+            max_rounds=max_rounds,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))

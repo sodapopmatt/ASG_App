@@ -13,6 +13,7 @@ _TABLE_COLUMNS = {
     "sports": [
         "id", "name", "bracket_type", "teams_per_company", "scoring_direction",
         "multi_team_rule", "points_scale", "match_duration_minutes", "schedule_start",
+        "assumed_courts_per_group", "pool_count", "advance_per_pool", "pool_play_rounds",
     ],
     "teams": ["id", "company_id", "sport_id", "name", "created_at", "seed", "pool_index"],
     "companies": ["id", "name", "short_id", "logo_url", "created_at"],

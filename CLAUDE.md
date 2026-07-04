@@ -116,6 +116,7 @@ V1 migration is complete.
 - `scoring_mode` (TEXT) — `placement` (default; admin awards via `/event-points/award-placement`) | `donation_count` (admin enters per-company item counts via `/donation-counts`; points derived: top=15, second=10, ≥10 items=5, else=0; ties share points)
 - `match_duration_minutes` (INT, nullable)
 - `schedule_start` (TIMESTAMPTZ, nullable)
+- `pool_play_rounds` (INT, nullable) — pool-play sports only; NULL = full round robin (every team plays every other in its pool once); N = truncate each pool to N rounds, i.e. each team plays N distinct opponents (odd pool sizes sit one team out per round, so those teams may play slightly fewer). Set via SportConfigPage's "Games per team (pool stage)" field. Used when there isn't time for a full round robin (e.g. large Pickleball pools).
 
 ---
 
@@ -236,6 +237,7 @@ Per-company donation totals for donation-style sports (Canned Food Drive). Write
 ### Pool Play (pool_bracket / pool_swiss)
 - `generate-bracket` accepts optional `pools: [{name, team_ids, location_ids}]` (pool types only, ≥1 pool, ≥2 teams each; teams/courts cannot repeat across pools)
 - Each pool = one `brackets` row with `phase='pool'`; matches are a single round robin (circle method, `bracket_engine/round_robin.py`); odd team counts sit out one round (no bye rows); no advancement links
+- **Truncated round robin** (`sports.pool_play_rounds`, nullable, any pool-play sport): NULL = full round robin (default, unchanged). N = `generate_round_robin(teams, max_rounds=N)` keeps only the first N circle-method rounds, so each team plays exactly N distinct opponents, balanced and non-repeating (odd pool sizes sit one team out per round → those teams may play slightly fewer). N ≥ the natural round count falls back to a full round robin. Standings/seeding are unaffected (already computed from whatever terminal matches exist; tiebreaks already manual). Threaded sport → `_generate_pool_play` → `persist_pools(max_rounds=...)`. Set in SportConfigPage as "Games per team (pool stage)".
 - Courts round-robin within each pool's courts; times sequential per court from `schedule_start`
 - `GET /sports/{id}/standings` computes W-L per pool from terminal matches (completed/forfeit → winner W / opponent L; double_forfeit → both L); rank by wins desc, losses asc; identical records share a rank
 - **No score-based tiebreakers** — V1 has no scores; admins break ties manually when seeding the bracket phase

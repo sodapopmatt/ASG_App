@@ -23,6 +23,7 @@ export interface Sport {
   assumed_courts_per_group: number | null
   pool_count: number | null
   advance_per_pool: number | null
+  pool_play_rounds: number | null
   created_at: string
 }
 

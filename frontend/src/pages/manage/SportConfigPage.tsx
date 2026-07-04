@@ -638,7 +638,7 @@ function PoolBuckets({
   onMoveCourt: (locId: string, pool: number) => void
   onUnassignTeam: (teamId: string) => void
 }) {
-  const [openPool, setOpenPool] = useState<number | null>(0)
+  const [openPool, setOpenPool] = useState<number | null>(null)
 
   const sharedCourts = locations.filter(l => courtPoolOf(l.id) === SHARED_COURT_VALUE)
   const unassignedTeams = seeds.filter(t => teamPoolOf(t.id) === UNASSIGNED_POOL)
@@ -752,6 +752,10 @@ export default function SportConfigPage() {
   const [configError, setConfigError] = useState<string | null>(null)
   const [configVenue, setConfigVenue] = useState<string | null>(null)
   const [configAssumedCourts, setConfigAssumedCourts] = useState<number | null>(null)
+  // Pool-stage games per team: null = full round robin, N = truncate to N rounds
+  const [configPoolPlayRounds, setConfigPoolPlayRounds] = useState<number | null>(null)
+  const [isEditingPoolCount, setIsEditingPoolCount] = useState(false)
+  const [isEditingPoolPlayRounds, setIsEditingPoolPlayRounds] = useState(false)
 
   // Courts state
   const [newCourtName, setNewCourtName] = useState('')
@@ -874,6 +878,8 @@ export default function SportConfigPage() {
   const effectiveStart = configStart ?? (sport?.schedule_start ? toDatetimeLocal(sport.schedule_start) : '')
   const effectiveVenue = configVenue ?? sport?.venue ?? ''
   const effectiveAssumedCourts = configAssumedCourts ?? sport?.assumed_courts_per_group ?? 1
+  // 0 / blank = full round robin (stored as null)
+  const effectivePoolPlayRounds = configPoolPlayRounds ?? sport?.pool_play_rounds ?? 0
 
   const configMutation = useMutation({
     mutationFn: () => updateSport(sportId!, {
@@ -881,6 +887,7 @@ export default function SportConfigPage() {
       schedule_start: effectiveStart ? new Date(effectiveStart).toISOString() : null,
       venue: effectiveVenue.trim() || null,
       assumed_courts_per_group: effectiveAssumedCourts > 0 ? effectiveAssumedCourts : null,
+      pool_play_rounds: effectivePoolPlayRounds > 0 ? effectivePoolPlayRounds : null,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['sports'] })
@@ -1525,21 +1532,63 @@ const genMutation = useMutation({
         ) : isPool ? (
           <div className="space-y-3">
             <p className="text-sm text-slate-500 italic">
-              Each pool plays a round robin — every team plays every other team in its pool once.
+              {effectivePoolPlayRounds > 0
+                ? `Each team plays ${effectivePoolPlayRounds} game${effectivePoolPlayRounds === 1 ? '' : 's'} against different opponents in its pool (truncated round robin).`
+                : 'Each pool plays a round robin — every team plays every other team in its pool once.'}
               {isPoolBracket && ' After pool play, the top teams advance to a single-elimination bracket.'}
             </p>
 
-            <label className="space-y-1 block">
-              <span className="text-xs text-gray-400">Number of pools</span>
-              <input
-                type="number"
-                min={1}
-                max={Math.floor(sportTeams.length / 2) || 1}
-                value={effectivePoolCount}
-                onChange={e => setPoolCount(Number(e.target.value))}
-                className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+            {isEditingPoolCount ? (
+              <label className="space-y-1 block">
+                <span className="text-xs text-gray-400">Number of pools</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={Math.floor(sportTeams.length / 2) || 1}
+                  autoFocus
+                  value={effectivePoolCount}
+                  onChange={e => setPoolCount(Number(e.target.value))}
+                  onBlur={() => setIsEditingPoolCount(false)}
+                  onKeyDown={e => { if (e.key === 'Enter') setIsEditingPoolCount(false) }}
+                  className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+                />
+              </label>
+            ) : (
+              <LockedField
+                label="Number of pools"
+                value={String(effectivePoolCount)}
+                onEdit={() => setIsEditingPoolCount(true)}
               />
-            </label>
+            )}
+
+            {isEditingPoolPlayRounds ? (
+              <label className="space-y-1 block">
+                <span className="text-xs text-gray-400">Games per team (pool stage)</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={Math.max(1, Math.ceil(sportTeams.length / effectivePoolCount) - 1)}
+                  placeholder="All opponents (full round robin)"
+                  autoFocus
+                  value={effectivePoolPlayRounds > 0 ? effectivePoolPlayRounds : ''}
+                  onChange={e => setConfigPoolPlayRounds(e.target.value ? Number(e.target.value) : 0)}
+                  onBlur={() => { configMutation.mutate(); setIsEditingPoolPlayRounds(false) }}
+                  onKeyDown={e => { if (e.key === 'Enter') { configMutation.mutate(); setIsEditingPoolPlayRounds(false) } }}
+                  className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+                />
+                <span className="text-xs text-slate-400">
+                  Leave blank to play a full round robin. Set a number when there isn't
+                  time for every team to play everyone — each team plays that many
+                  different opponents instead.
+                </span>
+              </label>
+            ) : (
+              <LockedField
+                label="Games per team (pool stage)"
+                value={effectivePoolPlayRounds > 0 ? String(effectivePoolPlayRounds) : 'All opponents (full round robin)'}
+                onEdit={() => setIsEditingPoolPlayRounds(true)}
+              />
+            )}
 
             {isPoolSwiss && (
               <label className="space-y-1 block">

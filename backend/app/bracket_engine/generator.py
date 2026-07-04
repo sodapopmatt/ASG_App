@@ -448,6 +448,7 @@ def persist_pools(
     start_time: datetime | None = None,
     match_duration_minutes: int = 30,
     assumed_courts_per_group: int = 0,
+    max_rounds: int | None = None,
 ) -> dict:
     """Generate and save round-robin pool play for a sport.
 
@@ -458,6 +459,8 @@ def persist_pools(
         clear_existing:        If True, delete existing brackets/matches first.
         start_time:            Earliest start time for the first match on each court.
         match_duration_minutes: Minutes per match slot on each court.
+        max_rounds:            If set, truncate each pool to this many rounds
+                               (= games per team). None = full round robin.
 
     Returns:
         Summary dict with bracket_ids and match_count.
@@ -470,7 +473,7 @@ def persist_pools(
     # Pass 1: generate all round-robin slots and create bracket rows
     all_pool_data: list[tuple[str, list, list[str]]] = []  # (bracket_id, slots, courts)
     for p_idx, (pool_name, team_ids, pool_location_ids) in enumerate(pools):
-        slots = round_robin.generate_round_robin(team_ids)
+        slots = round_robin.generate_round_robin(team_ids, max_rounds=max_rounds)
         bracket = db.table("brackets").insert({
             "sport_id": sport_id,
             "name": pool_name,
