@@ -14,7 +14,7 @@ export interface Sport {
   scoring_direction: 'high_wins' | 'low_wins'
   multi_team_rule: 'best_placement' | 'average_score'
   points_scale: Record<string, number> | null
-  scoring_mode: 'placement' | 'donation_count'
+  scoring_mode: 'placement' | 'donation_count' | 'water_ball_toss'
   match_duration_minutes: number | null
   schedule_start: string | null
   schedule_end: string | null

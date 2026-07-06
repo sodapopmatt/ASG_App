@@ -177,7 +177,7 @@ export default function Layout() {
               </button>
               <div className="border-t border-gray-100 mx-4" />
               <a
-                href="https://drive.google.com/file/d/10lNmjOK7lt8u7b259H4ctEX1ZNDjCySj/view"
+                href="https://aerospacesummergames.com/wp-content/uploads/2026/07/ASG_2026_Sport_Rulebook_Final.pdf"
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => setMenuOpen(false)}

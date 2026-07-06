@@ -220,7 +220,9 @@ The system shall:
 
 **Multi-team rule** (`multi_team_rule`) — applies when a company enters multiple teams:
 - `best_placement` — only the best-placing team's result counts
-- `average_score` — average across all company teams (Water Ball Toss)
+- `average_score` — average across all company teams (not currently used by any sport; not read by any code)
+
+Water Ball Toss (`scoring_mode = 'water_ball_toss'`, `bracket_type = 'heats'`) uses a bespoke rule, independent of `multi_team_rule`: teams get real matches (one per team, started/entered like any heats sport), and a company's score is the **best** of its own teams' results (not an average). Standings are not live — an admin reviews computed placements on the Scoring page and explicitly saves before `event_points` updates.
 
 **Points scale** (`points_scale`):
 - Default ASG scale: 1st = 40, 2nd = 38, 3rd = 36, then −2 per place (floor 0)
@@ -487,8 +489,10 @@ Constraints:
 | Cornhole | pool_swiss | 4 | high_wins | best_placement | ASG default |
 | Relay Race | heats | 1 | high_wins | best_placement | ASG default |
 | Human Pyramid | heats | 1 | low_wins | best_placement | ASG default |
-| Water Ball Toss | points_based | 5 | high_wins | average_score | ASG default |
+| Water Ball Toss | heats | 5 | high_wins | average_score* | ASG default |
 | Canned Food Drive | points_based | 1 | high_wins | best_placement | `{"1":15,"2":10,"default":5}` |
+
+\* Not applied — Water Ball Toss's actual rule is bespoke (best of a company's teams, not an average); see 4.10.
 
 Each sport defines:
 - bracket type (determines match structure and generation method)

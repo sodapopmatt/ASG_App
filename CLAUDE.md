@@ -113,7 +113,7 @@ V1 migration is complete.
 - `scoring_direction` (TEXT) — `high_wins` | `low_wins`
 - `multi_team_rule` (TEXT) — `best_placement` | `average_score`
 - `points_scale` (JSONB, nullable) — NULL = ASG default scale
-- `scoring_mode` (TEXT) — `placement` (default; admin awards via `/event-points/award-placement`) | `donation_count` (admin enters per-company item counts via `/donation-counts`; points derived: top=15, second=10, ≥10 items=5, else=0; ties share points)
+- `scoring_mode` (TEXT) — `placement` (default; admin awards via `/event-points/award-placement`) | `donation_count` (admin enters per-company item counts via `/donation-counts`; points derived: top=15, second=10, ≥10 items=5, else=0; ties share points) | `water_ball_toss` (real per-team matches, `bracket_type='heats'`; rounds survived entered via the generic heat-result endpoint; a company's score is the best of its own teams; standings are NOT live — an admin reviews computed placements on ScoringPage and explicitly saves via `POST /waterball-results/sports/{id}/recompute`, ties share points)
 - `match_duration_minutes` (INT, nullable)
 - `schedule_start` (TIMESTAMPTZ, nullable)
 - `pool_play_rounds` (INT, nullable) — pool-play sports only; NULL = full round robin (every team plays every other in its pool once); N = truncate each pool to N rounds, i.e. each team plays N distinct opponents (odd pool sizes sit one team out per round, so those teams may play slightly fewer). Set via SportConfigPage's "Games per team (pool stage)" field. Used when there isn't time for a full round robin (e.g. large Pickleball pools).
@@ -207,6 +207,18 @@ Per-company donation totals for donation-style sports (Canned Food Drive). Write
 
 ---
 
+### Water Ball Toss (scoring_mode = water_ball_toss)
+No dedicated table — Water Ball Toss is `bracket_type = 'heats'` with real `matches` rows, one per team (flat, no opponent — same shape as Human Pyramid), grouped into two heat `brackets` ("Group A"/"Group B"). It reuses existing generic infrastructure end-to-end:
+- **Groups**: built from `teams.pool_index` (0/1), set via `PUT /sports/{id}/pool-setup` — the same mechanism pool play uses. SportConfigPage (`/manage/brackets/:sportId`) shows a "Groups" section using the same `PoolBuckets` UI as pool play (default: alternating split by company, manual override, "Save Groups" button), just with 2 fixed groups and no courts. Group assignment is purely organizational and does not affect scoring.
+- **Generate**: "Generate Matches" button builds `HeatSpec[]` from the two groups and calls the existing `POST /sports/{id}/generate-bracket` (heats path) — creates one `brackets` row per group and one flat match per team, same bulk-insert code Relay Race's preliminary heats use.
+- **Start**: the generic `POST /matches/{id}/start` (no changes needed).
+- **Enter result**: the generic `POST /matches/{id}/heat-result` (`{time_ms}` or `{forfeit: true}`) — the same endpoint Human Pyramid/Relay Race use for their time, just holding "rounds survived" instead of milliseconds, stored as a string in `matches.notes`.
+- **Reset**: the generic `DELETE /sports/{id}/brackets` — already clears `event_points` too when `bracket_type == 'heats'`.
+- **Scoring** (the one genuinely bespoke piece, in `backend/app/routers/waterball_results.py`): points per team = `rounds_survived + 1` (showing up and dropping on the first toss = 1 pt), or 0 if forfeited, else excluded (not yet played). A company's score is the **best** of its own teams' points (not an average — refs only track whichever team went furthest; heats' generic ranking is deliberately NOT used here since it hardcodes lowest-wins and has no per-company aggregation). `POST /waterball-results/sports/{id}/recompute` rebuilds `event_points` from all of the sport's matches: companies ranked by that best-of score, awarded the sport's placement scale (default ASG 40/38/36/34…), tied companies sharing the averaged points.
+- **Not live**: unlike `donation_count`, entering a result on `WaterballResultsPage` does NOT call recompute — it only updates the match. Standings only update when an admin opens ScoringPage's Water Ball Toss section (shows a live preview of best-of-company scores computed client-side from the same matches, alongside the last-saved `event_points`) and taps **Save Placements**, which is what actually calls `recompute`. This is a deliberate review step before the leaderboard changes.
+
+---
+
 ## Bracket System
 
 ### Supported Types
@@ -216,7 +228,7 @@ Per-company donation totals for donation-style sports (Canned Food Drive). Write
 | `double_elimination` | Yes | Full |
 | `pool_bracket` | Yes — pools + seeded bracket phase | Full — pool setup, standings, results entry, bracket view |
 | `pool_swiss` | Pools only (Swiss rounds manual) | Partial — pool UI works; no Swiss round UI |
-| `heats` | Yes — flat (one entry per team) OR grouped multi-phase (one bracket per heat) | Full for Relay Race (multi-phase: prelims → semis → final); flat for Human Pyramid |
+| `heats` | Yes — flat (one entry per team) OR grouped multi-phase (one bracket per heat) | Full for Relay Race (multi-phase: prelims → semis → final); flat for Human Pyramid; grouped single-phase ("Group A"/"Group B") for Water Ball Toss (`scoring_mode='water_ball_toss'` — bespoke best-of-company scoring instead of the generic heats ranking/ScoringPage flow) |
 | `points_based` | N/A — no matches | Partial — placement entry via Scoring page only |
 
 ### Auto-Generation Rules (elimination only)
@@ -300,10 +312,12 @@ Per-company donation totals for donation-style sports (Canned Food Drive). Write
 | Cornhole | pool_swiss | 4 | high_wins | best_placement | ASG default |
 | Relay Race | heats | 1 | high_wins | best_placement | Custom (see Heats section) |
 | Human Pyramid | heats | 1 | low_wins | best_placement | ASG default |
-| Water Ball Toss | points_based | 5 | high_wins | average_score | ASG default |
+| Water Ball Toss | heats | 5 | high_wins | average_score¹ | ASG default |
 | Canned Food Drive | points_based | 1 | high_wins | best_placement | n/a (uses `scoring_mode='donation_count'`) |
 
 ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place (floor 0). SQL: `asg_points(placement INTEGER)`.
+
+¹ `multi_team_rule` isn't read by any code — it's a leftover DB value, not the active rule. Water Ball Toss's real behavior (bespoke, in `waterball_results.py`) is **best of its teams**, not an average — see the Water Ball Toss entity section below.
 
 ---
 
@@ -406,16 +420,27 @@ ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place (floor 0). SQL: 
 
 ---
 
+### Waterball Results — `/waterball-results`
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/sports/{sport_id}/recompute` | admin | Rebuild `event_points` for a `water_ball_toss` sport from its `matches` (best-of-company rounds survived, ranked, placement scale awarded) |
+
+This is the only endpoint specific to Water Ball Toss — generating matches, starting them, entering results, and resetting all reuse the generic `sports`/`matches` endpoints (see the Water Ball Toss entity section above).
+
+---
+
 ## Frontend Pages
 
 | Page | Route | What it does |
 |---|---|---|
-| Schedule | `/schedule` | All matches grouped by sport+round or timeline view. Does NOT vary by `bracket_type`. |
+| Schedule | `/schedule` | All matches grouped by sport+round or timeline view. Does NOT vary by `bracket_type` — Water Ball Toss flows through this like any other match-based sport. Sports with no `matches` at all (`donation_count`) get a plain event card/timeline row instead, driven by the sport's own `schedule_start`/`schedule_end`. |
+| BracketsSportIndex / BracketView (public "Games" tab) | `/brackets`, `/brackets/:sportId` | Public read-only per-sport results. `BracketView.renderContent()` branches on `scoring_mode`/`bracket_type`: `donation_count` → ranked items table; `water_ball_toss` → Group A/B tabs of real matches (team + rounds survived/forfeit/TBD, via `WaterBallGroupTable`) plus a company standings table from `event_points`; other `heats`/`pool_bracket`/`pool_swiss`/elimination → their respective bracket views; else a fallback match list. All rank/points values come from `event_points` — no scoring logic is duplicated client-side. |
 | BracketsPage | `/manage/brackets` | Generate elimination brackets, set scheduling config, manually adjust match times. Labels non-generatable sports as "Manual entry". |
-| SportConfigPage | `/manage/brackets/:sportId` | Per-sport config: scheduling, courts, bracket/pool generation; pool sports get pool setup (snake auto-split + overrides) and a post-pool "Generate Bracket Phase" card seeded from standings. |
+| SportConfigPage | `/manage/brackets/:sportId` | Per-sport config: scheduling, courts, bracket/pool generation; pool sports get pool setup (snake auto-split + overrides) and a post-pool "Generate Bracket Phase" card seeded from standings; `water_ball_toss` sports get a "Groups" section (same team-grouping UI, 2 fixed groups, no courts) and a "Generate Matches"/"Reset All Results" flow that reuses the generic heats-generation and `resetBrackets` endpoints. |
 | ResultsPage | `/manage/results` | Lists pending matches; links to bracket visualization for elimination sports, pool results for pool sports, heats entry for heats. |
 | PoolResultsPage | `/manage/results/pools/:sportId` | Pool matches grouped by pool+round; tap to enter result via shared MatchResultModal; links to bracket phase view. |
-| ScoringPage | `/manage/scoring` | Sport card list (tap to drill in). For standard sports: award placement per company. For Relay Race: auto-computes placements from heat results with editable overrides; calls `/event-points/award-placement`. |
+| WaterballResultsPage | `/manage/results/waterball/:sportId` | Water Ball Toss: Group A/B tabs (real `brackets`/`matches`, generated from SportConfigPage); Start each team's match, then enter rounds survived or mark forfeit via the generic `startMatch`/`submitHeatResult`. Does NOT touch `event_points` — standings are reviewed and saved from Scoring. |
+| ScoringPage | `/manage/scoring` | Sport card list (tap to drill in). For standard sports: award placement per company. For Relay Race: auto-computes placements from heat results with editable overrides; calls `/event-points/award-placement`. For Canned Food Drive: read-only ranked standings, auto-computed live from `/donation-counts`. For Water Ball Toss: a live preview of best-of-company scores computed from `matches`, next to the last-saved `event_points`, with an explicit "Save Placements" button that calls `waterball-results` recompute. |
 | HeatsResultPage | `/manage/results/heats/:sportId` | For grouped heats (Relay Race): segmented Prelims/Semi-Finals/Final tabs with scrollable heat pill tabs within each phase; generate next phase when current is complete. For flat heats (Human Pyramid): simple per-team time entry. |
 | TeamsPage | `/manage/teams` | Create/edit/delete teams, grouped by sport+company. |
 | ManageHub | `/manage` | Navigation hub for admin pages. |

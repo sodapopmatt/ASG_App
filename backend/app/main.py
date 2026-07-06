@@ -13,6 +13,7 @@ from app.routers import (
     locations,
     alerts,
     donation_counts,
+    waterball_results,
 )
 from app.auth import get_current_profile, UserProfile
 
@@ -44,6 +45,7 @@ app.include_router(roster_entries.router, prefix="/roster-entries", tags=["roste
 app.include_router(locations.router,      prefix="/locations",      tags=["locations"])
 app.include_router(alerts.router,         prefix="/alerts",         tags=["alerts"])
 app.include_router(donation_counts.router, prefix="/donation-counts", tags=["donation-counts"])
+app.include_router(waterball_results.router, prefix="/waterball-results", tags=["waterball-results"])
 
 
 @app.get("/me")

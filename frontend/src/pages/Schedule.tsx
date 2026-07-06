@@ -10,6 +10,7 @@ import { getBrackets } from '../api/brackets'
 import type { Match, Sport, Team, Company, Location, Bracket } from '../types'
 import { compactLabel, buildMultiTeamKeys, compareBracketNames } from '../lib/bracketHelpers'
 import { getSportIcon } from '../lib/sportIcons'
+import { groupMatchesByCompany } from '../lib/waterball'
 
 type ViewMode = 'by_sport' | 'timeline'
 type StatusFilter = 'all' | 'active' | 'upcoming' | 'live' | 'completed'
@@ -406,6 +407,8 @@ function HeatsScheduleView({
     )
   }
 
+  const isWaterball = sport.scoring_mode === 'water_ball_toss'
+
   return (
     <div>
       {locationHeader}
@@ -415,12 +418,14 @@ function HeatsScheduleView({
 
         return (
           <div key={phase}>
-            {/* Phase header */}
-            <div className="px-4 py-1.5 border-t border-gray-100 bg-white flex items-center gap-1.5">
-              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                {HEATS_PHASE_LABELS[phase]}
-              </span>
-            </div>
+            {/* Phase header — Water Ball Toss is single-phase (just Group A/B), no Prelims/Semis/Final progression */}
+            {!isWaterball && (
+              <div className="px-4 py-1.5 border-t border-gray-100 bg-white flex items-center gap-1.5">
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                  {HEATS_PHASE_LABELS[phase]}
+                </span>
+              </div>
+            )}
 
             {/* Heats */}
             {phaseBrackets.map((bracket, i) => {
@@ -432,7 +437,9 @@ function HeatsScheduleView({
                 <div key={bracket.id} className="border-t border-gray-100">
                   {/* Heat header row */}
                   <div className="flex items-center justify-between px-4 py-1.5">
-                    <span className="text-xs font-semibold text-slate-600">Heat {i + 1}</span>
+                    <span className="text-xs font-semibold text-slate-600">
+                      {isWaterball ? bracket.name : `Heat ${i + 1}`}
+                    </span>
                     {effectiveTime && (
                       <span className="text-xs font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
                         {formatTime(effectiveTime)}
@@ -440,23 +447,51 @@ function HeatsScheduleView({
                     )}
                   </div>
 
-                  {/* Team rows */}
-                  {heatMatches.map(m => {
-                    const label = compactLabel(m.home_team_id ?? null, teamMap, companyMap, undefined, multiTeamKeys)
-                    const resolved = isResolved(m)
-                    const live = m.status === 'in_progress'
-                    return (
-                      <div key={m.id} className="flex items-center gap-2 px-6 py-1">
-                        <span className="flex-1 text-sm font-medium text-slate-700 truncate text-center">{label}</span>
-                        {live && (
-                          <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Live</span>
-                        )}
-                        {resolved && !live && (
-                          <span className="text-xs text-gray-400">Done</span>
-                        )}
+                  {isWaterball ? (
+                    // Nested by company, e.g. Apex > Apex-A, Apex-B
+                    groupMatchesByCompany(heatMatches, teamMap, companyMap).map(({ company, rows }) => (
+                      <div key={company.id}>
+                        <div className="px-6 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                          {company.name}
+                        </div>
+                        {rows.map(({ match: m, team }, ti) => {
+                          const resolved = isResolved(m)
+                          const live = m.status === 'in_progress'
+                          return (
+                            <div key={m.id} className="flex items-center gap-2 pl-8 pr-4 py-1">
+                              <span className="flex-1 text-sm font-medium text-slate-700 truncate">
+                                {team.name ?? `Team ${ti + 1}`}
+                              </span>
+                              {live && (
+                                <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Live</span>
+                              )}
+                              {resolved && !live && (
+                                <span className="text-xs text-gray-400">Done</span>
+                              )}
+                            </div>
+                          )
+                        })}
                       </div>
-                    )
-                  })}
+                    ))
+                  ) : (
+                    /* Team rows */
+                    heatMatches.map(m => {
+                      const label = compactLabel(m.home_team_id ?? null, teamMap, companyMap, undefined, multiTeamKeys)
+                      const resolved = isResolved(m)
+                      const live = m.status === 'in_progress'
+                      return (
+                        <div key={m.id} className="flex items-center gap-2 px-6 py-1">
+                          <span className="flex-1 text-sm font-medium text-slate-700 truncate text-center">{label}</span>
+                          {live && (
+                            <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Live</span>
+                          )}
+                          {resolved && !live && (
+                            <span className="text-xs text-gray-400">Done</span>
+                          )}
+                        </div>
+                      )
+                    })
+                  )}
                 </div>
               )
             })}
@@ -696,9 +731,9 @@ function SportCard({
   )
 }
 
-// ── Donation-count sport card ───────────────────────────────────────────────
+// ── Match-less sport card (donation_count) ────────────────
 
-function DonationEventCard({ sport }: { sport: Sport }) {
+function ScheduleOnlyEventCard({ sport }: { sport: Sport }) {
   const now = useNow()
   const { data: locations = [] } = useQuery({
     queryKey: ['locations', sport.id],
@@ -741,11 +776,11 @@ function DonationEventCard({ sport }: { sport: Sport }) {
 // ── Timeline view ────────────────────────────────────────────────────────────
 
 function TimelineView({
-  matches, sports, donationSports,
+  matches, sports, scheduleOnlySports,
 }: {
   matches: Match[]
   sports: Sport[]
-  donationSports: Sport[]
+  scheduleOnlySports: Sport[]
 }) {
   const sportIds = useMemo(() => {
     const ids = [...new Set(matches.map(m => m.sport_id))]
@@ -756,8 +791,8 @@ function TimelineView({
   const now = useNow()
   const extraTimes = useMemo(
     () =>
-      donationSports.flatMap(s => [s.schedule_start, s.schedule_end].filter(Boolean) as string[]),
-    [donationSports],
+      scheduleOnlySports.flatMap(s => [s.schedule_start, s.schedule_end].filter(Boolean) as string[]),
+    [scheduleOnlySports],
   )
   const timelineSlots = useMemo(() => buildTimelineSlots(matches, extraTimes), [matches, extraTimes])
   const baseMinutes = timelineSlots[0]?.minutes ?? 8 * 60
@@ -772,7 +807,7 @@ function TimelineView({
 
   const sportMap = useMemo(() => indexBy(sports, 'id') as Record<string, Sport>, [sports])
 
-  if (sportIds.length === 0 && donationSports.length === 0) {
+  if (sportIds.length === 0 && scheduleOnlySports.length === 0) {
     return <p className="text-center text-gray-500 py-12">No matches to display.</p>
   }
 
@@ -854,8 +889,8 @@ function TimelineView({
           )
         })}
 
-        {/* Donation drive rows */}
-        {donationSports.map(sport => {
+        {/* Match-less sport rows (donation_count) */}
+        {scheduleOnlySports.map(sport => {
           const startIdx = sport.schedule_start ? slotIndex(sport.schedule_start, baseMinutes) : -1
           const endTime = sport.schedule_end ?? sport.schedule_start
           const rawEndIdx = endTime ? slotIndex(endTime, baseMinutes) : -1
@@ -942,7 +977,13 @@ export default function Schedule() {
     [filteredMatches, sportMap],
   )
 
-  const donationSports = useMemo(
+  // Sports with no `matches` rows at all (donation_count: scored via a
+  // dedicated per-company results table, no per-team matches to schedule)
+  // still need a schedule entry — shown as a plain event card using the
+  // sport's own schedule_start/schedule_end rather than match-based grouping.
+  // Water Ball Toss has real matches (bracket_type='heats') so it flows
+  // through the normal match-based grouping below instead.
+  const scheduleOnlySports = useMemo(
     () =>
       sports
         .filter(s => s.scoring_mode === 'donation_count')
@@ -1021,10 +1062,10 @@ export default function Schedule() {
       {/* Views */}
       {view === 'by_sport' && (
         <div className="space-y-2">
-          {grouped.length === 0 && donationSports.length === 0 && (
+          {grouped.length === 0 && scheduleOnlySports.length === 0 && (
             <p className="text-center text-gray-500 py-12">No matches found.</p>
           )}
-          {donationSports.map(s => <DonationEventCard key={s.id} sport={s} />)}
+          {scheduleOnlySports.map(s => <ScheduleOnlyEventCard key={s.id} sport={s} />)}
           {grouped.map(({ sportId, sport, rounds }) => (
             <SportCard
               key={sportId}
@@ -1044,7 +1085,7 @@ export default function Schedule() {
         <TimelineView
           matches={filteredMatches}
           sports={[...sports].sort((a, b) => a.name.localeCompare(b.name))}
-          donationSports={donationSports}
+          scheduleOnlySports={scheduleOnlySports}
         />
       )}
     </div>

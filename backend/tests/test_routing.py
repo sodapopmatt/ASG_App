@@ -18,12 +18,14 @@ from app.main import app
 from app.routers import (
     companies, sports, brackets, teams, matches, event_points,
     leaderboard, roster_entries, locations, alerts, donation_counts,
+    waterball_results,
 )
 from fake_db import FakeSupabase
 
 _ROUTER_MODULES = [
     companies, sports, brackets, teams, matches, event_points,
     leaderboard, roster_entries, locations, alerts, donation_counts,
+    waterball_results,
 ]
 
 

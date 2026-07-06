@@ -14,7 +14,7 @@ BracketType = Literal[
 
 ScoringDirection = Literal["high_wins", "low_wins"]
 MultiTeamRule = Literal["best_placement", "average_score"]
-ScoringMode = Literal["placement", "donation_count"]
+ScoringMode = Literal["placement", "donation_count", "water_ball_toss"]
 
 
 class SportCreate(BaseModel):

@@ -18,6 +18,7 @@ import { getDonationCounts } from '../api/donation_counts'
 import { getEventPoints } from '../api/event_points'
 import type { Match, Team, Company, Sport, Bracket, DonationCount, EventPoints } from '../types'
 import { toLibraryMatch, stableSortMatches, lightTheme, bracketOptions, BracketSvgWrapper, compactLabel, buildMultiTeamKeys, compareBracketNames } from '../lib/bracketHelpers'
+import { waterballMatchPoints, groupMatchesByCompany } from '../lib/waterball'
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [item[key], item]))
@@ -86,6 +87,151 @@ function DonationCountsView({
           })}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+// ---- Water Ball Toss results -----------------------------------------------
+// Real matches (one per team) grouped into "Group A"/"Group B" brackets, shown
+// the same way Human Pyramid's heats are — plus a standings table using the
+// backend's event_points (computed server-side, not re-derived here, per the
+// "no business logic duplication" rule).
+
+function WaterBallGroupTable({
+  matches,
+  teamMap,
+  companyMap,
+}: {
+  matches: Match[]
+  teamMap: Record<string, Team>
+  companyMap: Record<string, Company>
+}) {
+  const groups = useMemo(() => {
+    type State = 'done' | 'forfeit' | 'pending'
+    return groupMatchesByCompany(matches, teamMap, companyMap).map(g => ({
+      ...g,
+      rows: g.rows.map(({ match: m, team }) => {
+        let rounds: number | null = null
+        let state: State = 'pending'
+        const points = waterballMatchPoints(m)
+        if (m.status === 'completed' && points != null) {
+          rounds = points - 1
+          state = 'done'
+        } else if (m.status === 'forfeit' || m.status === 'double_forfeit') {
+          state = 'forfeit'
+        }
+        return { match: m, team, rounds, state }
+      }),
+    }))
+  }, [matches, teamMap, companyMap])
+
+  if (groups.length === 0) return <p className="text-sm text-gray-400 italic py-2">No entries.</p>
+
+  return (
+    <div className="rounded-xl border border-gray-200 overflow-hidden divide-y divide-gray-100">
+      {groups.map(({ company, rows }) => (
+        <div key={company.id}>
+          <div className="px-4 py-1.5 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            {company.name}
+          </div>
+          <div className="divide-y divide-gray-100">
+            {rows.map(({ match, team, rounds, state }, i) => (
+              <div key={match.id} className="grid items-center px-4 py-2.5 gap-3" style={{ gridTemplateColumns: '1fr auto' }}>
+                <span className="text-sm font-medium text-slate-700 truncate pl-1">{team.name ?? `Team ${i + 1}`}</span>
+                {state === 'done' && <span className="font-mono text-sm text-slate-700 text-right">{rounds}</span>}
+                {state === 'forfeit' && <span className="text-xs text-gray-400 text-right">Forfeit</span>}
+                {state === 'pending' && <span className="text-xs text-blue-400 text-right">TBD</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function WaterBallResultsView({
+  sportId,
+  matches,
+  brackets,
+  teamMap,
+  companyMap,
+}: {
+  sportId: string
+  matches: Match[]
+  brackets: Bracket[]
+  teamMap: Record<string, Team>
+  companyMap: Record<string, Company>
+}) {
+  const { data: eventPoints = [] } = useQuery<EventPoints[]>({
+    queryKey: ['event-points', sportId],
+    queryFn: () => getEventPoints({ sport_id: sportId }),
+  })
+  const standings = useMemo(() => [...eventPoints].sort((a, b) => a.placement - b.placement), [eventPoints])
+
+  const groups = useMemo(() => [...brackets].sort((a, b) => a.name.localeCompare(b.name)), [brackets])
+  const matchesByBracket = useMemo(() => {
+    const map: Record<string, Match[]> = {}
+    for (const m of matches) {
+      if (!m.bracket_id) continue
+      ;(map[m.bracket_id] ??= []).push(m)
+    }
+    return map
+  }, [matches])
+
+  const [activeGroup, setActiveGroup] = useState<string | null>(null)
+  const selected = groups.find(g => g.id === activeGroup) ?? groups[0]
+
+  if (groups.length === 0) {
+    return <p className="text-center text-gray-500 py-12">Matches haven't been generated yet.</p>
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex rounded-lg bg-gray-100 p-1">
+        {groups.map(g => (
+          <button
+            key={g.id}
+            onClick={() => setActiveGroup(g.id)}
+            className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              selected?.id === g.id ? 'bg-white shadow-sm text-slate-800' : 'text-gray-500'
+            }`}
+          >
+            {g.name}
+          </button>
+        ))}
+      </div>
+
+      {selected && (
+        <WaterBallGroupTable
+          matches={matchesByBracket[selected.id] ?? []}
+          teamMap={teamMap}
+          companyMap={companyMap}
+        />
+      )}
+
+      {standings.length > 0 && (
+        <div className="rounded-xl border border-gray-200 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="text-left px-3 py-2 font-semibold text-gray-500 w-12">#</th>
+                <th className="text-left px-3 py-2 font-semibold text-gray-500">Company</th>
+                <th className="text-right px-3 py-2 font-semibold text-gray-500">Points</th>
+              </tr>
+            </thead>
+            <tbody>
+              {standings.map((ep, i) => (
+                <tr key={ep.company_id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                  <td className="px-3 py-2 font-bold text-gray-400 tabular-nums">{ep.placement}</td>
+                  <td className="px-3 py-2 text-slate-800">{companyMap[ep.company_id]?.name ?? '—'}</td>
+                  <td className="px-3 py-2 text-right tabular-nums font-bold text-blue-600">{ep.points}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
@@ -757,6 +903,17 @@ export default function BracketView() {
   function renderContent() {
     if (activeSport?.scoring_mode === 'donation_count') {
       return <DonationCountsView sportId={activeSportId!} companyMap={companyMap} />
+    }
+    if (activeSport?.scoring_mode === 'water_ball_toss') {
+      return (
+        <WaterBallResultsView
+          sportId={activeSportId!}
+          matches={sportMatches}
+          brackets={bracketsQuery.data ?? []}
+          teamMap={teamMap}
+          companyMap={companyMap}
+        />
+      )
     }
     if (bracketType === 'heats') {
       return <HeatsStandingsView matches={sportMatches} brackets={bracketsQuery.data ?? []} teamMap={teamMap} companyMap={companyMap} />

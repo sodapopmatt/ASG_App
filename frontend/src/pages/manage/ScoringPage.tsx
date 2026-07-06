@@ -8,9 +8,11 @@ import { getMatches } from '../../api/matches'
 import { getBrackets } from '../../api/brackets'
 import { getEventPoints, awardPlacement } from '../../api/event_points'
 import { getDonationCounts } from '../../api/donation_counts'
+import { recomputeWaterballPoints } from '../../api/waterball_results'
 import { getSportIcon } from '../../lib/sportIcons'
 import type { Sport, Company, EventPoints, Match, Bracket, Team, DonationCount } from '../../types'
 import { compareBracketNames } from '../../lib/bracketHelpers'
+import { waterballMatchPoints } from '../../lib/waterball'
 
 // ── Relay Race scoring ────────────────────────────────────────────────────────
 
@@ -479,6 +481,137 @@ function DonationScoringSection({
   )
 }
 
+function WaterballScoringSection({
+  sport,
+  companies,
+  teams,
+  eventPoints,
+}: {
+  sport: Sport
+  companies: Company[]
+  teams: Team[]
+  eventPoints: EventPoints[]
+}) {
+  const qc = useQueryClient()
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  const { data: matches = [], isLoading: matchesLoading } = useQuery<Match[]>({
+    queryKey: ['matches', { sport_id: sport.id }],
+    queryFn: () => getMatches({ sport_id: sport.id }),
+  })
+
+  const companyByTeam = useMemo(
+    () => Object.fromEntries(teams.map(t => [t.id, t.company_id])),
+    [teams],
+  )
+
+  // Preview only — a company's best-of-its-teams score, mirroring the exact
+  // ranking the backend recompute will apply. Not persisted until Save.
+  const preview = useMemo(() => {
+    const bestByCompany: Record<string, number> = {}
+    for (const m of matches) {
+      if (!m.home_team_id) continue
+      const points = waterballMatchPoints(m)
+      if (points == null) continue
+      const companyId = companyByTeam[m.home_team_id]
+      if (!companyId) continue
+      bestByCompany[companyId] = Math.max(points, bestByCompany[companyId] ?? -1)
+    }
+    const rows = companies
+      .map(c => ({ company: c, score: bestByCompany[c.id] ?? null }))
+      .filter((r): r is { company: Company; score: number } => r.score != null)
+      .sort((a, b) => b.score - a.score)
+    let rank = 1
+    return rows.map((r, i) => {
+      if (i > 0 && r.score !== rows[i - 1].score) rank = i + 1
+      return { ...r, rank }
+    })
+  }, [matches, companies, companyByTeam])
+
+  const savedByCompany = useMemo(
+    () => Object.fromEntries(
+      eventPoints.filter(ep => ep.sport_id === sport.id).map(ep => [ep.company_id, ep])
+    ),
+    [eventPoints, sport.id],
+  )
+
+  async function handleSave() {
+    setSaving(true)
+    setSaveError(null)
+    try {
+      await recomputeWaterballPoints(sport.id)
+      qc.invalidateQueries({ queryKey: ['event-points'] })
+      qc.invalidateQueries({ queryKey: ['leaderboard'] })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Failed to save placements')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (matchesLoading) {
+    return <p className="text-sm text-gray-400 text-center py-6">Loading…</p>
+  }
+
+  if (preview.length === 0) {
+    return (
+      <p className="text-sm text-gray-400 text-center py-6">
+        No results recorded yet. Enter rounds survived from Enter Results first.
+      </p>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+        Review, then save to update the leaderboard
+      </p>
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div
+          className="grid gap-2 px-4 py-2 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-400 uppercase tracking-wider"
+          style={{ gridTemplateColumns: '2rem 1fr auto auto' }}
+        >
+          <span>#</span><span>Company</span><span className="text-right">Best</span><span className="text-right">Saved Pts</span>
+        </div>
+        <div className="divide-y divide-gray-50">
+          {preview.map(row => {
+            const savedEp = savedByCompany[row.company.id]
+            return (
+              <div
+                key={row.company.id}
+                className="grid items-center px-4 py-2.5 gap-2"
+                style={{ gridTemplateColumns: '2rem 1fr auto auto' }}
+              >
+                <span className="text-xs font-bold text-gray-400 tabular-nums">{row.rank}</span>
+                <span className="text-sm font-semibold text-slate-800 truncate">{row.company.name}</span>
+                <span className="text-sm tabular-nums text-slate-600 text-right">{row.score}</span>
+                <span className={`text-sm font-bold tabular-nums text-right ${savedEp ? 'text-blue-600' : 'text-gray-300'}`}>
+                  {savedEp?.points ?? '—'}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+      {saveError && <p className="text-sm text-red-600">{saveError}</p>}
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
+      >
+        {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save Placements'}
+      </button>
+      <p className="text-xs text-gray-400 text-center">
+        "Best" is each company's best team result so far — the leaderboard only updates once you save.
+      </p>
+    </div>
+  )
+}
+
 // ── Sport detail (scoring UI for one sport) ───────────────────────────────────
 
 function SportScoringDetail({
@@ -501,6 +634,7 @@ function SportScoringDetail({
   })
 
   const isDonation = sport.scoring_mode === 'donation_count'
+  const isWaterball = sport.scoring_mode === 'water_ball_toss'
   const isRelayRace = sport.bracket_type === 'heats' && sportBrackets.length > 0
   const sportTeams = useMemo(() => teams.filter(t => t.sport_id === sport.id), [teams, sport.id])
 
@@ -521,6 +655,8 @@ function SportScoringDetail({
 
       {isDonation ? (
         <DonationScoringSection sport={sport} companies={companies} eventPoints={eventPoints} />
+      ) : isWaterball ? (
+        <WaterballScoringSection sport={sport} companies={companies} teams={sportTeams} eventPoints={eventPoints} />
       ) : isRelayRace ? (
         <RelayRaceScoringSection sport={sport} companies={companies} teams={sportTeams} />
       ) : (
@@ -605,9 +741,13 @@ export default function ScoringPage() {
 
       {placementSports.map(sport => {
         const isDonation = sport.scoring_mode === 'donation_count'
+        const isWaterball = sport.scoring_mode === 'water_ball_toss'
+        const isAuto = isDonation || isWaterball
         const placed = placedCountBySport.get(sport.id) ?? 0
         const subtitle = isDonation
           ? 'Ranked by donation count'
+          : isWaterball
+          ? 'Ranked by rounds survived'
           : placed === 0 ? 'No placements yet' : `${placed} ${placed === 1 ? 'company' : 'companies'} placed`
         return (
           <button
@@ -620,7 +760,7 @@ export default function ScoringPage() {
               <p className="font-semibold text-slate-800 truncate">{sport.name}</p>
               <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>
             </div>
-            {!isDonation && placed > 0 && (
+            {!isAuto && placed > 0 && (
               <span className="shrink-0 text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
                 {placed}
               </span>

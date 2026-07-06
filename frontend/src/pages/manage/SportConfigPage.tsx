@@ -22,7 +22,7 @@ const poolLabel = (i: number): string => {
   } while (n >= 0)
   return label
 }
-const poolName = (i: number) => `Pool ${poolLabel(i)}`
+const poolName = (i: number, prefix: string = 'Pool') => `${prefix} ${poolLabel(i)}`
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [String(item[key]), item]))
@@ -456,6 +456,7 @@ function PoolBucketRow({
   onUnassignTeam,
   isOpen,
   onToggle,
+  namePrefix = 'Pool',
 }: {
   poolIndex: number
   poolCount: number
@@ -470,6 +471,7 @@ function PoolBucketRow({
   onUnassignTeam: (teamId: string) => void
   isOpen: boolean
   onToggle: () => void
+  namePrefix?: string
 }) {
   const [search, setSearch] = useState('')
   const [dropdownOpen, setDropdownOpen] = useState(false)
@@ -507,7 +509,7 @@ function PoolBucketRow({
         onClick={onToggle}
         className={`w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 text-left hover:bg-gray-100 transition-colors rounded-t-xl ${!isOpen ? 'rounded-b-xl' : ''}`}
       >
-        <span className="text-sm font-semibold text-slate-800">{poolName(poolIndex)}</span>
+        <span className="text-sm font-semibold text-slate-800">{poolName(poolIndex, namePrefix)}</span>
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-500">{poolTeams.length} teams</span>
           {!cohortMode && poolCourts.length > 0 && (
@@ -543,7 +545,7 @@ function PoolBucketRow({
                     ? 'Unassigned'
                     : inThisPool
                       ? '✓ in this pool'
-                      : poolName(currentPool)
+                      : poolName(currentPool, namePrefix)
                   return (
                     <button
                       key={team.id}
@@ -587,7 +589,7 @@ function PoolBucketRow({
                   className="ml-1 text-[10px] bg-transparent text-gray-400 cursor-pointer border-none outline-none"
                 >
                   {Array.from({ length: poolCount }, (_, j) => (
-                    <option key={j} value={j}>{poolName(j)}</option>
+                    <option key={j} value={j}>{poolName(j, namePrefix)}</option>
                   ))}
                 </select>
                 <button
@@ -626,6 +628,7 @@ function PoolBuckets({
   onMoveTeam,
   onMoveCourt,
   onUnassignTeam,
+  namePrefix = 'Pool',
 }: {
   poolCount: number
   seeds: Team[]
@@ -637,6 +640,7 @@ function PoolBuckets({
   onMoveTeam: (teamId: string, pool: number) => void
   onMoveCourt: (locId: string, pool: number) => void
   onUnassignTeam: (teamId: string) => void
+  namePrefix?: string
 }) {
   const [openPool, setOpenPool] = useState<number | null>(null)
 
@@ -645,15 +649,17 @@ function PoolBuckets({
 
   return (
     <div className="space-y-2">
-      {/* Cohort mode: fields auto-distributed, no manual assignment needed */}
-      {cohortMode ? (
+      {/* Cohort mode: fields auto-distributed, no manual assignment needed.
+          Only relevant when there are actual courts to distribute — Water
+          Ball Toss forces cohortMode with no locations at all. */}
+      {cohortMode && locations.length > 0 ? (
         <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2.5">
           <p className="text-xs font-semibold text-blue-600 mb-0.5">Fields auto-distributed</p>
           <p className="text-xs text-blue-500">
             {locations.length} field{locations.length !== 1 ? 's' : ''} will be automatically split into pairs and rotated across pools each round. No manual assignment needed.
           </p>
         </div>
-      ) : (
+      ) : !cohortMode ? (
         /* Shared courts (manual assignment mode) */
         sharedCourts.length > 0 && (
           <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2.5">
@@ -665,7 +671,7 @@ function PoolBuckets({
             </div>
           </div>
         )
-      )}
+      ) : null}
 
       {/* Per-pool accordions */}
       {Array.from({ length: poolCount }, (_, i) => (
@@ -684,6 +690,7 @@ function PoolBuckets({
           onUnassignTeam={onUnassignTeam}
           isOpen={openPool === i}
           onToggle={() => setOpenPool(openPool === i ? null : i)}
+          namePrefix={namePrefix}
         />
       ))}
 
@@ -704,7 +711,7 @@ function PoolBuckets({
                   >
                     <option value="" disabled>Move to…</option>
                     {Array.from({ length: poolCount }, (_, j) => (
-                      <option key={j} value={j}>{poolName(j)}</option>
+                      <option key={j} value={j}>{poolName(j, namePrefix)}</option>
                     ))}
                   </select>
                 </div>
@@ -795,14 +802,14 @@ export default function SportConfigPage() {
   const [groupsSaving, setGroupsSaving] = useState(false)
   const [groupsSaveError, setGroupsSaveError] = useState<string | null>(null)
 
-  async function saveGroups() {
+  async function saveGroups(poolCountOverride?: number, teamPoolOverride?: Record<string, number>) {
     if (!sportId) return
     setGroupsSaveError(null)
     setGroupsSaving(true)
     try {
       // One request for the whole group setup — avoids firing a burst of
       // concurrent PATCH requests (each with its own auth check) at Supabase.
-      await setPoolSetup(sportId, { pool_count: poolCount, team_pool: teamPool, court_pool: courtPool })
+      await setPoolSetup(sportId, { pool_count: poolCountOverride ?? poolCount, team_pool: teamPoolOverride ?? teamPool, court_pool: courtPool })
       qc.invalidateQueries({ queryKey: ['teams'] })
       qc.invalidateQueries({ queryKey: ['locations', sportId] })
       qc.invalidateQueries({ queryKey: ['sports'] })
@@ -946,6 +953,7 @@ export default function SportConfigPage() {
   const isPool = sport?.bracket_type === 'pool_bracket' || sport?.bracket_type === 'pool_swiss'
   const isPoolBracket = sport?.bracket_type === 'pool_bracket'
   const isPoolSwiss = sport?.bracket_type === 'pool_swiss'
+  const isWaterball = sport?.scoring_mode === 'water_ball_toss'
 
   const alreadyGenerated = matches.length > 0
 
@@ -982,6 +990,23 @@ export default function SportConfigPage() {
   // Cohort mode: fewer courts than pools means all courts auto-share and the
   // backend's greedy cohort scheduler handles field pair rotation automatically.
   const cohortMode = locations.length > 0 && locations.length < effectivePoolCount
+
+  // Water Ball Toss groups — reuses the same teams.pool_index field as pool play,
+  // but there's no seed order or courts to split; default is a straight alternating
+  // split by company (so a company's teams stay together) with manual overrides.
+  const waterballCompanyOrder = useMemo(() => {
+    const ids = Array.from(new Set(sportTeams.map(t => t.company_id)))
+    return ids.sort((a, b) => (companyMap[a]?.name ?? '').localeCompare(companyMap[b]?.name ?? ''))
+  }, [sportTeams, companyMap])
+  const teamGroupOf = (teamId: string): number => {
+    const override = teamPool[teamId]
+    if (override === UNASSIGNED_POOL) return UNASSIGNED_POOL
+    if (override === 0 || override === 1) return override
+    const team = sportTeams.find(t => t.id === teamId)
+    if (!team) return 0
+    return waterballCompanyOrder.indexOf(team.company_id) % 2
+  }
+  const hasUnassignedWaterballTeams = sportTeams.some(t => teamGroupOf(t.id) === UNASSIGNED_POOL)
 
   const poolSpecs: PoolSpec[] = Array.from({ length: effectivePoolCount }, (_, i) => ({
     name: poolName(i),
@@ -1107,8 +1132,25 @@ export default function SportConfigPage() {
   }))
   const splitValid = divisionSpecs.every(d => d.team_ids.length >= 2)
 
+  const waterballHeatSpecs: HeatSpec[] = (['Group A', 'Group B'] as const).map((name, i) => ({
+    name,
+    team_ids: sportTeams.filter(t => teamGroupOf(t.id) === i).map(t => t.id),
+  }))
+
 const genMutation = useMutation({
     mutationFn: async () => {
+      if (isWaterball) {
+        // Persist every team's resolved group (not just manually-overridden
+        // ones) — otherwise a team left on its computed default never gets
+        // a `pool_index` written (an empty team_pool is a no-op server-side),
+        // so the Groups panel can drift from what's actually baked into the
+        // matches being generated right now.
+        const fullTeamPool = Object.fromEntries(
+          sportTeams.map(t => [t.id, teamGroupOf(t.id)]).filter(([, g]) => g !== UNASSIGNED_POOL),
+        )
+        await saveGroups(2, fullTeamPool)
+        return generateBracket(sportId!, [], false, undefined, undefined, waterballHeatSpecs)
+      }
       if (isHeats && effectiveNumHeats > 1) {
         await generateBracket(sportId!, [], false, undefined, undefined, heatSpecs)
         if (sport?.name === 'Relay Race') {
@@ -1285,7 +1327,10 @@ const genMutation = useMutation({
   }
 
   function handleReset() {
-    if (!window.confirm(`Reset all brackets for ${sport?.name}? This will delete all matches and cannot be undone.`)) return
+    const msg = isWaterball
+      ? `Reset all results for ${sport?.name}? This will delete every team's match and cannot be undone.`
+      : `Reset all brackets for ${sport?.name}? This will delete all matches and cannot be undone.`
+    if (!window.confirm(msg)) return
     resetMutation.mutate()
   }
 
@@ -1468,9 +1513,46 @@ const genMutation = useMutation({
       </CollapsibleSection>
       )}
 
+      {/* Water Ball Toss groups — same team-grouping mechanism as pool play
+          (teams.pool_index), just two fixed groups and no courts to assign. */}
+      {isWaterball && (
+        <CollapsibleSection title="Groups">
+          <p className="text-xs text-gray-400 -mt-1">
+            Split teams into two groups so both can run the toss at the same time. Group
+            assignment doesn't affect scoring — enter results per team from Enter Results.
+          </p>
+          <PoolBuckets
+            poolCount={2}
+            seeds={sportTeams}
+            locations={[]}
+            teamPoolOf={teamGroupOf}
+            courtPoolOf={() => SHARED_COURT_VALUE}
+            companyMap={companyMap}
+            cohortMode={true}
+            onMoveTeam={(teamId, pool) => setTeamPool(prev => ({ ...prev, [teamId]: pool }))}
+            onMoveCourt={() => {}}
+            onUnassignTeam={(teamId) => setTeamPool(prev => ({ ...prev, [teamId]: UNASSIGNED_POOL }))}
+            namePrefix="Group"
+          />
+          {hasUnassignedWaterballTeams && (
+            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              Unassigned teams default to an alternating split by company until saved.
+            </p>
+          )}
+          {groupsSaveError && <p className="text-sm text-red-600">{groupsSaveError}</p>}
+          <button
+            onClick={() => saveGroups(2)}
+            disabled={groupsSaving}
+            className="w-full py-2 rounded-lg border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 disabled:opacity-50"
+          >
+            {groupsSaving ? 'Saving…' : groupsSavedFeedback ? 'Groups saved ✓' : 'Save Groups'}
+          </button>
+        </CollapsibleSection>
+      )}
+
       {/* Generate / Setup */}
       <CollapsibleSection
-        title={canGenerate ? (isPool ? 'Generate Pool Play' : isHeats ? 'Generate Entries' : 'Generate Bracket') : 'Bracket Setup'}
+        title={canGenerate ? (isWaterball ? 'Generate Matches' : isPool ? 'Generate Pool Play' : isHeats ? 'Generate Entries' : 'Generate Bracket') : 'Bracket Setup'}
         badge={canGenerate && alreadyGenerated ? (
           <span className="text-xs font-semibold text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full shrink-0">
             Generated
@@ -1483,7 +1565,11 @@ const genMutation = useMutation({
             This sport uses manual entry. Create matches directly in the schedule.
           </p>
         ) : alreadyGenerated ? (
-          isPool ? (
+          isWaterball ? (
+            <p className="text-sm text-slate-500">
+              Matches have been generated. Enter results from Enter Results, or reset all matches below to regenerate.
+            </p>
+          ) : isPool ? (
             <div className="space-y-2">
               <p className="text-sm text-slate-500">Pool play has been generated.</p>
               <button
@@ -1499,6 +1585,18 @@ const genMutation = useMutation({
               Bracket has been generated. To regenerate, reset all brackets &amp; matches below first.
             </p>
           )
+        ) : isWaterball ? (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-500 italic">
+              Creates one match per team, split into the two groups configured above. Each match is
+              started and its result entered from Enter Results.
+            </p>
+            {hasUnassignedWaterballTeams && (
+              <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                All teams must be assigned to a group above before generating.
+              </p>
+            )}
+          </div>
         ) : isHeats ? (
           <div className="space-y-3">
             <p className="text-sm text-slate-500 italic">
@@ -1639,7 +1737,7 @@ const genMutation = useMutation({
             )}
             {groupsSaveError && <p className="text-sm text-red-600">{groupsSaveError}</p>}
             <button
-              onClick={saveGroups}
+              onClick={() => saveGroups()}
               disabled={groupsSaving}
               className="w-full py-2 rounded-lg border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 disabled:opacity-50"
             >
@@ -1780,10 +1878,10 @@ const genMutation = useMutation({
             {genError && <p className="text-sm text-red-600">{genError}</p>}
             <button
               onClick={() => genMutation.mutate()}
-              disabled={genMutation.isPending || sportTeams.length < 2 || (splitEnabled && !splitValid) || (isPool && !poolsValid)}
+              disabled={genMutation.isPending || sportTeams.length < 2 || (splitEnabled && !splitValid) || (isPool && !poolsValid) || (isWaterball && hasUnassignedWaterballTeams)}
               className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
             >
-              {genMutation.isPending ? 'Generating…' : isHeats ? (effectiveNumHeats > 1 ? 'Generate Preliminary Heats' : 'Generate Entries') : isPool ? 'Generate Pool Play' : splitEnabled ? 'Generate Division Brackets' : 'Generate Bracket'}
+              {genMutation.isPending ? 'Generating…' : isWaterball ? 'Generate Matches' : isHeats ? (effectiveNumHeats > 1 ? 'Generate Preliminary Heats' : 'Generate Entries') : isPool ? 'Generate Pool Play' : splitEnabled ? 'Generate Division Brackets' : 'Generate Bracket'}
             </button>
           </>
         )}
@@ -1958,7 +2056,7 @@ const genMutation = useMutation({
           disabled={resetMutation.isPending}
           className="w-full py-2 rounded-lg border border-red-200 text-red-600 font-semibold text-sm hover:bg-red-50 disabled:opacity-50"
         >
-          {resetMutation.isPending ? 'Resetting…' : 'Reset All Brackets & Matches'}
+          {resetMutation.isPending ? 'Resetting…' : isWaterball ? 'Reset All Results' : 'Reset All Brackets & Matches'}
         </button>
       </CollapsibleSection>
     </div>

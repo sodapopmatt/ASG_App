@@ -59,12 +59,15 @@ function SportRow({
   const isHeats = HEATS_TYPES.has(sport.bracket_type)
   const isPool = POOL_TYPES.has(sport.bracket_type)
   const isDonation = sport.scoring_mode === 'donation_count'
+  const isWaterball = sport.scoring_mode === 'water_ball_toss'
   const pendingCount = matches.filter(
     m => m.status === 'scheduled' || m.status === 'in_progress',
   ).length
 
   const destination = isDonation
     ? `/manage/results/donations/${sport.id}`
+    : isWaterball
+    ? `/manage/results/waterball/${sport.id}`
     : isBracket
     ? `/manage/results/brackets/${sport.id}`
     : isHeats
@@ -82,6 +85,8 @@ function SportRow({
       <p className="text-xs text-gray-400 mt-0.5">
         {isDonation
           ? 'Enter items donated per company'
+          : isWaterball
+          ? 'Enter rounds survived per team'
           : pendingCount === 0
           ? 'No pending matches'
           : `${pendingCount} pending match${pendingCount !== 1 ? 'es' : ''}`}
@@ -200,7 +205,7 @@ export default function ResultsPage() {
   const sportsWithMatches = useMemo(
     () =>
       sports
-        .filter(s => matchesBySport.has(s.id) || s.scoring_mode === 'donation_count')
+        .filter(s => matchesBySport.has(s.id) || s.scoring_mode === 'donation_count' || s.scoring_mode === 'water_ball_toss')
         .sort((a, b) => a.name.localeCompare(b.name)),
     [sports, matchesBySport],
   )
