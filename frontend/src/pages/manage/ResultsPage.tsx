@@ -60,9 +60,13 @@ function SportRow({
   const isPool = POOL_TYPES.has(sport.bracket_type)
   const isDonation = sport.scoring_mode === 'donation_count'
   const isWaterball = sport.scoring_mode === 'water_ball_toss'
-  const pendingCount = matches.filter(
-    m => m.status === 'scheduled' || m.status === 'in_progress',
-  ).length
+  const pendingMatches = matches.filter(m => m.status === 'scheduled' || m.status === 'in_progress')
+  // Water Ball Toss matches are one-per-team (not head-to-head) — the
+  // meaningful pending count for admins is groups still in progress, not
+  // raw team rows.
+  const pendingCount = isWaterball
+    ? new Set(pendingMatches.map(m => m.bracket_id).filter(Boolean)).size
+    : pendingMatches.length
 
   const destination = isDonation
     ? `/manage/results/donations/${sport.id}`

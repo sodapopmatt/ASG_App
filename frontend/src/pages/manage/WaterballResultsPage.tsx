@@ -7,7 +7,7 @@ import { getSports } from '../../api/sports'
 import { getCompanies } from '../../api/companies'
 import { getTeams } from '../../api/teams'
 import { getBrackets } from '../../api/brackets'
-import { getMatches, startMatch, submitHeatResult } from '../../api/matches'
+import { getMatches, bulkStartMatches, submitHeatResult } from '../../api/matches'
 import { waterballMatchPoints } from '../../lib/waterball'
 import type { Sport, Company, Team, Bracket, Match } from '../../types'
 
@@ -24,16 +24,14 @@ function TeamRow({
   team,
   index,
   match,
-  onStart,
-  starting,
+  groupStarted,
   onSave,
   saving,
 }: {
   team: Team
   index: number
   match: Match | undefined
-  onStart: () => void
-  starting: boolean
+  groupStarted: boolean
   onSave: (rounds_survived: number | null, forfeit: boolean) => void
   saving: boolean
 }) {
@@ -42,6 +40,17 @@ function TeamRow({
   const points = pointsFor(match)
 
   if (!match) return null
+
+  if (!groupStarted) {
+    return (
+      <div className="px-4 py-3 flex items-center gap-2">
+        <p className="flex-1 text-sm font-semibold text-slate-800 truncate">
+          {team.name ?? `Team ${index + 1}`}
+        </p>
+        <span className="text-xs text-gray-400">Waiting to start</span>
+      </div>
+    )
+  }
 
   return (
     <div className="px-4 py-3 space-y-2">
@@ -56,57 +65,46 @@ function TeamRow({
         )}
       </div>
 
-      {match.status === 'scheduled' ? (
+      <div className="flex items-center gap-2 flex-wrap">
+        {match.status === 'forfeit' && (
+          <span className="text-xs text-red-600 font-semibold">Forfeited (no-show)</span>
+        )}
+        <span className="text-xs text-gray-500">Rounds survived:</span>
+        <input
+          type="number"
+          min={0}
+          inputMode="numeric"
+          value={rounds}
+          onChange={e => setRounds(e.target.value)}
+          className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-sm text-slate-800 text-right tabular-nums"
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              const n = Number(rounds)
+              if (rounds !== '' && Number.isInteger(n) && n >= 0) onSave(n, false)
+            }
+          }}
+        />
         <button
           type="button"
-          onClick={onStart}
-          disabled={starting}
-          className="text-xs font-semibold text-blue-600 border border-blue-200 rounded-full px-3 py-1 active:bg-blue-50 disabled:opacity-50"
+          onClick={() => {
+            const n = Number(rounds)
+            if (rounds === '' || !Number.isInteger(n) || n < 0) return
+            onSave(n, false)
+          }}
+          disabled={saving || rounds === ''}
+          className="text-xs font-semibold text-blue-600 disabled:text-gray-300"
         >
-          {starting ? 'Starting…' : 'Start'}
+          {saving ? 'Saving…' : 'Save'}
         </button>
-      ) : (
-        <div className="flex items-center gap-2 flex-wrap">
-          {match.status === 'forfeit' && (
-            <span className="text-xs text-red-600 font-semibold">Forfeited (no-show)</span>
-          )}
-          <span className="text-xs text-gray-500">Rounds survived:</span>
-          <input
-            type="number"
-            min={0}
-            inputMode="numeric"
-            value={rounds}
-            onChange={e => setRounds(e.target.value)}
-            className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-sm text-slate-800 text-right tabular-nums"
-            onKeyDown={e => {
-              if (e.key === 'Enter') {
-                const n = Number(rounds)
-                if (rounds !== '' && Number.isInteger(n) && n >= 0) onSave(n, false)
-              }
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => {
-              const n = Number(rounds)
-              if (rounds === '' || !Number.isInteger(n) || n < 0) return
-              onSave(n, false)
-            }}
-            disabled={saving || rounds === ''}
-            className="text-xs font-semibold text-blue-600 disabled:text-gray-300"
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-          <button
-            type="button"
-            onClick={() => onSave(null, true)}
-            disabled={saving}
-            className="text-xs text-red-500 ml-auto"
-          >
-            Forfeit (no-show)
-          </button>
-        </div>
-      )}
+        <button
+          type="button"
+          onClick={() => onSave(null, true)}
+          disabled={saving}
+          className="text-xs text-red-500 ml-auto"
+        >
+          Forfeit (no-show)
+        </button>
+      </div>
     </div>
   )
 }
@@ -160,14 +158,13 @@ export default function WaterballResultsPage() {
     [brackets],
   )
 
-  const startMutation = useMutation({
-    mutationFn: (matchId: string) => startMatch(matchId),
+  const startGroupMutation = useMutation({
+    mutationFn: (matchIds: string[]) => bulkStartMatches(matchIds),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['matches'] })
       setError(null)
     },
-    onError: (e: unknown) => setError(e instanceof Error ? e.message : 'Failed to start match'),
-    onSettled: () => setBusyMatchId(null),
+    onError: (e: unknown) => setError(e instanceof Error ? e.message : 'Failed to start group'),
   })
 
   const saveMutation = useMutation({
@@ -232,14 +229,18 @@ export default function WaterballResultsPage() {
   }
 
   const activeGroup = groups.find(g => g.id === tab) ?? groups[0]
+  const activeGroupMatches = matches.filter(m => m.bracket_id === activeGroup.id)
+  const scheduledMatchIds = activeGroupMatches.filter(m => m.status === 'scheduled').map(m => m.id)
+  const groupStarted = activeGroupMatches.length > 0 && scheduledMatchIds.length < activeGroupMatches.length
 
   return (
     <div className="p-4 mt-2 space-y-4">
       <BackLink to="/manage/results" label="Enter Results" />
       <h2 className="text-xl font-bold text-slate-800">{sport.name}</h2>
       <p className="text-xs text-gray-400 -mt-3">
-        Start each team's match, then enter rounds survived or mark a no-show as forfeit. Standings
-        don't update here — review and save placements from Scoring once results are in.
+        Start a group when every team in it is ready to throw, then enter each team's rounds
+        survived or mark a no-show as forfeit. Standings don't update here — review and save
+        placements from Scoring once results are in.
       </p>
 
       <div className="flex gap-2">
@@ -259,6 +260,23 @@ export default function WaterballResultsPage() {
         ))}
       </div>
 
+      {!groupStarted && (
+        <div className="bg-blue-50 rounded-xl border border-blue-100 p-3 flex items-center gap-3">
+          <p className="flex-1 text-sm text-blue-700">
+            {activeGroupMatches.length} team{activeGroupMatches.length !== 1 ? 's' : ''} ready in{' '}
+            {activeGroup.name}.
+          </p>
+          <button
+            type="button"
+            onClick={() => startGroupMutation.mutate(scheduledMatchIds)}
+            disabled={startGroupMutation.isPending}
+            className="shrink-0 py-2 px-4 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
+          >
+            {startGroupMutation.isPending ? 'Starting…' : `Start ${activeGroup.name}`}
+          </button>
+        </div>
+      )}
+
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm divide-y divide-gray-50">
         {teamsByCompany.map(({ company, teams: companyTeams }) => {
           const visible = companyTeams.filter(t => matchByTeam[t.id]?.bracket_id === activeGroup.id)
@@ -276,14 +294,8 @@ export default function WaterballResultsPage() {
                   team={t}
                   index={i}
                   match={matchByTeam[t.id]}
-                  starting={busyMatchId === matchByTeam[t.id]?.id && startMutation.isPending}
+                  groupStarted={groupStarted}
                   saving={busyMatchId === matchByTeam[t.id]?.id && saveMutation.isPending}
-                  onStart={() => {
-                    const matchId = matchByTeam[t.id]?.id
-                    if (!matchId) return
-                    setBusyMatchId(matchId)
-                    startMutation.mutate(matchId)
-                  }}
                   onSave={(rounds_survived, forfeit) => {
                     const matchId = matchByTeam[t.id]?.id
                     if (!matchId) return

@@ -649,8 +649,13 @@ function SportCard({
   onToggle: () => void
 }) {
   const now = useNow()
-  const totalMatches = rounds.reduce((n, r) => n + r.matches.length, 0)
   const allMatches = rounds.flatMap(r => r.matches)
+  // Water Ball Toss matches are one-per-team (not head-to-head) — the
+  // meaningful count for admins is the number of groups, not raw team rows.
+  const isWaterball = sport.scoring_mode === 'water_ball_toss'
+  const totalMatches = isWaterball
+    ? new Set(allMatches.map(m => m.bracket_id).filter(Boolean)).size
+    : rounds.reduce((n, r) => n + r.matches.length, 0)
   const hasLive = allMatches.some(m => m.status === 'in_progress') || (
     sport.bracket_type === 'heats' &&
     allMatches.some(m => !isResolved(m)) &&

@@ -1,5 +1,6 @@
 ﻿from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from app.database import supabase
 from app.auth import require_admin
 from app.schemas.match import Match, MatchCreate, MatchUpdate, MatchResult, MatchForfeit, MatchDoubleForfeit, MatchDraw, HeatResult
@@ -326,6 +327,25 @@ def start_match(match_id: str, _=Depends(require_admin)):
         "status": "in_progress",
         "actual_start": _now_iso(),
     }).eq("id", match_id).execute().data[0]
+
+
+class BulkStartRequest(BaseModel):
+    match_ids: list[str]
+
+
+@router.post("/bulk-start", response_model=list[Match])
+def bulk_start_matches(body: BulkStartRequest, _=Depends(require_admin)):
+    """Start every listed match in one request — e.g. a Water Ball Toss
+    group, where all teams' matches start simultaneously for a round rather
+    than one at a time. One bulk update instead of N round trips (same
+    reasoning as set_pool_setup's bulk upsert). Matches not currently
+    'scheduled' are left untouched rather than erroring the whole batch."""
+    if not body.match_ids:
+        return []
+    return supabase.table("matches").update({
+        "status": "in_progress",
+        "actual_start": _now_iso(),
+    }).in_("id", body.match_ids).eq("status", "scheduled").execute().data
 
 
 def _ensure_result_changeable(match: dict) -> None:

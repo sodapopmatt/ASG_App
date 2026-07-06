@@ -14,6 +14,14 @@ export function startMatch(matchId: string) {
   return apiFetch<Match>(`/matches/${matchId}/start`, { method: 'POST' })
 }
 
+export function bulkStartMatches(matchIds: string[]) {
+  return apiFetch<Match[]>('/matches/bulk-start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ match_ids: matchIds }),
+  })
+}
+
 export function submitResult(
   matchId: string,
   winnerId: string,
