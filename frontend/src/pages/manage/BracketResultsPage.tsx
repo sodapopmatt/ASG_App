@@ -1,6 +1,7 @@
 ﻿import React, { useState, useMemo } from 'react'
 import { useParams } from 'react-router-dom'
 import BackLink from '../../components/BackLink'
+import ErrorBoundary from '../../components/ErrorBoundary'
 import { useTabMemory } from '../../lib/useTabMemory'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -420,33 +421,42 @@ export default function BracketResultsPage() {
           </button>
         </div>
 
-        {sportMatches.length === 0 ? (
-          <p className="text-center text-gray-500 py-12">No matches for this sport yet.</p>
-        ) : viewMode === 'court' ? (
-          <CourtView
-            matches={bracketType === 'pool_bracket' ? bracketPhaseMatches : sportMatches}
-            teamMap={teamMap}
-            companyMap={companyMap}
-            selectedCourt={activeCourt}
-            onSelectCourt={setActiveCourt}
-            onMatchClick={handleMatchClick}
-          />
-        ) : bracketType === 'single_elimination' || bracketType === 'double_elimination' ? (
-          renderBrackets()
-        ) : bracketType === 'pool_bracket' ? (
-          bracketPhaseMatches.length === 0 ? (
-            <p className="text-center text-gray-500 py-12">Bracket phase not generated yet.</p>
-          ) : (
-            <SingleBracketView
-              matches={bracketPhaseMatches}
+        <ErrorBoundary
+          key={sportId}
+          fallback={() => (
+            <p className="text-center text-gray-500 py-16">
+              Couldn't display this bracket — its match data may be incomplete.
+            </p>
+          )}
+        >
+          {sportMatches.length === 0 ? (
+            <p className="text-center text-gray-500 py-12">No matches for this sport yet.</p>
+          ) : viewMode === 'court' ? (
+            <CourtView
+              matches={bracketType === 'pool_bracket' ? bracketPhaseMatches : sportMatches}
               teamMap={teamMap}
               companyMap={companyMap}
+              selectedCourt={activeCourt}
+              onSelectCourt={setActiveCourt}
               onMatchClick={handleMatchClick}
             />
-          )
-        ) : (
-          <p className="text-center text-gray-500 py-12">Bracket type not supported here.</p>
-        )}
+          ) : bracketType === 'single_elimination' || bracketType === 'double_elimination' ? (
+            renderBrackets()
+          ) : bracketType === 'pool_bracket' ? (
+            bracketPhaseMatches.length === 0 ? (
+              <p className="text-center text-gray-500 py-12">Bracket phase not generated yet.</p>
+            ) : (
+              <SingleBracketView
+                matches={bracketPhaseMatches}
+                teamMap={teamMap}
+                companyMap={companyMap}
+                onMatchClick={handleMatchClick}
+              />
+            )
+          ) : (
+            <p className="text-center text-gray-500 py-12">Bracket type not supported here.</p>
+          )}
+        </ErrorBoundary>
       </div>
 
       {activeMatch && (

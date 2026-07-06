@@ -2,6 +2,7 @@
 import { useTabMemory } from '../lib/useTabMemory'
 import { useParams } from 'react-router-dom'
 import BackLink from '../components/BackLink'
+import ErrorBoundary from '../components/ErrorBoundary'
 import { useQuery } from '@tanstack/react-query'
 import {
   SingleEliminationBracket,
@@ -965,7 +966,17 @@ export default function BracketView() {
         <BackLink to="/brackets" label="Matches" />
         <h2 className="text-lg font-bold text-slate-800 mt-1">{activeSport.name}</h2>
       </div>
-      {renderContent()}
+      <ErrorBoundary
+        key={activeSportId}
+        fallback={() => (
+          <p className="text-center text-gray-500 py-16">
+            Couldn't display this sport's bracket — its match data may be incomplete. Try again
+            from Manage &gt; Matches, or contact an admin.
+          </p>
+        )}
+      >
+        {renderContent()}
+      </ErrorBoundary>
     </div>
   )
 }
