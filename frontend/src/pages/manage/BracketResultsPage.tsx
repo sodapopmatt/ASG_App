@@ -65,6 +65,17 @@ function DoubleBracketView({
 
   if (upper.length === 0 && lower.length === 0) return <p className="text-center text-gray-500 py-12">No matches yet.</p>
 
+  // 2-team edge case: no losers bracket exists at all (the sole WB match's
+  // loser drops straight into the grand final — see double_elim.py). The
+  // @g-loot library crashes internally when `lower` is empty, so render the
+  // upper-only structure (WB match + grand final) as a single-elimination
+  // bracket instead — that's structurally exactly what it is.
+  if (lower.length === 0) {
+    return (
+      <SingleBracketView matches={matches} teamMap={teamMap} companyMap={companyMap} onMatchClick={onMatchClick} />
+    )
+  }
+
   return (
     <DoubleEliminationBracket
       matches={{ upper, lower }}
