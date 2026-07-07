@@ -306,7 +306,7 @@ function Skeleton() {
 
 function StatsStrip({ matches }: { matches: Match[] }) {
   const live     = matches.filter(m => m.status === 'in_progress').length
-  const done     = matches.filter(m => isResolved(m)).length
+  const done     = matches.filter(m => isResolved(m) && !isBye(m)).length
   const upcoming = matches.filter(m => m.status === 'scheduled').length
   return (
     <div className="flex items-center gap-3 text-xs text-gray-500">

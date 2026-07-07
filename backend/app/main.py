@@ -27,6 +27,70 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Edge-cache control ────────────────────────────────────────────────────────
+# Every public viewer requests the SAME read-only data (schedule, brackets,
+# leaderboard, …), so we let a CDN serve those from the edge instead of every
+# request hitting this single origin. These Cache-Control headers are what the
+# CDN obeys. The design is safe-by-default:
+#   - Only the explicit allowlist below is ever cacheable.
+#   - Any request carrying an Authorization header (i.e. a logged-in admin) is
+#     always `no-store`, so admins see their own writes immediately and the CDN
+#     is configured to bypass cache for them too.
+#   - Writes, errors, and everything not on the allowlist are `no-store`.
+# Anonymous viewers never send an Authorization header (see frontend
+# apiFetch), so public GETs collapse to one shared cached copy per interval.
+_PUBLIC_CACHE_RULES: list[tuple[str, int]] = [
+    # (path prefix, max-age seconds)
+    ("/matches", 10),
+    ("/brackets", 15),
+    ("/sports", 20),
+    ("/companies", 60),
+    ("/teams", 30),
+    ("/locations", 60),
+    ("/leaderboard", 15),
+    ("/event-points", 15),
+    ("/donation-counts", 15),
+]
+
+
+def _public_cache_maxage(path: str) -> int | None:
+    """Max-age for a public GET path, or None if it must not be edge-cached."""
+    normalized = path.rstrip("/")
+    # /alerts is admin-only EXCEPT /alerts/active (the public banner feed).
+    if normalized == "/alerts/active":
+        return 20
+    if normalized == "/alerts" or normalized.startswith("/alerts/"):
+        return None
+    for prefix, ttl in _PUBLIC_CACHE_RULES:
+        if normalized == prefix or normalized.startswith(prefix + "/"):
+            return ttl
+    return None
+
+
+@app.middleware("http")
+async def cache_control_middleware(request: Request, call_next):
+    response = await call_next(request)
+    # Never cache writes, non-success responses, or authenticated (admin)
+    # requests — those must always reflect the live origin state.
+    if (
+        request.method != "GET"
+        or response.status_code >= 300
+        or request.headers.get("authorization")
+    ):
+        response.headers["Cache-Control"] = "no-store"
+        return response
+    maxage = _public_cache_maxage(request.url.path)
+    if maxage is None:
+        response.headers["Cache-Control"] = "no-store"
+    else:
+        # stale-while-revalidate lets the edge serve a slightly-stale copy while
+        # it refreshes in the background, smoothing traffic spikes.
+        response.headers["Cache-Control"] = (
+            f"public, max-age={maxage}, stale-while-revalidate={maxage}"
+        )
+    return response
+
+
 @app.exception_handler(Exception)
 def unhandled_exception_handler(request: Request, exc: Exception):
     # Registering this handler keeps the response inside CORSMiddleware's scope,

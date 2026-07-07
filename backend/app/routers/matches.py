@@ -1,4 +1,5 @@
-﻿from datetime import datetime, timezone
+﻿import time
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from app.database import supabase
@@ -272,12 +273,35 @@ def _fetch_all_matches(q) -> list[dict]:
     return results
 
 
+# Short-lived cache for the UNFILTERED global match list only. The public
+# Schedule page fetches every match across every sport and recomputes
+# estimated_start on each poll (every ~15s, per open device); under many
+# concurrent viewers that is the one read heavy enough to matter. Caching it
+# for a few seconds lets every viewer in that window share one computation
+# instead of each triggering a full scan + recompute.
+#
+# Filtered queries (per-sport/bracket/status) are small and are used by admin
+# pages that must reflect a just-submitted result immediately, so they are
+# deliberately NEVER cached. Staleness here is bounded to the TTL and only
+# affects a public read-only view, so no write-side invalidation is needed.
+# With multiple workers each holds its own copy — still ~1 recompute per
+# worker per window rather than one per request.
+_GLOBAL_MATCHES_TTL = 10.0  # seconds
+_global_matches_cache: dict[str, tuple[float, list[dict]]] = {}
+
+
 @router.get("", response_model=list[Match])
 def list_matches(
     sport_id: str | None = Query(None),
     bracket_id: str | None = Query(None),
     status: str | None = Query(None),
 ):
+    is_global = sport_id is None and bracket_id is None and status is None
+    if is_global:
+        cached = _global_matches_cache.get("all")
+        if cached and (time.monotonic() - cached[0]) < _GLOBAL_MATCHES_TTL:
+            return cached[1]
+
     q = supabase.table("matches").select("*, locations(name)")
     if sport_id:
         q = q.eq("sport_id", sport_id)
@@ -286,7 +310,11 @@ def list_matches(
     if status:
         q = q.eq("status", status)
     matches = _fetch_all_matches(q)
-    return _attach_estimated_starts(matches)
+    result = _attach_estimated_starts(matches)
+
+    if is_global:
+        _global_matches_cache["all"] = (time.monotonic(), result)
+    return result
 
 
 @router.get("/{match_id}", response_model=Match)

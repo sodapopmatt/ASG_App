@@ -802,14 +802,18 @@ export default function SportConfigPage() {
   const [groupsSaving, setGroupsSaving] = useState(false)
   const [groupsSaveError, setGroupsSaveError] = useState<string | null>(null)
 
-  async function saveGroups(poolCountOverride?: number, teamPoolOverride?: Record<string, number>) {
+  async function saveGroups(
+    poolCountOverride?: number,
+    teamPoolOverride?: Record<string, number>,
+    courtPoolOverride?: Record<string, number>,
+  ) {
     if (!sportId) return
     setGroupsSaveError(null)
     setGroupsSaving(true)
     try {
       // One request for the whole group setup — avoids firing a burst of
       // concurrent PATCH requests (each with its own auth check) at Supabase.
-      await setPoolSetup(sportId, { pool_count: poolCountOverride ?? poolCount, team_pool: teamPoolOverride ?? teamPool, court_pool: courtPool })
+      await setPoolSetup(sportId, { pool_count: poolCountOverride ?? poolCount, team_pool: teamPoolOverride ?? teamPool, court_pool: courtPoolOverride ?? courtPool })
       qc.invalidateQueries({ queryKey: ['teams'] })
       qc.invalidateQueries({ queryKey: ['locations', sportId] })
       qc.invalidateQueries({ queryKey: ['sports'] })
@@ -1017,6 +1021,21 @@ export default function SportConfigPage() {
   const hasUnassignedTeams = seeds.some(t => teamPoolOf(t.id) === UNASSIGNED_POOL)
   const poolsValid = !hasUnassignedTeams && poolSpecs.every(p => p.team_ids.length >= 2)
 
+  // Persist every team's/court's RESOLVED pool (not just manually-overridden
+  // ones). The snake distribution is preview-only: teams left on their computed
+  // default carry no entry in `teamPool`, and an empty/sparse map is a no-op
+  // server-side (see set_pool_setup). Editing the pool count also clears the
+  // override maps, so a plain saveGroups() would persist nothing and the DB
+  // would keep NULL pool_index — collapsing everything into Group A on reload.
+  // Same shape as the waterball group save.
+  function saveResolvedGroups() {
+    const fullTeamPool = Object.fromEntries(
+      seeds.map(t => [t.id, teamPoolOf(t.id)]).filter(([, p]) => p !== UNASSIGNED_POOL),
+    )
+    const fullCourtPool = Object.fromEntries(locations.map(l => [l.id, courtPoolOf(l.id)]))
+    return saveGroups(effectivePoolCount, fullTeamPool, fullCourtPool)
+  }
+
   // ── Heats setup (heats sports with multiple heats, e.g. Relay Race) ─────────
   const effectiveNumHeats = Math.max(1, Math.min(numHeats, sportTeams.length))
   const heatSpecs = useMemo((): HeatSpec[] =>
@@ -1170,7 +1189,7 @@ const genMutation = useMutation({
       qc.invalidateQueries({ queryKey: ['brackets'] })
       qc.invalidateQueries({ queryKey: ['sports'] })
       setGenError(null)
-      if (isPool && sportId) saveGroups()
+      if (isPool && sportId) saveResolvedGroups()
     },
     onError: (e) => setGenError(e instanceof Error ? e.message : 'Failed to generate bracket'),
   })
@@ -1737,7 +1756,7 @@ const genMutation = useMutation({
             )}
             {groupsSaveError && <p className="text-sm text-red-600">{groupsSaveError}</p>}
             <button
-              onClick={() => saveGroups()}
+              onClick={() => saveResolvedGroups()}
               disabled={groupsSaving}
               className="w-full py-2 rounded-lg border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 disabled:opacity-50"
             >

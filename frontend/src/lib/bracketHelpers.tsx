@@ -264,7 +264,7 @@ export function ZoomableBracket({ children, bracketWidth, bracketHeight }: {
           key={`${storageKey}-${fitScale.toFixed(3)}`}
           minScale={fitScale}
           maxScale={2.5}
-          initialScale={saved?.scale ?? (fitScale < 1 ? Math.max(fitScale, 0.85) : 1)}
+          initialScale={saved?.scale ?? fitScale}
           initialPositionX={saved?.x}
           initialPositionY={saved?.y}
           centerOnInit={!saved}
