@@ -243,16 +243,14 @@ export default function WaterballResultsPage() {
         placements from Scoring once results are in.
       </p>
 
-      <div className="flex gap-2">
+      <div className="flex rounded-lg bg-gray-100 p-1">
         {groups.map(g => (
           <button
             key={g.id}
             type="button"
             onClick={() => setTab(g.id)}
-            className={`flex-1 py-2 rounded-lg text-sm font-semibold border ${
-              activeGroup.id === g.id
-                ? 'bg-blue-600 text-white border-blue-600'
-                : 'bg-white text-gray-500 border-gray-200'
+            className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              activeGroup.id === g.id ? 'bg-white shadow-sm text-slate-800' : 'text-gray-500'
             }`}
           >
             {g.name}
