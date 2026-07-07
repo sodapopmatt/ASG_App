@@ -52,7 +52,7 @@ function buildTimelineSlots(matches: Match[], extraTimes: string[] = []): { labe
 // ── Data hook ───────────────────────────────────────────────────────────────
 
 function useScheduleData() {
-  const matches   = useQuery({ queryKey: ['matches'],   queryFn: () => getMatches(), refetchInterval: 5000 })
+  const matches   = useQuery({ queryKey: ['matches'],   queryFn: () => getMatches(), refetchInterval: 15000 })
   const sports    = useQuery({ queryKey: ['sports'],    queryFn: getSports,         staleTime: Infinity })
   const teams     = useQuery({ queryKey: ['teams'],     queryFn: () => getTeams(),  staleTime: Infinity })
   const companies = useQuery({ queryKey: ['companies'], queryFn: getCompanies,      staleTime: Infinity })

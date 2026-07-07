@@ -254,7 +254,11 @@ export default function BracketResultsPage() {
   const [viewMode, setViewMode] = useTabMemory<'bracket' | 'court'>(`bracket-results-view-${sportId ?? ''}`, 'bracket')
   const [activeCourt, setActiveCourt] = useTabMemory<string>(`bracket-results-court-${sportId ?? ''}`, '')
 
-  const matchesQuery   = useQuery({ queryKey: ['matches'],           queryFn: () => getMatches() })
+  const matchesQuery   = useQuery({
+    queryKey: ['matches', { sport_id: sportId }],
+    queryFn: () => getMatches({ sport_id: sportId! }),
+    enabled: !!sportId,
+  })
   const sportsQuery    = useQuery({ queryKey: ['sports'],            queryFn: getSports,        staleTime: Infinity })
   const teamsQuery     = useQuery({ queryKey: ['teams'],             queryFn: () => getTeams(), staleTime: Infinity })
   const companiesQuery = useQuery({ queryKey: ['companies'],         queryFn: getCompanies,     staleTime: Infinity })
@@ -298,10 +302,7 @@ export default function BracketResultsPage() {
     [bracketsQuery.data],
   )
 
-  const sportMatches = useMemo(
-    () => (matchesQuery.data ?? []).filter(m => m.sport_id === sportId),
-    [matchesQuery.data, sportId],
-  )
+  const sportMatches = matchesQuery.data ?? []
 
   // pool_bracket sports: the bracket view shows only the elimination phase
   const bracketPhaseMatches = useMemo(

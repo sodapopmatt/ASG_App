@@ -825,7 +825,12 @@ function Skeleton() {
 export default function BracketView() {
   const { sportId: activeSportId = null } = useParams<{ sportId: string }>()
 
-  const matchesQuery   = useQuery({ queryKey: ['matches'],   queryFn: () => getMatches(), refetchInterval: 5000 })
+  const matchesQuery   = useQuery({
+    queryKey: ['matches', { sport_id: activeSportId }],
+    queryFn: () => getMatches({ sport_id: activeSportId! }),
+    enabled: !!activeSportId,
+    refetchInterval: 5000,
+  })
   const sportsQuery    = useQuery({ queryKey: ['sports'],    queryFn: getSports,        staleTime: Infinity })
   const teamsQuery     = useQuery({ queryKey: ['teams'],     queryFn: () => getTeams(), staleTime: Infinity })
   const companiesQuery = useQuery({ queryKey: ['companies'], queryFn: getCompanies,     staleTime: Infinity })
@@ -875,16 +880,6 @@ export default function BracketView() {
     [bracketsQuery.data],
   )
 
-  const matchesBySport = useMemo(() => {
-    const map = new Map<string, Match[]>()
-    for (const m of (matchesQuery.data ?? [])) {
-      const list = map.get(m.sport_id) ?? []
-      list.push(m)
-      map.set(m.sport_id, list)
-    }
-    return map
-  }, [matchesQuery.data])
-
   const isLoading =
     matchesQuery.isLoading  ||
     sportsQuery.isLoading   ||
@@ -895,7 +890,7 @@ export default function BracketView() {
   if (isLoading) return <Skeleton />
   if (!activeSport) return <p className="text-center text-gray-500 py-16">Sport not found.</p>
 
-  const sportMatches = matchesBySport.get(activeSportId ?? '') ?? []
+  const sportMatches = matchesQuery.data ?? []
   const bracketType  = activeSport?.bracket_type
 
   function renderElimination(matches: Match[]) {

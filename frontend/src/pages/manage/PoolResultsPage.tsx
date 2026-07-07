@@ -305,7 +305,12 @@ export default function PoolResultsPage() {
   const [swissError, setSwissError] = useState<string | null>(null)
   const qc = useQueryClient()
 
-  const matchesQuery   = useQuery({ queryKey: ['matches'],   queryFn: () => getMatches(), refetchInterval: 5000 })
+  const matchesQuery   = useQuery({
+    queryKey: ['matches', { sport_id: sportId }],
+    queryFn: () => getMatches({ sport_id: sportId! }),
+    enabled: !!sportId,
+    refetchInterval: 5000,
+  })
   const sportsQuery    = useQuery({ queryKey: ['sports'],    queryFn: getSports,        staleTime: Infinity })
   const teamsQuery     = useQuery({ queryKey: ['teams'],     queryFn: () => getTeams(), staleTime: Infinity })
   const companiesQuery = useQuery({ queryKey: ['companies'], queryFn: getCompanies,     staleTime: Infinity })
@@ -343,10 +348,7 @@ export default function PoolResultsPage() {
   const multiTeamKeys = useMemo(() => buildMultiTeamKeys(teamMap), [teamMap])
   const sport      = useMemo(() => (sportsQuery.data ?? []).find(s => s.id === sportId), [sportsQuery.data, sportId])
 
-  const sportMatches = useMemo(
-    () => (matchesQuery.data ?? []).filter(m => m.sport_id === sportId),
-    [matchesQuery.data, sportId],
-  )
+  const sportMatches = matchesQuery.data ?? []
 
   const pools: Bracket[] = useMemo(
     () => (bracketsQuery.data ?? []).filter(b => b.phase === 'pool').sort((a, b) => compareBracketNames(a.name, b.name)),
