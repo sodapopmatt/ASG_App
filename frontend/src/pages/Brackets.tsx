@@ -270,27 +270,27 @@ function GolfRoundTable({
 
   if (rows.length === 0) return <p className="text-sm text-gray-400 italic py-2">No entries.</p>
 
-  const COMPANY_MIN_REM = 7
-  const TOTAL_COL_REM = 3.5
-  const GAP_REM = 0.75 // Tailwind gap-3
-  const holeCols = Array.from({ length: HOLES }, () => '4.5rem').join(' ')
+  // Scores are 1-2 digits, so each hole column only needs to be wide enough
+  // for that plus its "H1" header — short_id (truncated if needed) and a
+  // tight gap keep the whole table within a phone-width screen with no
+  // horizontal scroll under normal circumstances. overflow-x-auto stays on
+  // as a safety net for unusually narrow viewports rather than clipping.
+  const COMPANY_MIN_REM = 3.5
+  const HOLE_COL_REM = 2.25
+  const TOTAL_COL_REM = 3
+  const holeCols = Array.from({ length: HOLES }, () => `${HOLE_COL_REM}rem`).join(' ')
   const gridTemplateColumns = `minmax(${COMPANY_MIN_REM}rem,1fr) ${holeCols} ${TOTAL_COL_REM}rem`
-  // A company name and 3+ score columns don't all fit on a phone screen at
-  // once — scroll horizontally rather than clipping content or squeezing
-  // company names down to one letter (minWidth floors how far the grid can
-  // shrink; the outer wrapper scrolls once the viewport is narrower than it).
-  const minWidthRem = COMPANY_MIN_REM + HOLES * 4.5 + TOTAL_COL_REM + (HOLES + 1) * GAP_REM
 
   return (
     <div className="rounded-xl border border-gray-200 overflow-x-auto">
-      <div style={{ minWidth: `${minWidthRem}rem` }}>
+      <div>
         <div
-          className="grid items-center px-4 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider gap-3"
+          className="grid items-center px-2 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider gap-1"
           style={{ gridTemplateColumns }}
         >
           <span>Company</span>
           {Array.from({ length: HOLES }, (_, i) => (
-            <span key={i} className="text-right">Hole {i + 1}</span>
+            <span key={i} className="text-right">H{i + 1}</span>
           ))}
           <span className="text-right">Total</span>
         </div>
@@ -300,10 +300,10 @@ function GolfRoundTable({
             return (
               <div
                 key={match.id}
-                className="grid items-center px-4 py-2.5 gap-3"
+                className="grid items-center px-2 py-2.5 gap-1"
                 style={{ gridTemplateColumns }}
               >
-                <span className="text-sm font-medium text-slate-700 truncate pl-1">{company.name}</span>
+                <span className="text-sm font-medium text-slate-700 truncate pl-1">{company.short_id ?? company.name}</span>
                 {Array.from({ length: HOLES }, (_, i) => (
                   <span key={i} className="font-mono text-sm text-slate-500 text-right">
                     {holes?.[i] ?? (forfeit ? '—' : '')}
