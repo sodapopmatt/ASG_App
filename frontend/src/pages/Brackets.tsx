@@ -270,45 +270,56 @@ function GolfRoundTable({
 
   if (rows.length === 0) return <p className="text-sm text-gray-400 italic py-2">No entries.</p>
 
+  const COMPANY_MIN_REM = 7
+  const TOTAL_COL_REM = 3.5
+  const GAP_REM = 0.75 // Tailwind gap-3
   const holeCols = Array.from({ length: HOLES }, () => '4.5rem').join(' ')
+  const gridTemplateColumns = `minmax(${COMPANY_MIN_REM}rem,1fr) ${holeCols} ${TOTAL_COL_REM}rem`
+  // A company name and 3+ score columns don't all fit on a phone screen at
+  // once — scroll horizontally rather than clipping content or squeezing
+  // company names down to one letter (minWidth floors how far the grid can
+  // shrink; the outer wrapper scrolls once the viewport is narrower than it).
+  const minWidthRem = COMPANY_MIN_REM + HOLES * 4.5 + TOTAL_COL_REM + (HOLES + 1) * GAP_REM
 
   return (
-    <div className="rounded-xl border border-gray-200 overflow-hidden">
-      <div
-        className="grid items-center px-4 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider gap-3"
-        style={{ gridTemplateColumns: `1fr ${holeCols} 3.5rem` }}
-      >
-        <span>Company</span>
-        {Array.from({ length: HOLES }, (_, i) => (
-          <span key={i} className="text-right">Hole {i + 1}</span>
-        ))}
-        <span className="text-right">Total</span>
-      </div>
-      <div className="divide-y divide-gray-100">
-        {rows.map(({ match, company, total, holes }) => {
-          const forfeit = match.status === 'forfeit' || match.status === 'double_forfeit'
-          return (
-            <div
-              key={match.id}
-              className="grid items-center px-4 py-2.5 gap-3"
-              style={{ gridTemplateColumns: `1fr ${holeCols} 3.5rem` }}
-            >
-              <span className="text-sm font-medium text-slate-700 truncate pl-1">{company.name}</span>
-              {Array.from({ length: HOLES }, (_, i) => (
-                <span key={i} className="font-mono text-sm text-slate-500 text-right">
-                  {holes?.[i] ?? (forfeit ? '—' : '')}
-                </span>
-              ))}
-              {total != null ? (
-                <span className="font-mono text-sm font-bold text-slate-800 text-right">{total}</span>
-              ) : forfeit ? (
-                <span className="text-xs text-gray-400 text-right">Forfeit</span>
-              ) : (
-                <span className="text-xs text-blue-400 text-right">TBD</span>
-              )}
-            </div>
-          )
-        })}
+    <div className="rounded-xl border border-gray-200 overflow-x-auto">
+      <div style={{ minWidth: `${minWidthRem}rem` }}>
+        <div
+          className="grid items-center px-4 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider gap-3"
+          style={{ gridTemplateColumns }}
+        >
+          <span>Company</span>
+          {Array.from({ length: HOLES }, (_, i) => (
+            <span key={i} className="text-right">Hole {i + 1}</span>
+          ))}
+          <span className="text-right">Total</span>
+        </div>
+        <div className="divide-y divide-gray-100">
+          {rows.map(({ match, company, total, holes }) => {
+            const forfeit = match.status === 'forfeit' || match.status === 'double_forfeit'
+            return (
+              <div
+                key={match.id}
+                className="grid items-center px-4 py-2.5 gap-3"
+                style={{ gridTemplateColumns }}
+              >
+                <span className="text-sm font-medium text-slate-700 truncate pl-1">{company.name}</span>
+                {Array.from({ length: HOLES }, (_, i) => (
+                  <span key={i} className="font-mono text-sm text-slate-500 text-right">
+                    {holes?.[i] ?? (forfeit ? '—' : '')}
+                  </span>
+                ))}
+                {total != null ? (
+                  <span className="font-mono text-sm font-bold text-slate-800 text-right">{total}</span>
+                ) : forfeit ? (
+                  <span className="text-xs text-gray-400 text-right">Forfeit</span>
+                ) : (
+                  <span className="text-xs text-blue-400 text-right">TBD</span>
+                )}
+              </div>
+            )
+          })}
+        </div>
       </div>
     </div>
   )
