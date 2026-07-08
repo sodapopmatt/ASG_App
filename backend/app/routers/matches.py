@@ -191,14 +191,24 @@ def _attach_estimated_starts(matches: list[dict]) -> list[dict]:
     if sport_ids:
         sports = (
             supabase.table("sports")
-            .select("id, match_duration_minutes, schedule_start, bracket_type")
+            .select("id, match_duration_minutes, schedule_start, bracket_type, scoring_mode")
             .in_("id", sport_ids)
             .execute()
             .data
         )
         sport_duration_map = {s["id"]: s["match_duration_minutes"] or 30 for s in sports}
         sport_start_map = {s["id"]: _parse_dt(s.get("schedule_start")) for s in sports}
-        heats_sport_ids = {s["id"] for s in sports if s.get("bracket_type") == "heats"}
+        # Executive Golf is bracket_type="heats" (one match per company, no
+        # opponent) but companies tee off individually, not simultaneously —
+        # unlike every other heats sport (Relay Race, Human Pyramid, Water Ball
+        # Toss) where the whole bracket genuinely starts at once. Excluding it
+        # here means its matches fall through to the normal per-court ripple
+        # below, which staggers them by match_duration_minutes instead of
+        # collapsing them all onto one shared start time.
+        heats_sport_ids = {
+            s["id"] for s in sports
+            if s.get("bracket_type") == "heats" and s.get("scoring_mode") != "executive_golf"
+        }
 
     # Heats brackets have concurrent teams â€” their matches share one time slot.
     # Only applies to sports with bracket_type="heats"; other bracket types (e.g.

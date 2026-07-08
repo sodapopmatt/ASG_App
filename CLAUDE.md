@@ -113,7 +113,7 @@ V1 migration is complete.
 - `scoring_direction` (TEXT) — `high_wins` | `low_wins`
 - `multi_team_rule` (TEXT) — `best_placement` | `average_score`
 - `points_scale` (JSONB, nullable) — NULL = ASG default scale
-- `scoring_mode` (TEXT) — `placement` (default; admin awards via `/event-points/award-placement`) | `donation_count` (admin enters per-company item counts via `/donation-counts`; points derived: top=15, second=10, ≥10 items=5, else=0; ties share points) | `water_ball_toss` (real per-team matches, `bracket_type='heats'`; rounds survived entered via the generic heat-result endpoint; a company's score is the best of its own teams; standings are NOT live — an admin reviews computed placements on ScoringPage and explicitly saves via `POST /waterball-results/sports/{id}/recompute`, ties share points)
+- `scoring_mode` (TEXT) — `placement` (default; admin awards via `/event-points/award-placement`) | `donation_count` (admin enters per-company item counts via `/donation-counts`; points derived: top=15, second=10, ≥10 items=5, else=0; ties share points) | `water_ball_toss` (real per-team matches, `bracket_type='heats'`; rounds survived entered via the generic heat-result endpoint; a company's score is the best of its own teams; standings are NOT live — an admin reviews computed placements on ScoringPage and explicitly saves via `POST /waterball-results/sports/{id}/recompute`, ties share points) | `executive_golf` (real per-team matches, `bracket_type='heats'`, in two heat brackets "Round 1"/"Round 2"; 3 hole scores per company entered via `/golf-results` — stored as a JSON array in `matches.notes`, total in `matches.home_score`; ranked by Round-2 total, lowest wins; standings NOT live — an admin reviews and saves via `POST /golf-results/sports/{id}/recompute`, ties share points)
 - `match_duration_minutes` (INT, nullable)
 - `schedule_start` (TIMESTAMPTZ, nullable)
 - `pool_play_rounds` (INT, nullable) — pool-play sports only; NULL = full round robin (every team plays every other in its pool once); N = truncate each pool to N rounds, i.e. each team plays N distinct opponents (odd pool sizes sit one team out per round, so those teams may play slightly fewer). Set via SportConfigPage's "Games per team (pool stage)" field. Used when there isn't time for a full round robin (e.g. large Pickleball pools).
@@ -219,6 +219,17 @@ No dedicated table — Water Ball Toss is `bracket_type = 'heats'` with real `ma
 
 ---
 
+### Executive Golf (scoring_mode = executive_golf)
+No dedicated table — Executive Golf is `bracket_type = 'heats'` with real `matches` rows, one per company (flat, no opponent — same shape as Human Pyramid / Water Ball Toss), grouped into two heat `brackets` named **"Round 1"** and **"Round 2"**. Each company plays the same 3 holes per round; an admin enters 3 hole scores and the app sums them. Round 1 is the whole field; the 6 lowest totals advance (manually selected) to Round 2, which ranks those 6 by lowest total. It reuses generic infrastructure except for score entry and scoring:
+- **Generate Round 1**: SportConfigPage's "Generate Round 1" button calls the existing `POST /sports/{id}/generate-bracket` (heats path) with a single `HeatSpec {name:'Round 1', team_ids: all, phase:'heats'}` — one bracket, one flat match per company. Unlike other heats sports (which share one `scheduled_at` per heat and race simultaneously), the golf path in `generate_bracket` stores a **distinct per-company `scheduled_at`** staggered by `match_duration_minutes` (set to 3) from `schedule_start` — companies tee off individually, not as a group. A court/tee location is optional (used only as a schedule display header, like Human Pyramid's venue label); the stagger is baked into `scheduled_at` at generation, so it does not depend on the court ripple. Relatedly, `_attach_estimated_starts` (matches.py) excludes `executive_golf` from the "concurrent heat" shared-start treatment so `estimated_start` matches the staggered `scheduled_at`.
+- **Enter results**: on `GolfResultsPage` (Round 1/Round 2 tabs), Start the round (generic `bulk-start`), then per company enter 3 hole scores or mark forfeit via the bespoke `POST /golf-results/matches/{id}/result` (`{hole_scores:[..]}` or `{forfeit:true}`) — the generic `heat-result` can't be reused because it stores a single value. Scores are stored as a JSON array in `matches.notes`; the total is mirrored to `matches.home_score`.
+- **Advance to Round 2**: once every Round-1 match is played, GolfResultsPage shows a top-6 selection panel (companies ranked by Round-1 total ascending; the closest-to-the-hole tiebreak at the cut line is done offline). Selecting 6 and tapping "Generate Round 2" calls the same `generate-bracket` heats path with `{name:'Round 2', team_ids:[6], phase:'heats'}`.
+- **Reset**: the generic `DELETE /sports/{id}/brackets` (clears `event_points` too, `bracket_type='heats'`).
+- **Scoring** (bespoke, `backend/app/routers/golf_results.py`): `POST /golf-results/sports/{id}/recompute` rebuilds `event_points` from **Round-2 totals only** — the 6 Round-2 companies are ranked ascending by their total (forfeits last), taking placements 1..N (ties share averaged points); every other company that competed in Round 1 shares one participation placement after that group. The sport's `points_scale` (`{"1":20,"2":15,"3":10,"default":5}`) yields 1st=20, 2nd=15, 3rd=10, everyone else=5.
+- **Not live**: like `water_ball_toss`, entering a result does NOT recompute. Standings only update when an admin opens ScoringPage's Executive Golf section (a live preview of the Round-2 ranking + participants, alongside the last-saved `event_points`) and taps **Save Placements**, which calls `recompute`.
+
+---
+
 ## Bracket System
 
 ### Supported Types
@@ -228,7 +239,7 @@ No dedicated table — Water Ball Toss is `bracket_type = 'heats'` with real `ma
 | `double_elimination` | Yes | Full |
 | `pool_bracket` | Yes — pools + seeded bracket phase | Full — pool setup, standings, results entry, bracket view |
 | `pool_swiss` | Pools only (Swiss rounds manual) | Partial — pool UI works; no Swiss round UI |
-| `heats` | Yes — flat (one entry per team) OR grouped multi-phase (one bracket per heat) | Full for Relay Race (multi-phase: prelims → semis → final); flat for Human Pyramid; grouped single-phase ("Group A"/"Group B") for Water Ball Toss (`scoring_mode='water_ball_toss'` — bespoke best-of-company scoring instead of the generic heats ranking/ScoringPage flow) |
+| `heats` | Yes — flat (one entry per team) OR grouped multi-phase (one bracket per heat) | Full for Relay Race (multi-phase: prelims → semis → final); flat for Human Pyramid; grouped single-phase ("Group A"/"Group B") for Water Ball Toss (`scoring_mode='water_ball_toss'` — bespoke best-of-company scoring instead of the generic heats ranking/ScoringPage flow); grouped two-round ("Round 1"/"Round 2") for Executive Golf (`scoring_mode='executive_golf'` — bespoke 3-hole totals + lowest-wins Round-2 ranking) |
 | `points_based` | N/A — no matches | Partial — placement entry via Scoring page only |
 
 ### Auto-Generation Rules (elimination only)
@@ -313,6 +324,7 @@ No dedicated table — Water Ball Toss is `bracket_type = 'heats'` with real `ma
 | Relay Race | heats | 1 | high_wins | best_placement | Custom (see Heats section) |
 | Human Pyramid | heats | 1 | low_wins | best_placement | ASG default |
 | Water Ball Toss | heats | 5 | high_wins | average_score¹ | ASG default |
+| Executive Golf | heats | 1 | low_wins | best_placement | Custom `{1:20,2:15,3:10,default:5}` (uses `scoring_mode='executive_golf'`) |
 | Canned Food Drive | points_based | 1 | high_wins | best_placement | n/a (uses `scoring_mode='donation_count'`) |
 
 ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place (floor 0). SQL: `asg_points(placement INTEGER)`.
@@ -429,18 +441,29 @@ This is the only endpoint specific to Water Ball Toss — generating matches, st
 
 ---
 
+### Golf Results — `/golf-results`
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/matches/{match_id}/result` | admin | Enter one Executive Golf round for a company: `{hole_scores:[int,..]}` (stored as JSON in `notes`, sum in `home_score`) or `{forfeit:true}` (clears both). 422 unless the sport is `executive_golf`. |
+| POST | `/sports/{sport_id}/recompute` | admin | Rebuild `event_points` for an `executive_golf` sport from Round-2 totals (lowest wins; participants get the default scale; ties share points) |
+
+Golf reuses the generic `sports`/`matches` endpoints for generating both rounds (heats path), starting matches (bulk-start), and resetting; only score entry and scoring are bespoke (see the Executive Golf entity section above).
+
+---
+
 ## Frontend Pages
 
 | Page | Route | What it does |
 |---|---|---|
 | Schedule | `/schedule` | All matches grouped by sport+round or timeline view. Does NOT vary by `bracket_type` — Water Ball Toss flows through this like any other match-based sport. Sports with no `matches` at all (`donation_count`) get a plain event card/timeline row instead, driven by the sport's own `schedule_start`/`schedule_end`. |
-| BracketsSportIndex / BracketView (public "Games" tab) | `/brackets`, `/brackets/:sportId` | Public read-only per-sport results. `BracketView.renderContent()` branches on `scoring_mode`/`bracket_type`: `donation_count` → ranked items table; `water_ball_toss` → Group A/B tabs of real matches (team + rounds survived/forfeit/TBD, via `WaterBallGroupTable`) plus a company standings table from `event_points`; other `heats`/`pool_bracket`/`pool_swiss`/elimination → their respective bracket views; else a fallback match list. All rank/points values come from `event_points` — no scoring logic is duplicated client-side. |
+| BracketsSportIndex / BracketView (public "Games" tab) | `/brackets`, `/brackets/:sportId` | Public read-only per-sport results. `BracketView.renderContent()` branches on `scoring_mode`/`bracket_type`: `donation_count` → ranked items table; `water_ball_toss` → Group A/B tabs of real matches (team + rounds survived/forfeit/TBD, via `WaterBallGroupTable`) plus a company standings table from `event_points`; `executive_golf` → Round 1/Round 2 tabs (company + total strokes/forfeit/TBD, via `GolfRoundTable`) plus a company standings table from `event_points`; other `heats`/`pool_bracket`/`pool_swiss`/elimination → their respective bracket views; else a fallback match list. All rank/points values come from `event_points` — no scoring logic is duplicated client-side. |
 | BracketsPage | `/manage/brackets` | Generate elimination brackets, set scheduling config, manually adjust match times. Labels non-generatable sports as "Manual entry". |
-| SportConfigPage | `/manage/brackets/:sportId` | Per-sport config: scheduling, courts, bracket/pool generation; pool sports get pool setup (snake auto-split + overrides) and a post-pool "Generate Bracket Phase" card seeded from standings; `water_ball_toss` sports get a "Groups" section (same team-grouping UI, 2 fixed groups, no courts) and a "Generate Matches"/"Reset All Results" flow that reuses the generic heats-generation and `resetBrackets` endpoints. |
-| ResultsPage | `/manage/results` | Lists pending matches; links to bracket visualization for elimination sports, pool results for pool sports, heats entry for heats. |
+| SportConfigPage | `/manage/brackets/:sportId` | Per-sport config: scheduling, courts, bracket/pool generation; pool sports get pool setup (snake auto-split + overrides) and a post-pool "Generate Bracket Phase" card seeded from standings; `water_ball_toss` sports get a "Groups" section (same team-grouping UI, 2 fixed groups, no courts) and a "Generate Matches"/"Reset All Results" flow that reuses the generic heats-generation and `resetBrackets` endpoints; `executive_golf` sports show a Courts section (the tee) plus a "Generate Round 1"/"Reset All Results" flow (single "Round 1" heat of all companies via the generic heats-generation). |
+| ResultsPage | `/manage/results` | Lists pending matches; links to bracket visualization for elimination sports, pool results for pool sports, heats entry for heats, and golf entry for `executive_golf`. |
 | PoolResultsPage | `/manage/results/pools/:sportId` | Pool matches grouped by pool+round; tap to enter result via shared MatchResultModal; links to bracket phase view. |
 | WaterballResultsPage | `/manage/results/waterball/:sportId` | Water Ball Toss: Group A/B tabs (real `brackets`/`matches`, generated from SportConfigPage); Start each team's match, then enter rounds survived or mark forfeit via the generic `startMatch`/`submitHeatResult`. Does NOT touch `event_points` — standings are reviewed and saved from Scoring. |
-| ScoringPage | `/manage/scoring` | Sport card list (tap to drill in). For standard sports: award placement per company. For Relay Race: auto-computes placements from heat results with editable overrides; calls `/event-points/award-placement`. For Canned Food Drive: read-only ranked standings, auto-computed live from `/donation-counts`. For Water Ball Toss: a live preview of best-of-company scores computed from `matches`, next to the last-saved `event_points`, with an explicit "Save Placements" button that calls `waterball-results` recompute. |
+| GolfResultsPage | `/manage/results/golf/:sportId` | Executive Golf: Round 1/Round 2 tabs; bulk-Start a round, then enter each company's 3 hole scores or mark forfeit via `submitGolfResult` (`/golf-results`). After Round 1 is complete, a "top 6" selection panel (ranked by Round-1 total) generates Round 2 via the generic `generate-bracket` heats path. Does NOT touch `event_points` — reviewed/saved from Scoring. |
+| ScoringPage | `/manage/scoring` | Sport card list (tap to drill in). For standard sports: award placement per company. For Relay Race: auto-computes placements from heat results with editable overrides; calls `/event-points/award-placement`. For Canned Food Drive: read-only ranked standings, auto-computed live from `/donation-counts`. For Water Ball Toss: a live preview of best-of-company scores computed from `matches`, next to the last-saved `event_points`, with an explicit "Save Placements" button that calls `waterball-results` recompute. For Executive Golf: a live preview of the Round-2 ranking (lowest total wins) plus Round-1-only participants, next to the last-saved `event_points`, with a "Save Placements" button that calls `golf-results` recompute. |
 | HeatsResultPage | `/manage/results/heats/:sportId` | For grouped heats (Relay Race): segmented Prelims/Semi-Finals/Final tabs with scrollable heat pill tabs within each phase; generate next phase when current is complete. For flat heats (Human Pyramid): simple per-team time entry. |
 | TeamsPage | `/manage/teams` | Create/edit/delete teams, grouped by sport+company. |
 | ManageHub | `/manage` | Navigation hub for admin pages. |

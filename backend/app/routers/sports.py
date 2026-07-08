@@ -195,7 +195,7 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
     Other combinations return a 422.
     """
     sport_row = supabase.table("sports").select(
-        "name, bracket_type, match_duration_minutes, schedule_start, assumed_courts_per_group, pool_play_rounds"
+        "name, bracket_type, scoring_mode, match_duration_minutes, schedule_start, assumed_courts_per_group, pool_play_rounds"
     ).eq("id", sport_id).limit(1).execute()
 
     if not sport_row.data:
@@ -243,6 +243,8 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
             else:
                 start_time = raw_start
 
+        is_golf = sport.get("scoring_mode") == "executive_golf"
+
         if body.heats is not None:
             # Grouped heats: one bracket per heat, one match per team
             all_team_ids = [tid for h in body.heats for tid in h.team_ids]
@@ -259,16 +261,22 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
                 }).execute().data[0]
                 bracket_id = bracket_row["id"]
 
-                scheduled_at = heat.scheduled_at
-                if scheduled_at is None and start_time:
+                heat_start = heat.scheduled_at
+                if heat_start is None and start_time:
                     offset_minutes = i * duration
-                    scheduled_at = (start_time + timedelta(minutes=offset_minutes)).isoformat()
+                    heat_start = (start_time + timedelta(minutes=offset_minutes)).isoformat()
+                heat_start_dt = datetime.fromisoformat(heat_start.replace("Z", "+00:00")) if heat_start else None
 
-                # All teams in a heat race simultaneously at the same location
+                # All teams in a heat race simultaneously at the same location —
+                # EXCEPT Executive Golf, where companies tee off individually on
+                # the shared tee, one after another, not as a group. Storing each
+                # team's own scheduled_at (rather than one shared value) keeps it
+                # matching the dynamic estimated_start once matches are read back,
+                # so the schedule doesn't flag them as "pushed" from day one.
                 heat_location_id = location_ids[i % len(location_ids)] if location_ids else None
 
                 heat_rows = []
-                for team_id in heat.team_ids:
+                for ti, team_id in enumerate(heat.team_ids):
                     row: dict = {
                         "sport_id": sport_id,
                         "bracket_id": bracket_id,
@@ -276,8 +284,11 @@ def generate_bracket(sport_id: str, body: GenerateBracketRequest, _=Depends(requ
                         "status": "scheduled",
                         "match_round": 1,
                     }
-                    if scheduled_at:
-                        row["scheduled_at"] = scheduled_at
+                    if is_golf:
+                        if heat_start_dt:
+                            row["scheduled_at"] = (heat_start_dt + timedelta(minutes=ti * duration)).isoformat()
+                    elif heat_start:
+                        row["scheduled_at"] = heat_start
                     if heat_location_id:
                         row["location_id"] = heat_location_id
                     heat_rows.append(row)

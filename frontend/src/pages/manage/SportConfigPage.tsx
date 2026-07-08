@@ -9,6 +9,7 @@ import { getCompanies } from '../../api/companies'
 import { getLocations, createLocation, deleteLocation, updateLocation } from '../../api/locations'
 import { getBrackets } from '../../api/brackets'
 import { buildMultiTeamKeys } from '../../lib/bracketHelpers'
+import { ROUND_1_NAME } from '../../lib/golf'
 import type { Match, Team, Company, Location as LocationRow } from '../../types'
 
 const GENERATABLE = new Set(['single_elimination', 'double_elimination', 'heats', 'pool_bracket', 'pool_swiss'])
@@ -958,6 +959,7 @@ export default function SportConfigPage() {
   const isPoolBracket = sport?.bracket_type === 'pool_bracket'
   const isPoolSwiss = sport?.bracket_type === 'pool_swiss'
   const isWaterball = sport?.scoring_mode === 'water_ball_toss'
+  const isGolf = sport?.scoring_mode === 'executive_golf'
 
   const alreadyGenerated = matches.length > 0
 
@@ -1158,6 +1160,15 @@ export default function SportConfigPage() {
 
 const genMutation = useMutation({
     mutationFn: async () => {
+      if (isGolf) {
+        // Round 1 = one flat match per company in a single "Round 1" heat
+        // bracket, all on the first tee. Staggered tee times come from the
+        // dynamic estimated_start ripple, not from stored times. Round 2 is
+        // generated later from the Results page once the top 6 are known.
+        return generateBracket(sportId!, [], false, undefined, undefined, [
+          { name: ROUND_1_NAME, team_ids: sportTeams.map(t => t.id), phase: 'heats' },
+        ])
+      }
       if (isWaterball) {
         // Persist every team's resolved group (not just manually-overridden
         // ones) — otherwise a team left on its computed default never gets
@@ -1346,8 +1357,8 @@ const genMutation = useMutation({
   }
 
   function handleReset() {
-    const msg = isWaterball
-      ? `Reset all results for ${sport?.name}? This will delete every team's match and cannot be undone.`
+    const msg = isWaterball || isGolf
+      ? `Reset all results for ${sport?.name}? This will delete every match (both rounds) and cannot be undone.`
       : `Reset all brackets for ${sport?.name}? This will delete all matches and cannot be undone.`
     if (!window.confirm(msg)) return
     resetMutation.mutate()
@@ -1448,8 +1459,10 @@ const genMutation = useMutation({
         )}
       </CollapsibleSection>
 
-      {/* Courts — hidden for pool_swiss and heats sports (both use the venue label instead) */}
-      {!isPoolSwiss && !isHeats && (
+      {/* Courts — hidden for pool_swiss and heats sports (both use the venue label instead).
+          Executive Golf is a heats sport but DOES use a real location (the starting tee),
+          which the estimated_start ripple relies on to stagger tee times. */}
+      {!isPoolSwiss && (!isHeats || isGolf) && (
       <CollapsibleSection title="Courts">
         {/* Chip grid */}
         {sortedLocations.length === 0 ? (
@@ -1571,7 +1584,7 @@ const genMutation = useMutation({
 
       {/* Generate / Setup */}
       <CollapsibleSection
-        title={canGenerate ? (isWaterball ? 'Generate Matches' : isPool ? 'Generate Pool Play' : isHeats ? 'Generate Entries' : 'Generate Bracket') : 'Bracket Setup'}
+        title={canGenerate ? (isGolf ? 'Generate Round 1' : isWaterball ? 'Generate Matches' : isPool ? 'Generate Pool Play' : isHeats ? 'Generate Entries' : 'Generate Bracket') : 'Bracket Setup'}
         badge={canGenerate && alreadyGenerated ? (
           <span className="text-xs font-semibold text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full shrink-0">
             Generated
@@ -1584,7 +1597,12 @@ const genMutation = useMutation({
             This sport uses manual entry. Create matches directly in the schedule.
           </p>
         ) : alreadyGenerated ? (
-          isWaterball ? (
+          isGolf ? (
+            <p className="text-sm text-slate-500">
+              Round 1 has been generated. Enter hole scores and advance the top 6 to Round 2 from
+              Enter Results, or reset all matches below to regenerate.
+            </p>
+          ) : isWaterball ? (
             <p className="text-sm text-slate-500">
               Matches have been generated. Enter results from Enter Results, or reset all matches below to regenerate.
             </p>
@@ -1604,6 +1622,15 @@ const genMutation = useMutation({
               Bracket has been generated. To regenerate, reset all brackets &amp; matches below first.
             </p>
           )
+        ) : isGolf ? (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-500 italic">
+              Creates one Round 1 match per company, each with its own tee time staggered by the
+              match duration from the start time. Enter each company's hole scores from Enter
+              Results as they finish, then advance the top 6 to Round 2 there. A court/tee is
+              optional — set a venue label under Scheduling if you want it shown on the schedule.
+            </p>
+          </div>
         ) : isWaterball ? (
           <div className="space-y-3">
             <p className="text-sm text-slate-500 italic">
@@ -1900,7 +1927,7 @@ const genMutation = useMutation({
               disabled={genMutation.isPending || sportTeams.length < 2 || (splitEnabled && !splitValid) || (isPool && !poolsValid) || (isWaterball && hasUnassignedWaterballTeams)}
               className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
             >
-              {genMutation.isPending ? 'Generating…' : isWaterball ? 'Generate Matches' : isHeats ? (effectiveNumHeats > 1 ? 'Generate Preliminary Heats' : 'Generate Entries') : isPool ? 'Generate Pool Play' : splitEnabled ? 'Generate Division Brackets' : 'Generate Bracket'}
+              {genMutation.isPending ? 'Generating…' : isGolf ? 'Generate Round 1' : isWaterball ? 'Generate Matches' : isHeats ? (effectiveNumHeats > 1 ? 'Generate Preliminary Heats' : 'Generate Entries') : isPool ? 'Generate Pool Play' : splitEnabled ? 'Generate Division Brackets' : 'Generate Bracket'}
             </button>
           </>
         )}
@@ -2075,7 +2102,7 @@ const genMutation = useMutation({
           disabled={resetMutation.isPending}
           className="w-full py-2 rounded-lg border border-red-200 text-red-600 font-semibold text-sm hover:bg-red-50 disabled:opacity-50"
         >
-          {resetMutation.isPending ? 'Resetting…' : isWaterball ? 'Reset All Results' : 'Reset All Brackets & Matches'}
+          {resetMutation.isPending ? 'Resetting…' : isWaterball || isGolf ? 'Reset All Results' : 'Reset All Brackets & Matches'}
         </button>
       </CollapsibleSection>
     </div>

@@ -408,6 +408,10 @@ function HeatsScheduleView({
   }
 
   const isWaterball = sport.scoring_mode === 'water_ball_toss'
+  const isGolf = sport.scoring_mode === 'executive_golf'
+  // Water Ball Toss and Executive Golf are both single-phase (Group A/B, or
+  // Round 1/Round 2) — no Prelims/Semis/Final progression to label.
+  const skipPhaseLabel = isWaterball || isGolf
 
   return (
     <div>
@@ -418,8 +422,7 @@ function HeatsScheduleView({
 
         return (
           <div key={phase}>
-            {/* Phase header — Water Ball Toss is single-phase (just Group A/B), no Prelims/Semis/Final progression */}
-            {!isWaterball && (
+            {!skipPhaseLabel && (
               <div className="px-4 py-1.5 border-t border-gray-100 bg-white flex items-center gap-1.5">
                 <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
                   {HEATS_PHASE_LABELS[phase]}
@@ -431,50 +434,97 @@ function HeatsScheduleView({
             {phaseBrackets.map((bracket, i) => {
               const heatMatches = matchesByBracket[bracket.id] ?? []
               if (heatMatches.length === 0) return null
-              const effectiveTime = heatMatches[0].estimated_start ?? heatMatches[0].scheduled_at
+              // Executive Golf companies tee off at their own staggered times
+              // (not one shared start), so there's no single group time to show.
+              const effectiveTime = isGolf ? null : (heatMatches[0].estimated_start ?? heatMatches[0].scheduled_at)
 
+              // Water Ball Toss (groups) and Executive Golf (rounds) render as a
+              // top-level group with the same slate header band as pool sports
+              // (e.g. Soccer's "POOL A"), not as Relay-style sub-heats. WBT's
+              // whole group tosses at one shared time (shown once in the header);
+              // Golf staggers per company (time on each row).
+              const isGroupBand = isWaterball || isGolf
               return (
-                <div key={bracket.id} className="border-t border-gray-100">
-                  {/* Heat header row */}
-                  <div className="flex items-center justify-between px-4 py-1.5">
-                    <span className="text-xs font-semibold text-slate-600">
-                      {isWaterball ? bracket.name : `Heat ${i + 1}`}
-                    </span>
-                    {effectiveTime && (
-                      <span className="text-xs font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
-                        {formatTime(effectiveTime)}
+                <div key={bracket.id} className={isGroupBand ? '' : 'border-t border-gray-100'}>
+                  {/* Group / heat header */}
+                  {isGroupBand ? (
+                    <div className="px-4 py-2 border-t-2 border-slate-200 bg-slate-100 flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                        {bracket.name}
                       </span>
-                    )}
-                  </div>
+                      {isWaterball && effectiveTime && (
+                        <span className="text-xs font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+                          {formatTime(effectiveTime)}
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between px-4 py-1.5">
+                      <span className="text-xs font-semibold text-slate-600">{`Heat ${i + 1}`}</span>
+                      {effectiveTime && (
+                        <span className="text-xs font-medium text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+                          {formatTime(effectiveTime)}
+                        </span>
+                      )}
+                    </div>
+                  )}
 
                   {isWaterball ? (
-                    // Nested by company, e.g. Apex > Apex-A, Apex-B
-                    groupMatchesByCompany(heatMatches, teamMap, companyMap).map(({ company, rows }) => (
-                      <div key={company.id}>
-                        <div className="px-6 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                          {company.name}
+                    // Teams listed under their company. The group's shared start
+                    // time is in the header above, so rows show only status —
+                    // no time repeated on every row.
+                    groupMatchesByCompany(heatMatches, teamMap, companyMap).map(({ company, rows }) => {
+                      const count = rows.length
+                      const anyLive = rows.some(({ match: m }) => m.status === 'in_progress')
+                      const allDone = rows.every(({ match: m }) => isResolved(m))
+                      return (
+                        <div key={company.id} className="grid items-center gap-x-2 px-4 py-2 border-t border-gray-50" style={{ gridTemplateColumns: '4rem 1fr auto' }}>
+                          <span />
+                          <span className="text-sm font-medium text-slate-700 truncate text-center">
+                            {company.short_id ?? company.name}
+                          </span>
+                          <div className="flex items-center gap-2 justify-end">
+                            <span className="text-xs text-gray-400 whitespace-nowrap">{count} team{count === 1 ? '' : 's'}</span>
+                            {anyLive ? (
+                              <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Live</span>
+                            ) : allDone ? (
+                              <span className="text-xs text-gray-400">Done</span>
+                            ) : null}
+                          </div>
                         </div>
-                        {rows.map(({ match: m, team }, ti) => {
-                          const resolved = isResolved(m)
-                          const live = m.status === 'in_progress'
-                          return (
-                            <div key={m.id} className="flex items-center gap-2 pl-8 pr-4 py-1">
-                              <span className="flex-1 text-sm font-medium text-slate-700 truncate">
-                                {team.name ?? `Team ${ti + 1}`}
-                              </span>
-                              {live && (
-                                <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Live</span>
-                              )}
-                              {resolved && !live && (
-                                <span className="text-xs text-gray-400">Done</span>
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    ))
+                      )
+                    })
+                  ) : isGolf ? (
+                    // Each company tees off at its own staggered time, so the time
+                    // belongs on each row (with the shared StatusBadge).
+                    [...heatMatches]
+                      .sort((a, b) => {
+                        const ta = a.estimated_start ?? a.scheduled_at ?? ''
+                        const tb = b.estimated_start ?? b.scheduled_at ?? ''
+                        if (ta !== tb) return ta.localeCompare(tb)
+                        const la = compactLabel(a.home_team_id ?? null, teamMap, companyMap, undefined, multiTeamKeys)
+                        const lb = compactLabel(b.home_team_id ?? null, teamMap, companyMap, undefined, multiTeamKeys)
+                        return la.localeCompare(lb)
+                      })
+                      .map(m => {
+                        const label = compactLabel(m.home_team_id ?? null, teamMap, companyMap, undefined, multiTeamKeys)
+                        const teeTime = m.estimated_start ?? m.scheduled_at
+                        return (
+                          <div
+                            key={m.id}
+                            className="grid items-center gap-x-2 px-4 py-2 hover:bg-gray-50 text-sm border-t border-gray-100"
+                            style={{ gridTemplateColumns: '4rem 1fr 5.5rem' }}
+                          >
+                            <span className="text-xs text-gray-400 tabular-nums">
+                              {teeTime ? formatTime(teeTime) : ''}
+                            </span>
+                            <span className="font-medium text-slate-700 truncate text-center">{label}</span>
+                            <div className="flex justify-end"><StatusBadge match={m} /></div>
+                          </div>
+                        )
+                      })
                   ) : (
-                    /* Team rows */
+                    /* Relay heats — team rows */
                     heatMatches.map(m => {
                       const label = compactLabel(m.home_team_id ?? null, teamMap, companyMap, undefined, multiTeamKeys)
                       const resolved = isResolved(m)

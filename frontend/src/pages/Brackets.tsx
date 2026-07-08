@@ -20,6 +20,7 @@ import { getEventPoints } from '../api/event_points'
 import type { Match, Team, Company, Sport, Bracket, DonationCount, EventPoints } from '../types'
 import { toLibraryMatch, stableSortMatches, lightTheme, bracketOptions, BracketSvgWrapper, compactLabel, buildMultiTeamKeys, compareBracketNames } from '../lib/bracketHelpers'
 import { waterballMatchPoints, groupMatchesByCompany } from '../lib/waterball'
+import { HOLES, ROUND_1_NAME, ROUND_2_NAME, golfTotal, golfHoleScores } from '../lib/golf'
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [item[key], item]))
@@ -209,6 +210,172 @@ function WaterBallResultsView({
           teamMap={teamMap}
           companyMap={companyMap}
         />
+      )}
+
+      {standings.length > 0 && (
+        <div className="rounded-xl border border-gray-200 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="text-left px-3 py-2 font-semibold text-gray-500 w-12">#</th>
+                <th className="text-left px-3 py-2 font-semibold text-gray-500">Company</th>
+                <th className="text-right px-3 py-2 font-semibold text-gray-500">Points</th>
+              </tr>
+            </thead>
+            <tbody>
+              {standings.map((ep, i) => (
+                <tr key={ep.company_id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                  <td className="px-3 py-2 font-bold text-gray-400 tabular-nums">{ep.placement}</td>
+                  <td className="px-3 py-2 text-slate-800">{companyMap[ep.company_id]?.name ?? '—'}</td>
+                  <td className="px-3 py-2 text-right tabular-nums font-bold text-blue-600">{ep.points}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---- Executive Golf results ------------------------------------------------
+// Real matches (one per company) in "Round 1"/"Round 2" brackets. Each row is a
+// company's total strokes for that round; the standings table uses the
+// backend's event_points (ranking/points computed server-side, not re-derived).
+
+function GolfRoundTable({
+  matches,
+  teamMap,
+  companyMap,
+}: {
+  matches: Match[]
+  teamMap: Record<string, Team>
+  companyMap: Record<string, Company>
+}) {
+  const rows = useMemo(() => {
+    return matches
+      .map(m => {
+        const team = m.home_team_id ? teamMap[m.home_team_id] : undefined
+        const company = team ? companyMap[team.company_id] : undefined
+        return { match: m, company, total: golfTotal(m), holes: golfHoleScores(m) }
+      })
+      .filter((r): r is { match: Match; company: Company; total: number | null; holes: number[] | null } => !!r.company)
+      .sort((a, b) => {
+        if (a.total != null && b.total != null) return a.total - b.total
+        if (a.total != null) return -1
+        if (b.total != null) return 1
+        return a.company.name.localeCompare(b.company.name)
+      })
+  }, [matches, teamMap, companyMap])
+
+  if (rows.length === 0) return <p className="text-sm text-gray-400 italic py-2">No entries.</p>
+
+  const holeCols = Array.from({ length: HOLES }, () => '4.5rem').join(' ')
+
+  return (
+    <div className="rounded-xl border border-gray-200 overflow-hidden">
+      <div
+        className="grid items-center px-4 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider gap-3"
+        style={{ gridTemplateColumns: `1fr ${holeCols} 3.5rem` }}
+      >
+        <span>Company</span>
+        {Array.from({ length: HOLES }, (_, i) => (
+          <span key={i} className="text-right">Hole {i + 1}</span>
+        ))}
+        <span className="text-right">Total</span>
+      </div>
+      <div className="divide-y divide-gray-100">
+        {rows.map(({ match, company, total, holes }) => {
+          const forfeit = match.status === 'forfeit' || match.status === 'double_forfeit'
+          return (
+            <div
+              key={match.id}
+              className="grid items-center px-4 py-2.5 gap-3"
+              style={{ gridTemplateColumns: `1fr ${holeCols} 3.5rem` }}
+            >
+              <span className="text-sm font-medium text-slate-700 truncate pl-1">{company.name}</span>
+              {Array.from({ length: HOLES }, (_, i) => (
+                <span key={i} className="font-mono text-sm text-slate-500 text-right">
+                  {holes?.[i] ?? (forfeit ? '—' : '')}
+                </span>
+              ))}
+              {total != null ? (
+                <span className="font-mono text-sm font-bold text-slate-800 text-right">{total}</span>
+              ) : forfeit ? (
+                <span className="text-xs text-gray-400 text-right">Forfeit</span>
+              ) : (
+                <span className="text-xs text-blue-400 text-right">TBD</span>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function GolfResultsView({
+  sportId,
+  matches,
+  brackets,
+  teamMap,
+  companyMap,
+}: {
+  sportId: string
+  matches: Match[]
+  brackets: Bracket[]
+  teamMap: Record<string, Team>
+  companyMap: Record<string, Company>
+}) {
+  const { data: eventPoints = [] } = useQuery<EventPoints[]>({
+    queryKey: ['event-points', sportId],
+    queryFn: () => getEventPoints({ sport_id: sportId }),
+  })
+  const standings = useMemo(() => [...eventPoints].sort((a, b) => a.placement - b.placement), [eventPoints])
+
+  const matchesByBracket = useMemo(() => {
+    const map: Record<string, Match[]> = {}
+    for (const m of matches) {
+      if (!m.bracket_id) continue
+      ;(map[m.bracket_id] ??= []).push(m)
+    }
+    return map
+  }, [matches])
+
+  const round1Bracket = brackets.find(b => b.name === ROUND_1_NAME)
+  const round2Bracket = brackets.find(b => b.name === ROUND_2_NAME)
+  const rounds = [ROUND_1_NAME, ROUND_2_NAME] as const
+  const [activeRound, setActiveRound] = useState<string>(ROUND_1_NAME)
+  const activeBracket = activeRound === ROUND_1_NAME ? round1Bracket : round2Bracket
+
+  if (!round1Bracket) {
+    return <p className="text-center text-gray-500 py-12">Round 1 hasn't been generated yet.</p>
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex rounded-lg bg-gray-100 p-1">
+        {rounds.map(name => (
+          <button
+            key={name}
+            onClick={() => setActiveRound(name)}
+            className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              activeRound === name ? 'bg-white shadow-sm text-slate-800' : 'text-gray-500'
+            }`}
+          >
+            {name}
+          </button>
+        ))}
+      </div>
+
+      {activeBracket ? (
+        <GolfRoundTable
+          matches={matchesByBracket[activeBracket.id] ?? []}
+          teamMap={teamMap}
+          companyMap={companyMap}
+        />
+      ) : (
+        <p className="text-center text-gray-400 py-12">Not generated yet.</p>
       )}
 
       {standings.length > 0 && (
@@ -914,6 +1081,17 @@ export default function BracketView() {
     if (activeSport?.scoring_mode === 'water_ball_toss') {
       return (
         <WaterBallResultsView
+          sportId={activeSportId!}
+          matches={sportMatches}
+          brackets={bracketsQuery.data ?? []}
+          teamMap={teamMap}
+          companyMap={companyMap}
+        />
+      )
+    }
+    if (activeSport?.scoring_mode === 'executive_golf') {
+      return (
+        <GolfResultsView
           sportId={activeSportId!}
           matches={sportMatches}
           brackets={bracketsQuery.data ?? []}

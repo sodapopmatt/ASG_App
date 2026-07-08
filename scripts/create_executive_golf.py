@@ -34,7 +34,8 @@ def main():
         "scoring_direction": "low_wins",
         "multi_team_rule": "best_placement",
         "points_scale": {"1": 20, "2": 15, "3": 10, "default": 5},
-        "scoring_mode": "placement",
+        "scoring_mode": "executive_golf",
+        "match_duration_minutes": 3,
     }
     sport_resp = sb.table("sports").insert(sport_payload).execute()
     sport_id = sport_resp.data[0]["id"]

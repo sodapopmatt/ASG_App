@@ -14,6 +14,7 @@ from app.routers import (
     alerts,
     donation_counts,
     waterball_results,
+    golf_results,
 )
 from app.auth import get_current_profile, UserProfile
 
@@ -110,6 +111,7 @@ app.include_router(locations.router,      prefix="/locations",      tags=["locat
 app.include_router(alerts.router,         prefix="/alerts",         tags=["alerts"])
 app.include_router(donation_counts.router, prefix="/donation-counts", tags=["donation-counts"])
 app.include_router(waterball_results.router, prefix="/waterball-results", tags=["waterball-results"])
+app.include_router(golf_results.router,     prefix="/golf-results",     tags=["golf-results"])
 
 
 @app.get("/me")

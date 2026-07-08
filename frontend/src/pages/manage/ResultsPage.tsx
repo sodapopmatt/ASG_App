@@ -60,11 +60,12 @@ function SportRow({
   const isPool = POOL_TYPES.has(sport.bracket_type)
   const isDonation = sport.scoring_mode === 'donation_count'
   const isWaterball = sport.scoring_mode === 'water_ball_toss'
+  const isGolf = sport.scoring_mode === 'executive_golf'
   const pendingMatches = matches.filter(m => m.status === 'scheduled' || m.status === 'in_progress')
-  // Water Ball Toss matches are one-per-team (not head-to-head) — the
-  // meaningful pending count for admins is groups still in progress, not
-  // raw team rows.
-  const pendingCount = isWaterball
+  // Water Ball Toss / Executive Golf matches are one-per-team (not head-to-head)
+  // — the meaningful pending count for admins is rounds/groups still in
+  // progress, not raw team rows.
+  const pendingCount = isWaterball || isGolf
     ? new Set(pendingMatches.map(m => m.bracket_id).filter(Boolean)).size
     : pendingMatches.length
 
@@ -72,6 +73,8 @@ function SportRow({
     ? `/manage/results/donations/${sport.id}`
     : isWaterball
     ? `/manage/results/waterball/${sport.id}`
+    : isGolf
+    ? `/manage/results/golf/${sport.id}`
     : isBracket
     ? `/manage/results/brackets/${sport.id}`
     : isHeats
@@ -209,7 +212,7 @@ export default function ResultsPage() {
   const sportsWithMatches = useMemo(
     () =>
       sports
-        .filter(s => matchesBySport.has(s.id) || s.scoring_mode === 'donation_count' || s.scoring_mode === 'water_ball_toss')
+        .filter(s => matchesBySport.has(s.id) || s.scoring_mode === 'donation_count' || s.scoring_mode === 'water_ball_toss' || s.scoring_mode === 'executive_golf')
         .sort((a, b) => a.name.localeCompare(b.name)),
     [sports, matchesBySport],
   )
