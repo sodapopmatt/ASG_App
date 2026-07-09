@@ -2,7 +2,8 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import BackLink from '../../components/BackLink'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getSports } from '../../api/sports'
+import { getSports, getStandings, getChampionshipStandings } from '../../api/sports'
+import type { PoolStandings, ChampionshipStandings } from '../../api/sports'
 import { getTeams } from '../../api/teams'
 import { getCompanies } from '../../api/companies'
 import { getMatches } from '../../api/matches'
@@ -12,9 +13,20 @@ import { getDonationCounts } from '../../api/donation_counts'
 import { recomputeWaterballPoints } from '../../api/waterball_results'
 import { getSportIcon } from '../../lib/sportIcons'
 import type { Sport, Company, EventPoints, Match, Bracket, Team, DonationCount } from '../../types'
-import { compareBracketNames } from '../../lib/bracketHelpers'
 import { waterballMatchPoints } from '../../lib/waterball'
 import { ROUND_2_NAME, golfTotal, golfPlayed } from '../../lib/golf'
+import {
+  scalePoints,
+  defaultPoints,
+  collapseToCompanies,
+  rankSingleElim,
+  rankDoubleElim,
+  rankPoolBracket,
+  rankPoolSwiss,
+  rankFlatHeats,
+  rankRelayHeats,
+} from '../../lib/ranking'
+import type { CompanyRow, TieGroup } from '../../lib/ranking'
 
 // Runs `fn` over `items` with at most `limit` requests in flight at once —
 // firing dozens of writes fully in parallel can overwhelm the connection
@@ -59,204 +71,91 @@ async function withRetries<T>(fn: () => Promise<T>, retries = 2, delayMs = 500):
   throw lastError
 }
 
-// ── Relay Race scoring ────────────────────────────────────────────────────────
+// ── Auto-ranked scoring (all match-based sports) ──────────────────────────────
 
-const RELAY_SCALE: Record<string, number> = {
-  '1': 40, '2': 38, '3': 36, '4': 34, '5': 32, '6': 30,
-  '7': 22, '8': 22, '9': 22, '10': 22, '11': 22, '12': 22,
-  '13': 12, '14': 12, '15': 12, '16': 12, '17': 12, '18': 12,
-}
-
-function relayPoints(placement: number | null): number {
-  if (placement === null) return 0
-  return RELAY_SCALE[String(placement)] ?? 4
-}
-
-function rankMatches(matches: Match[]): Record<string, number> {
-  const completed = matches
-    .filter(m => m.status === 'completed' && m.notes)
-    .map(m => ({ teamId: m.home_team_id!, ms: parseInt(m.notes!, 10) }))
-    .filter(r => !isNaN(r.ms))
-    .sort((a, b) => a.ms - b.ms)
-  const map: Record<string, number> = {}
-  completed.forEach((r, i) => { map[r.teamId] = i + 1 })
-  return map
-}
-
-interface RelayRow {
-  companyId: string
-  companyName: string
-  teamId: string
-  phase: string        // label for display
-  heatRank: number | null
-  placement: number | null  // null = forfeit/no result
-  points: number
-}
-
-function computeRelayPlacements(
-  brackets: Bracket[],
-  matches: Match[],
-  teams: Team[],
-  companies: Company[],
-): RelayRow[] {
-  const companyMap = Object.fromEntries(companies.map(c => [c.id, c]))
-  const teamMap = Object.fromEntries(teams.map(t => [t.id, t]))
-
-  const matchesByBracket: Record<string, Match[]> = {}
-  for (const m of matches) {
-    if (m.bracket_id) (matchesByBracket[m.bracket_id] ??= []).push(m)
-  }
-
-  const phaseOrder: Record<string, number> = { heats: 1, bracket: 2, finals: 3 }
-  const sortedBrackets = [...brackets].sort((a, b) => {
-    const ao = phaseOrder[a.phase ?? ''] ?? 99
-    const bo = phaseOrder[b.phase ?? ''] ?? 99
-    return ao !== bo ? ao - bo : compareBracketNames(a.name, b.name)
-  })
-
-  const tiers: { teamId: string; tier: number; heatRank: number | null; phase: string; forfeited: boolean }[] = []
-
-  for (const bracket of sortedBrackets) {
-    const heatMatches = matchesByBracket[bracket.id] ?? []
-    const rankMap = rankMatches(heatMatches)
-
-    for (const m of heatMatches) {
-      if (!m.home_team_id) continue
-      const rank = rankMap[m.home_team_id] ?? null
-      const forfeited = m.status === 'forfeit'
-
-      let tier: number
-      let phase: string
-
-      if (bracket.phase === 'finals') {
-        tier = 1
-        phase = 'Final'
-      } else if (bracket.phase === 'bracket') {
-        // top 3 advance (already in finals bracket), positions 4+ get tier 2
-        tier = 2
-        phase = bracket.name
-      } else {
-        // prelim: rank 3 = tier 3, rank 4+ = tier 4
-        tier = rank !== null && rank <= 2 ? 0 : rank === 3 ? 3 : 4  // 0 = advanced, won't appear here
-        phase = bracket.name
-      }
-
-      if (!forfeited) {
-        if (tier === 0) continue  // advanced to semis/finals; will appear in later bracket
-        tiers.push({ teamId: m.home_team_id, tier, heatRank: rank, phase, forfeited: false })
-      } else {
-        tiers.push({ teamId: m.home_team_id, tier: 99, heatRank: null, phase, forfeited: true })
-      }
-    }
-  }
-
-  // Remove teams that appear in multiple phases — keep the most advanced phase
-  const bestByTeam: Record<string, typeof tiers[0]> = {}
-  for (const t of tiers) {
-    const existing = bestByTeam[t.teamId]
-    if (!existing || t.tier < existing.tier) bestByTeam[t.teamId] = t
-  }
-
-  // Assign placement numbers within each tier, ordered by heatRank then teamId
-  const tierGroups: Record<number, typeof tiers> = {}
-  for (const t of Object.values(bestByTeam)) {
-    ;(tierGroups[t.tier] ??= []).push(t)
-  }
-
-  const rows: RelayRow[] = []
-  let nextPlacement = 1
-
-  for (const tier of [1, 2, 3, 4]) {
-    const group = (tierGroups[tier] ?? []).sort((a, b) => (a.heatRank ?? 999) - (b.heatRank ?? 999))
-    for (const t of group) {
-      const team = teamMap[t.teamId]
-      if (!team) continue
-      const company = companyMap[team.company_id]
-      rows.push({
-        companyId: team.company_id,
-        companyName: company?.name ?? '?',
-        teamId: t.teamId,
-        phase: t.phase,
-        heatRank: t.heatRank,
-        placement: nextPlacement,
-        points: relayPoints(nextPlacement),
-      })
-      nextPlacement++
-    }
-  }
-
-  // Forfeited teams at the end
-  for (const t of (tierGroups[99] ?? [])) {
-    const team = teamMap[t.teamId]
-    if (!team) continue
-    const company = companyMap[team.company_id]
-    rows.push({
-      companyId: team.company_id,
-      companyName: company?.name ?? '?',
-      teamId: t.teamId,
-      phase: t.phase,
-      heatRank: null,
-      placement: null,
-      points: 0,
-    })
-  }
-
-  return rows
-}
-
-function RelayRaceScoringSection({
+// The Executive Golf UX generalized: rows default to an auto-computed ranking,
+// each row unlocks for a placement or points override, and Publish writes
+// every row via award-placement with its exact points.
+function AutoRankedScoringSection({
   sport,
-  companies,
-  teams,
+  rows,
+  eventPoints,
+  footnote,
 }: {
   sport: Sport
-  companies: Company[]
-  teams: Team[]
+  rows: CompanyRow[]
+  eventPoints: EventPoints[]
+  footnote: string
 }) {
   const qc = useQueryClient()
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [resetting, setResetting] = useState(false)
+  // Overrides: companyId → placement (defaults to the auto-computed rank)
+  const [overrides, setOverrides] = useState<Record<string, number | null>>({})
+  // Points overrides: companyId → explicit points, bypassing the scale for
+  // that one company. null/absent = derive from placement (the default).
+  const [pointsOverrides, setPointsOverrides] = useState<Record<string, number | null>>({})
+  // Rows start locked (greyed, non-interactive) showing the auto-computed
+  // default; "Edit" unlocks both fields for a manual override.
+  const [editingRows, setEditingRows] = useState<Set<string>>(new Set())
+  // Per-team breakdown for multi-team companies — collapsed by default.
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
 
-  const { data: matches = [] } = useQuery({
-    queryKey: ['matches', { sport_id: sport.id }],
-    queryFn: () => getMatches({ sport_id: sport.id }),
-  })
-  const { data: brackets = [] } = useQuery({
-    queryKey: ['brackets', sport.id],
-    queryFn: () => getBrackets(sport.id),
-  })
-
-  const computed = useMemo(
-    () => computeRelayPlacements(brackets, matches, teams, companies),
-    [brackets, matches, teams, companies],
+  // What actually got saved last time — the baseline default, so a save
+  // survives navigating away and back rather than resetting to a fresh
+  // auto-computed guess every time this section remounts.
+  const savedByCompany = useMemo(
+    () => Object.fromEntries(
+      eventPoints.filter(ep => ep.sport_id === sport.id).map(ep => [ep.company_id, ep])
+    ),
+    [eventPoints, sport.id],
   )
 
-  // Overrides: companyId → placement (null = forfeit)
-  const [overrides, setOverrides] = useState<Record<string, number | null>>({})
-  const [saving, setSaving] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
-  const [saved, setSaved] = useState(false)
-
-  function getPlacement(row: RelayRow): number | null {
-    return overrides[row.companyId] !== undefined ? overrides[row.companyId] : row.placement
+  function getPlacement(row: CompanyRow): number | null {
+    if (overrides[row.companyId] !== undefined) return overrides[row.companyId]
+    return savedByCompany[row.companyId]?.placement ?? row.placement
   }
 
-  function getPoints(row: RelayRow): number {
+  function getPoints(row: CompanyRow): number {
+    if (pointsOverrides[row.companyId] != null) return pointsOverrides[row.companyId]!
+    if (savedByCompany[row.companyId]) return savedByCompany[row.companyId].points
     const p = getPlacement(row)
-    return relayPoints(p)
+    if (p === null) return 0
+    // An untouched placement keeps its tie-aware default (tied places share
+    // averaged points); a manually overridden one derives straight from the
+    // scale for that place.
+    if (p === row.placement) return defaultPoints(row, sport.points_scale)
+    return scalePoints(p, sport.points_scale)
   }
 
-  async function handleSaveAll() {
+  async function handleSave() {
     setSaving(true)
     setSaveError(null)
     try {
-      for (const row of computed) {
+      const results = await mapWithConcurrency(rows, 3, row => {
         const p = getPlacement(row)
-        if (p === null) continue  // forfeits get no event_points record
-        await awardPlacement(row.companyId, sport.id, p)
-      }
+        if (p === null) return Promise.resolve(null)
+        // Always send the exact points currently shown (whether that's a
+        // fresh auto default, a prior save, or a new override) — otherwise
+        // re-saving a row nobody touched this session could silently revert
+        // a previously-saved custom points value back to the scale default.
+        return withRetries(() => awardPlacement(row.companyId, sport.id, p, undefined, getPoints(row)))
+      })
       qc.invalidateQueries({ queryKey: ['event-points'] })
       qc.invalidateQueries({ queryKey: ['leaderboard'] })
-      setSaved(true)
-      setTimeout(() => setSaved(false), 3000)
+      const failedNames = results
+        .map((r, i) => (r.status === 'rejected' ? rows[i].companyName : null))
+        .filter((n): n is string => n !== null)
+      if (failedNames.length > 0) {
+        const shown = failedNames.slice(0, 5).join(', ')
+        const more = failedNames.length > 5 ? ` and ${failedNames.length - 5} more` : ''
+        setSaveError(`Failed to publish ${failedNames.length} of ${rows.length}: ${shown}${more}. It's safe to click Publish Standings again.`)
+      } else {
+        setSaved(true)
+        setTimeout(() => setSaved(false), 3000)
+      }
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : 'Failed to save placements')
     } finally {
@@ -264,12 +163,26 @@ function RelayRaceScoringSection({
     }
   }
 
-  if (computed.length === 0) {
-    return (
-      <p className="text-sm text-gray-400 text-center py-6">
-        No heat results yet. Enter results from the Heats Results page first.
-      </p>
-    )
+  async function handleResetToDefaults() {
+    if (!window.confirm(
+      'Clear all saved points for this sport? This zeroes out its contribution to the leaderboard/Standings ' +
+      'page entirely — every company shows no points until you save placements again.'
+    )) return
+    setOverrides({})
+    setPointsOverrides({})
+    setEditingRows(new Set())
+    setSaveError(null)
+
+    setResetting(true)
+    try {
+      await withRetries(() => clearEventPoints(sport.id))
+      await qc.invalidateQueries({ queryKey: ['event-points'] })
+      await qc.invalidateQueries({ queryKey: ['leaderboard'] })
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Failed to reset placements')
+    } finally {
+      setResetting(false)
+    }
   }
 
   return (
@@ -278,56 +191,224 @@ function RelayRaceScoringSection({
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
           Auto-computed placements
         </p>
-        <p className="text-xs text-gray-400">Edit placements to override</p>
+        <p className="text-xs text-gray-400">Edit placement or points to override</p>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="grid gap-2 px-4 py-2 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-400 uppercase tracking-wider"
-          style={{ gridTemplateColumns: '2rem 1fr auto auto' }}>
-          <span>#</span><span>Company</span><span className="text-right">Pts</span><span className="text-right">Place</span>
+        <div
+          className="grid gap-2 px-4 py-2 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-400 uppercase tracking-wider"
+          style={{ gridTemplateColumns: '2rem 1fr 3rem 3.5rem 3.5rem' }}
+        >
+          <span>#</span><span>Company</span><span></span><span className="text-right">Place</span><span className="text-right">Pts</span>
         </div>
         <div className="divide-y divide-gray-50">
-          {computed.map(row => {
+          {rows.map(row => {
             const p = getPlacement(row)
             const pts = getPoints(row)
+            const editing = editingRows.has(row.companyId)
+            const hasOtherTeams = row.otherTeams.length > 0
+            const expanded = expandedRows.has(row.companyId)
             return (
-              <div key={row.companyId} className="grid items-center px-4 py-2.5 gap-2"
-                style={{ gridTemplateColumns: '2rem 1fr auto auto' }}>
-                <span className="text-xs font-bold text-gray-400 tabular-nums">{p ?? '—'}</span>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-slate-800 truncate">{row.companyName}</p>
-                  <p className="text-xs text-gray-400 truncate">{row.phase}</p>
+              <div key={row.companyId}>
+                <div
+                  className="grid items-center px-4 py-2.5 gap-2"
+                  style={{ gridTemplateColumns: '2rem 1fr 3rem 3.5rem 3.5rem' }}
+                >
+                  <span className="text-xs font-bold text-gray-400 tabular-nums">{p ?? '—'}</span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-800 truncate">
+                      {row.companyName}
+                      {row.forfeited && (
+                        <span className="ml-1.5 align-middle text-[10px] font-bold text-amber-700 bg-amber-100 rounded px-1.5 py-0.5">
+                          Forfeit
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-xs text-gray-400 truncate">{row.detail}</p>
+                    {hasOtherTeams && (
+                      <button
+                        type="button"
+                        onClick={() => setExpandedRows(prev => {
+                          const next = new Set(prev)
+                          if (expanded) next.delete(row.companyId)
+                          else next.add(row.companyId)
+                          return next
+                        })}
+                        className="text-xs text-blue-600 font-medium mt-0.5"
+                      >
+                        {expanded ? '▾ Hide teams' : `▸ ${row.otherTeams.length} other team${row.otherTeams.length > 1 ? 's' : ''}`}
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setEditingRows(prev => {
+                      const next = new Set(prev)
+                      if (editing) next.delete(row.companyId)
+                      else next.add(row.companyId)
+                      return next
+                    })}
+                    className="text-xs font-semibold text-blue-600 justify-self-end"
+                  >
+                    {editing ? 'Done' : 'Edit'}
+                  </button>
+                  <input
+                    type="number"
+                    min={1}
+                    disabled={!editing}
+                    value={p ?? ''}
+                    onChange={e => {
+                      const val = e.target.value === '' ? null : Number(e.target.value)
+                      setOverrides(prev => ({ ...prev, [row.companyId]: val }))
+                    }}
+                    placeholder="—"
+                    className="w-14 text-center text-sm rounded-lg border border-gray-200 px-2 py-1 text-slate-700 tabular-nums justify-self-end disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-100"
+                  />
+                  <input
+                    type="number"
+                    disabled={!editing}
+                    value={pts}
+                    onChange={e => {
+                      const val = e.target.value === '' ? null : Number(e.target.value)
+                      setPointsOverrides(prev => ({ ...prev, [row.companyId]: val }))
+                    }}
+                    className={`w-14 text-center text-sm rounded-lg border border-gray-200 px-2 py-1 tabular-nums font-bold justify-self-end disabled:bg-gray-100 disabled:border-gray-100 ${pts > 0 ? 'text-blue-600' : 'text-gray-400'} disabled:text-gray-400`}
+                  />
                 </div>
-                <span className={`text-sm font-bold tabular-nums ${pts > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
-                  {pts}
-                </span>
-                <input
-                  type="number"
-                  min={1}
-                  value={overrides[row.companyId] !== undefined
-                    ? (overrides[row.companyId] ?? '')
-                    : (row.placement ?? '')}
-                  onChange={e => {
-                    const val = e.target.value === '' ? null : Number(e.target.value)
-                    setOverrides(prev => ({ ...prev, [row.companyId]: val }))
-                  }}
-                  placeholder="—"
-                  className="w-14 text-center text-sm rounded-lg border border-gray-200 px-2 py-1 text-slate-700 tabular-nums"
-                />
+                {expanded && hasOtherTeams && (
+                  <div className="px-4 pb-2 -mt-1 pl-[2rem] space-y-0.5">
+                    {row.otherTeams.map((t, i) => (
+                      <p key={i} className="text-xs text-gray-400">
+                        <span className="font-medium text-gray-500">{t.teamName}</span> — {t.detail}
+                      </p>
+                    ))}
+                  </div>
+                )}
               </div>
             )
           })}
         </div>
       </div>
-
       {saveError && <p className="text-sm text-red-600">{saveError}</p>}
-      <button
-        onClick={handleSaveAll}
-        disabled={saving}
-        className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50">
-        {saving ? 'Saving…' : saved ? 'Saved!' : 'Save All Placements'}
-      </button>
+      <p className="text-xs text-gray-400 text-center">{footnote}</p>
+      <div className="flex gap-2">
+        <button
+          onClick={handleResetToDefaults}
+          disabled={saving || resetting}
+          className="py-2 px-4 rounded-lg border border-red-200 text-red-600 font-semibold text-sm hover:bg-red-50 disabled:opacity-50"
+        >
+          {resetting ? 'Clearing…' : 'Clear Points'}
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={saving || resetting}
+          className="flex-1 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
+        >
+          {saving ? 'Publishing…' : saved ? 'Published ✓' : 'Publish Standings'}
+        </button>
+      </div>
     </div>
+  )
+}
+
+const RANKING_FOOTNOTES: Record<string, string> = {
+  single_elimination:
+    'Ranking comes from the bracket: champion first, then teams by the round they went out in — same-round exits are tied and share averaged points. Only a company\'s best team scores. Apply the −10 no-show deduction to a flagged forfeit by editing its points. The leaderboard only updates once you publish.',
+  double_elimination:
+    'Ranking comes from the bracket: grand final first, then teams by the losers-bracket round they went out in — same-round exits are tied and share averaged points. Only a company\'s best team scores. Apply the −10 no-show deduction to a flagged forfeit by editing its points. The leaderboard only updates once you publish.',
+  pool_bracket:
+    'Bracket finishers rank first, then pool-stage teams by W–L record — identical records are tied and share averaged points. Only a company\'s best team scores. The leaderboard only updates once you publish.',
+  pool_swiss:
+    'Championship finishers rank first, then pool-stage teams by tournament points — identical records are tied and share averaged points. Only a company\'s best team scores. The leaderboard only updates once you publish.',
+  heats:
+    'Ranking is by how far each team advanced and its recorded times; forfeits default to 0 points. The leaderboard only updates once you publish.',
+}
+
+// Fetches whatever the sport's bracket type needs (matches, brackets, pool or
+// championship standings), computes the suggested final ranking client-side,
+// and hands it to the editable table above. Falls back to the manual entry
+// form until the sport has anything to rank.
+function ComputedScoringSection({
+  sport,
+  companies,
+  teams,
+  eventPoints,
+}: {
+  sport: Sport
+  companies: Company[]
+  teams: Team[]
+  eventPoints: EventPoints[]
+}) {
+  const isPoolType = sport.bracket_type === 'pool_bracket' || sport.bracket_type === 'pool_swiss'
+
+  const { data: matches = [], isLoading: matchesLoading } = useQuery<Match[]>({
+    queryKey: ['matches', { sport_id: sport.id }],
+    queryFn: () => getMatches({ sport_id: sport.id }),
+  })
+  const { data: brackets = [] } = useQuery<Bracket[]>({
+    queryKey: ['brackets', sport.id],
+    queryFn: () => getBrackets(sport.id),
+  })
+  const { data: standings = [] } = useQuery<PoolStandings[]>({
+    queryKey: ['standings', sport.id],
+    queryFn: () => getStandings(sport.id),
+    enabled: isPoolType,
+  })
+  const { data: championship } = useQuery<ChampionshipStandings>({
+    queryKey: ['championship-standings', sport.id],
+    queryFn: () => getChampionshipStandings(sport.id),
+    enabled: sport.bracket_type === 'pool_swiss',
+  })
+
+  const rows = useMemo(() => {
+    const phaseByBracket: Record<string, string | null> = Object.fromEntries(brackets.map(b => [b.id, b.phase]))
+    let groups: TieGroup[]
+    switch (sport.bracket_type) {
+      case 'single_elimination':
+        groups = rankSingleElim(matches, phaseByBracket)
+        break
+      case 'double_elimination':
+        groups = rankDoubleElim(matches, phaseByBracket)
+        break
+      case 'pool_bracket':
+        groups = rankPoolBracket(matches, brackets, standings)
+        break
+      case 'pool_swiss':
+        groups = rankPoolSwiss(standings, championship ?? null)
+        break
+      case 'heats':
+        groups = brackets.length > 0
+          ? rankRelayHeats(brackets, matches)
+          : rankFlatHeats(matches, sport.scoring_direction)
+        break
+      default:
+        groups = []
+    }
+    return collapseToCompanies(groups, teams, companies)
+  }, [sport.bracket_type, sport.scoring_direction, matches, brackets, standings, championship, teams, companies])
+
+  if (matchesLoading) {
+    return <p className="text-sm text-gray-400 text-center py-6">Loading…</p>
+  }
+
+  if (rows.length === 0) {
+    return (
+      <div className="space-y-3">
+        <p className="text-xs text-gray-400 text-center">
+          Nothing to auto-rank yet — placements are computed once results come in, or can be entered manually below.
+        </p>
+        <StandardScoringSection sport={sport} companies={companies} eventPoints={eventPoints} />
+      </div>
+    )
+  }
+
+  return (
+    <AutoRankedScoringSection
+      sport={sport}
+      rows={rows}
+      eventPoints={eventPoints}
+      footnote={RANKING_FOOTNOTES[sport.bracket_type] ?? 'The leaderboard only updates once you publish.'}
+    />
   )
 }
 
@@ -658,14 +739,7 @@ function WaterballScoringSection({
 }
 
 // ── Executive Golf scoring ────────────────────────────────────────────────────
-
-// ASG default scale (1st=40, 2nd=38, … −2/place, floor 0), or the sport's own
-// points_scale if it has one — mirrors the backend's `_scale_points()` in
-// event_points.py so the live preview matches what Save will actually award.
-function scalePoints(placement: number, pointsScale: Record<string, number> | null): number {
-  if (pointsScale) return Number(pointsScale[String(placement)] ?? pointsScale.default ?? 0)
-  return Math.max(0, 40 - (placement - 1) * 2)
-}
+// (scalePoints now lives in lib/ranking.ts, shared with the auto-ranked sections)
 
 function GolfScoringSection({
   sport,
@@ -963,16 +1037,9 @@ function SportScoringDetail({
   eventPoints: EventPoints[]
   onBack: () => void
 }) {
-  const { data: sportBrackets = [] } = useQuery<Bracket[]>({
-    queryKey: ['brackets', sport.id],
-    queryFn: () => getBrackets(sport.id),
-    enabled: sport.bracket_type === 'heats',
-  })
-
   const isDonation = sport.scoring_mode === 'donation_count'
   const isWaterball = sport.scoring_mode === 'water_ball_toss'
   const isGolf = sport.scoring_mode === 'executive_golf'
-  const isRelayRace = sport.bracket_type === 'heats' && sportBrackets.length > 0 && !isGolf
   const sportTeams = useMemo(() => teams.filter(t => t.sport_id === sport.id), [teams, sport.id])
 
   return (
@@ -996,10 +1063,8 @@ function SportScoringDetail({
         <WaterballScoringSection sport={sport} companies={companies} teams={sportTeams} eventPoints={eventPoints} />
       ) : isGolf ? (
         <GolfScoringSection sport={sport} companies={companies} teams={sportTeams} eventPoints={eventPoints} />
-      ) : isRelayRace ? (
-        <RelayRaceScoringSection sport={sport} companies={companies} teams={sportTeams} />
       ) : (
-        <StandardScoringSection sport={sport} companies={companies} eventPoints={eventPoints} />
+        <ComputedScoringSection sport={sport} companies={companies} teams={sportTeams} eventPoints={eventPoints} />
       )}
     </div>
   )

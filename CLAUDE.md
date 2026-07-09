@@ -280,7 +280,7 @@ No dedicated table — Executive Golf is `bracket_type = 'heats'` with real `mat
   2. After all prelim heats complete, admin opens Semi-Finals tab → "Generate Semi-Finals" card appears; snake-distributes top 2 per prelim heat into 2 semi-final heats
   3. After both semi-finals complete, admin opens Final tab → "Generate Final Heat" card appears; top 3 per semi advance
   4. Final ranks 1–6 get gold/silver/bronze treatment in UI
-- **Relay Race custom scoring scale:** 1st–6th: 40/38/36/34/32/30; 7th–12th: 22 each; 13th–18th: 12 each; 19th+: 4 each; forfeit/DQ: 0
+- **Relay Race custom scoring scale (official ASG table):** 1st–6th: 40/38/36/34/32/30; 7th: 26; 8th: 24; 9th: 22; 10th–11th: 18 each; 12th–13th: 14 each; 14th+: 4 each; forfeit/DQ: 0
   - Auto-applied to `sport.points_scale` when generating grouped heats from SportConfigPage
   - ScoringPage auto-computes placements from heat results; admin can override before saving
 
@@ -327,7 +327,7 @@ No dedicated table — Executive Golf is `bracket_type = 'heats'` with real `mat
 | Executive Golf | heats | 1 | low_wins | best_placement | Custom `{1:20,2:15,3:10,default:5}` (uses `scoring_mode='executive_golf'`) |
 | Canned Food Drive | points_based | 1 | high_wins | best_placement | n/a (uses `scoring_mode='donation_count'`) |
 
-ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place (floor 0). SQL: `asg_points(placement INTEGER)`.
+ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place; 20th and beyond all earn 2 (floor 2, per the official rulebook). SQL: `asg_points(placement INTEGER)`.
 
 ¹ `multi_team_rule` isn't read by any code — it's a leftover DB value, not the active rule. Water Ball Toss's real behavior (bespoke, in `waterball_results.py`) is **best of its teams**, not an average — see the Water Ball Toss entity section below.
 
@@ -392,7 +392,7 @@ ASG default scale: 1st = 40, 2nd = 38, 3rd = 36, −2 per place (floor 0). SQL: 
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | GET | `/` | public | List; filters: `company_id`, `sport_id` |
-| POST | `/award-placement` | admin | Award placement to company; upserts record; applies points_scale. Optional `tied_through` shares a placement: points = average of the tied places' values (e.g., tied 3rd/4th → 35 each). Optional `points` overrides the scale-derived value outright for this one company (a manual exception; ignores `tied_through` when set) |
+| POST | `/award-placement` | admin | Award placement to company; upserts record; applies points_scale. Optional `tied_through` shares a placement: points = average of the tied places' values (e.g., tied 3rd/4th → 35 each). Optional `points` overrides the scale-derived value outright for this one company (a manual exception; ignores `tied_through` when set; may be **negative** — the rulebook's −10 no-show deduction for bracketed games is applied this way) |
 
 ### Leaderboard — `/leaderboard`
 | Method | Path | Auth | Description |
@@ -463,7 +463,7 @@ Golf reuses the generic `sports`/`matches` endpoints for generating both rounds 
 | PoolResultsPage | `/manage/results/pools/:sportId` | Pool matches grouped by pool+round; tap to enter result via shared MatchResultModal; links to bracket phase view. |
 | WaterballResultsPage | `/manage/results/waterball/:sportId` | Water Ball Toss: Group A/B tabs (real `brackets`/`matches`, generated from SportConfigPage); Start each team's match, then enter rounds survived or mark forfeit via the generic `startMatch`/`submitHeatResult`. Does NOT touch `event_points` — standings are reviewed and saved from Scoring. |
 | GolfResultsPage | `/manage/results/golf/:sportId` | Executive Golf: Round 1/Round 2 tabs; bulk-Start a round, then enter each company's 3 hole scores or mark forfeit via `submitGolfResult` (`/golf-results`). After Round 1 is complete, a "top 6" selection panel (ranked by Round-1 total) generates Round 2 via the generic `generate-bracket` heats path. Does NOT touch `event_points` — reviewed/saved from Scoring. |
-| ScoringPage | `/manage/scoring` | Sport card list (tap to drill in). For standard sports: award placement per company. For Relay Race: auto-computes placements from heat results with editable overrides; calls `/event-points/award-placement`. For Canned Food Drive: read-only ranked standings, auto-computed live from `/donation-counts`. For Water Ball Toss: a live preview of best-of-company scores computed from `matches`, next to the last-saved `event_points`, with an explicit "Save Placements" button that calls `waterball-results` recompute. For Executive Golf: auto-computes placements from the Round-2 ranking (lowest total wins) plus a shared placement for Round-1-only participants, with both placement AND points independently editable per row (points default to the placement-derived scale value but can be overridden directly); calls `/event-points/award-placement` per company, same as Relay Race. |
+| ScoringPage | `/manage/scoring` | Sport card list (tap to drill in). Every match-based sport (elimination, pool, heats — including Relay Race and Human Pyramid) gets an auto-computed final company ranking (`ComputedScoringSection` + the pure rankers in `frontend/src/lib/ranking.ts`: bracket sports by elimination round, pool sports by bracket finish then cross-pool record, heats by phase reached/times; multi-team companies collapse to their best team; tied companies share a placement with averaged points; forfeits flagged for the manual −10 no-show deduction) rendered in `AutoRankedScoringSection` — the Executive Golf UX (per-row Edit unlock, placement AND points editable, Publish Standings/Clear Points) — saving per company via `/event-points/award-placement` with explicit points. Sports with no results yet fall back to the manual placement form (`StandardScoringSection`). For Canned Food Drive: read-only ranked standings, auto-computed live from `/donation-counts`. For Water Ball Toss: a live preview of best-of-company scores computed from `matches`, next to the last-saved `event_points`, with an explicit "Save Placements" button that calls `waterball-results` recompute. For Executive Golf: auto-computes placements from the Round-2 ranking (lowest total wins) plus a shared placement for Round-1-only participants, with both placement AND points independently editable per row (points default to the placement-derived scale value but can be overridden directly); calls `/event-points/award-placement` per company, same as Relay Race. |
 | HeatsResultPage | `/manage/results/heats/:sportId` | For grouped heats (Relay Race): segmented Prelims/Semi-Finals/Final tabs with scrollable heat pill tabs within each phase; generate next phase when current is complete. For flat heats (Human Pyramid): simple per-team time entry. |
 | TeamsPage | `/manage/teams` | Create/edit/delete teams, grouped by sport+company. |
 | ManageHub | `/manage` | Navigation hub for admin pages. |
@@ -523,6 +523,7 @@ Golf reuses the generic `sports`/`matches` endpoints for generating both rounds 
 - Frontend is UI only
 - No business logic duplication
 - All writes go through backend
+- One sanctioned exception: **advisory scoring previews** may be computed client-side (the rankers in `lib/ranking.ts`, plus the Golf/Waterball previews) — they only suggest placements for the admin to review/edit, and the authoritative write is always `POST /event-points/award-placement` (or a bespoke recompute endpoint), where the backend derives/validates points
 
 ---
 
@@ -543,7 +544,7 @@ Golf reuses the generic `sports`/`matches` endpoints for generating both rounds 
 
 - A company may only have one scoring record per sport
 - Match results must define a winner or forfeit
-- Scoring is derived from placements by default (not manual edits) — `POST /event-points/award-placement` always requires a `placement` and normally computes points from it via the sport's scale; an optional `points` param lets an admin override the derived value for one company as a manual exception (ScoringPage's editable sections, e.g. Relay Race and Executive Golf, expose this per row), but placement is still required and points are never entered from scratch without one.
+- Scoring is derived from placements by default (not manual edits) — `POST /event-points/award-placement` always requires a `placement` and normally computes points from it via the sport's scale; an optional `points` param lets an admin override the derived value for one company as a manual exception (ScoringPage's editable auto-ranked sections expose this per row), but placement is still required and points are never entered from scratch without one. The override may be negative — the rulebook's −10 no-show deduction is applied this way, never automated.
 - `roster_entries` must belong to a valid team
 - `short_id` must be unique and valid format
 - Matches must not conflict on location/time (warn only, not enforced)

@@ -7,11 +7,11 @@ router = APIRouter()
 
 
 def _scale_points(placement: int, points_scale: dict | None) -> int:
-    """ASG scale: 1st=40, 2nd=38, â€¦ (â€“2 per place, floor 0).
+    """ASG scale: 1st=40, 2nd=38, ... (-2 per place; 20th and beyond = 2).
     If the sport defines a points_scale override, use that instead."""
     if points_scale:
         return int(points_scale.get(str(placement), points_scale.get("default", 0)))
-    return max(0, 40 - (placement - 1) * 2)
+    return max(2, 40 - (placement - 1) * 2)
 
 
 def _compute_points(placement: int, points_scale: dict | None, tied_through: int | None = None) -> int:
@@ -54,7 +54,7 @@ def award_placement(
     sport_id: str,
     placement: int = Query(ge=1),
     tied_through: int | None = Query(None, description="Last place sharing this placement; points are averaged over the range"),
-    points: int | None = Query(None, ge=0, description="Explicit points override; omit to derive from the sport's scale (the default)"),
+    points: int | None = Query(None, description="Explicit points override; omit to derive from the sport's scale (the default). May be negative (e.g. a no-show deduction)."),
     _=Depends(require_admin),
 ):
     """Record points for a final placement.

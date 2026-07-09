@@ -96,14 +96,17 @@ def test_award_placement_explicit_points_overrides_scale(monkeypatch):
     assert resp.json()["points"] == 13  # not the scale's 1st-place value of 20
 
 
-def test_award_placement_rejects_negative_points_override(monkeypatch):
+def test_award_placement_accepts_negative_points_override(monkeypatch):
+    """ASG rulebook: a no-show in a bracketed game costs 10 points, so a
+    manual points override may legitimately be negative."""
     db = FakeSupabase()
     client = _client_for(event_points_router, db, monkeypatch)
     sport = db.table("sports").insert({"name": "S", "points_scale": None}).execute().data[0]
     company = db.table("companies").insert({"name": "C", "short_id": "C-1"}).execute().data[0]
 
-    resp = client.post(f"/x/award-placement?company_id={company['id']}&sport_id={sport['id']}&placement=1&points=-1")
-    assert resp.status_code == 422
+    resp = client.post(f"/x/award-placement?company_id={company['id']}&sport_id={sport['id']}&placement=1&points=-10")
+    assert resp.status_code == 200
+    assert resp.json()["points"] == -10
 
 
 def test_clear_event_points_wipes_only_the_given_sport(monkeypatch):
