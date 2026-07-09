@@ -70,6 +70,60 @@ def test_award_placement_rejects_unknown_company(monkeypatch):
     assert resp.status_code == 404
 
 
+def test_award_placement_defaults_to_scale_derived_points(monkeypatch):
+    """The normal path every sport uses: no explicit points -> derived from
+    the sport's scale (or the ASG default if unset)."""
+    db = FakeSupabase()
+    client = _client_for(event_points_router, db, monkeypatch)
+    sport = db.table("sports").insert({"name": "S", "points_scale": None}).execute().data[0]
+    company = db.table("companies").insert({"name": "C", "short_id": "C-1"}).execute().data[0]
+
+    resp = client.post(f"/x/award-placement?company_id={company['id']}&sport_id={sport['id']}&placement=2")
+    assert resp.status_code == 200
+    assert resp.json()["points"] == 38  # ASG scale: 2nd place
+
+
+def test_award_placement_explicit_points_overrides_scale(monkeypatch):
+    """An explicit points value is a manual exception to the normal
+    placement-derived scoring — it wins outright, ignoring the scale."""
+    db = FakeSupabase()
+    client = _client_for(event_points_router, db, monkeypatch)
+    sport = db.table("sports").insert({"name": "S", "points_scale": {"1": 20, "default": 5}}).execute().data[0]
+    company = db.table("companies").insert({"name": "C", "short_id": "C-1"}).execute().data[0]
+
+    resp = client.post(f"/x/award-placement?company_id={company['id']}&sport_id={sport['id']}&placement=1&points=13")
+    assert resp.status_code == 200
+    assert resp.json()["points"] == 13  # not the scale's 1st-place value of 20
+
+
+def test_award_placement_rejects_negative_points_override(monkeypatch):
+    db = FakeSupabase()
+    client = _client_for(event_points_router, db, monkeypatch)
+    sport = db.table("sports").insert({"name": "S", "points_scale": None}).execute().data[0]
+    company = db.table("companies").insert({"name": "C", "short_id": "C-1"}).execute().data[0]
+
+    resp = client.post(f"/x/award-placement?company_id={company['id']}&sport_id={sport['id']}&placement=1&points=-1")
+    assert resp.status_code == 422
+
+
+def test_clear_event_points_wipes_only_the_given_sport(monkeypatch):
+    db = FakeSupabase()
+    client = _client_for(event_points_router, db, monkeypatch)
+    sport_a = db.table("sports").insert({"name": "A", "points_scale": None}).execute().data[0]
+    sport_b = db.table("sports").insert({"name": "B", "points_scale": None}).execute().data[0]
+    company = db.table("companies").insert({"name": "C", "short_id": "C-1"}).execute().data[0]
+
+    client.post(f"/x/award-placement?company_id={company['id']}&sport_id={sport_a['id']}&placement=1")
+    client.post(f"/x/award-placement?company_id={company['id']}&sport_id={sport_b['id']}&placement=1")
+
+    resp = client.delete(f"/x?sport_id={sport_a['id']}")
+    assert resp.status_code == 204
+
+    remaining = db.rows("event_points")
+    assert len(remaining) == 1
+    assert remaining[0]["sport_id"] == sport_b["id"]
+
+
 def test_update_team_rejects_duplicate_name(monkeypatch):
     db = FakeSupabase()
     monkeypatch.setattr(teams_router, "supabase", db)

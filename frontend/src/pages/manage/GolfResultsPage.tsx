@@ -40,28 +40,56 @@ function CompanyRow({
   const [holes, setHoles] = useState<string[]>(
     Array.from({ length: HOLES }, (_, i) => (existing && existing[i] != null ? String(existing[i]) : '')),
   )
+  const [forceEdit, setForceEdit] = useState(false)
   const total = match ? golfTotal(match) : null
 
   if (!match) return null
+
+  // Once a result is saved, grey the row out to confirm it went through;
+  // "Edit" re-opens it for a correction without needing a separate flow.
+  const isSaved = match.status === 'completed' || match.status === 'forfeit'
+  const locked = (isSaved && !forceEdit) || saving
 
   const parsed = holes.map(h => Number(h))
   const allFilled = holes.every(h => h !== '') && parsed.every(n => Number.isInteger(n) && n >= 0)
   const teeTime = formatTeeTime(match.estimated_start ?? match.scheduled_at)
 
+  function handleSave() {
+    if (!allFilled) return
+    setForceEdit(false)
+    onSave(parsed)
+  }
+
+  function handleCancel() {
+    setHoles(Array.from({ length: HOLES }, (_, i) => (existing && existing[i] != null ? String(existing[i]) : '')))
+    setForceEdit(false)
+  }
+
   return (
-    <div className="px-4 py-3 space-y-2">
+    <div className={`px-4 py-4 space-y-2 transition-colors ${locked ? 'bg-gray-50' : ''}`}>
       <div className="flex items-center gap-2">
-        <p className="flex-1 text-sm font-semibold text-slate-800 truncate">{company.name}</p>
+        <p className={`flex-1 text-sm font-semibold truncate ${locked ? 'text-gray-400' : 'text-slate-800'}`}>
+          {company.short_id ?? company.name}
+        </p>
         {teeTime && (
           <span className="text-xs text-gray-400 tabular-nums">{teeTime}</span>
         )}
         {match.status === 'forfeit' && (
-          <span className="text-xs text-red-600 font-semibold">Forfeited (no-show)</span>
+          <span className="text-xs text-red-500 font-semibold">Forfeited (no-show)</span>
         )}
         {total != null && (
-          <span className="text-xs font-bold tabular-nums text-slate-700 bg-gray-50 px-2 py-0.5 rounded-full">
+          <span className="text-xs font-bold tabular-nums text-slate-700 bg-gray-100 px-2 py-0.5 rounded-full">
             {total} total
           </span>
+        )}
+        {isSaved && !saving && (
+          <button
+            type="button"
+            onClick={() => setForceEdit(true)}
+            className="text-xs font-semibold text-blue-600"
+          >
+            Edit
+          </button>
         )}
       </div>
 
@@ -74,30 +102,40 @@ function CompanyRow({
               min={0}
               inputMode="numeric"
               value={h}
+              disabled={locked}
               onChange={e => setHoles(prev => prev.map((v, j) => (j === i ? e.target.value : v)))}
-              className="w-12 rounded-lg border border-gray-200 px-2 py-1 text-sm text-slate-800 text-right tabular-nums"
+              className="w-12 rounded-lg border border-gray-200 px-2 py-1 text-sm text-slate-800 text-right tabular-nums disabled:bg-gray-100 disabled:text-gray-400"
               onKeyDown={e => {
-                if (e.key === 'Enter' && allFilled) onSave(parsed)
+                if (e.key === 'Enter' && allFilled) handleSave()
               }}
             />
           </label>
         ))}
-        <button
-          type="button"
-          onClick={() => allFilled && onSave(parsed)}
-          disabled={saving || !allFilled}
-          className="text-xs font-semibold text-blue-600 disabled:text-gray-300"
-        >
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-        <button
-          type="button"
-          onClick={onForfeit}
-          disabled={saving}
-          className="text-xs text-red-500 ml-auto"
-        >
-          Forfeit (no-show)
-        </button>
+        {saving && <span className="text-xs text-gray-400">Saving…</span>}
+        {!locked && (
+          <>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={!allFilled}
+              className="text-xs font-semibold text-blue-600 disabled:text-gray-300"
+            >
+              Save
+            </button>
+            {forceEdit && (
+              <button type="button" onClick={handleCancel} className="text-xs text-gray-500">
+                Cancel
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onForfeit}
+              className="text-xs text-red-500 ml-auto"
+            >
+              Forfeit
+            </button>
+          </>
+        )}
       </div>
     </div>
   )
@@ -154,10 +192,18 @@ export default function GolfResultsPage() {
   const saveMutation = useMutation({
     mutationFn: (vars: { matchId: string; holeScores?: number[]; forfeit?: boolean }) =>
       submitGolfResult(vars.matchId, vars.forfeit ? { forfeit: true } : { hole_scores: vars.holeScores! }),
-    onSuccess: () => {
+    onSuccess: updated => {
+      // Patch the one changed match into the cache directly from the response
+      // instead of waiting on a full refetch — GET /matches recomputes
+      // estimated_start for every match in the sport on each call, which is
+      // slow enough to notice. The row updates instantly; a background
+      // invalidate still runs to eventually pick up any downstream effects.
+      qc.setQueryData<Match[]>(['matches', { sport_id: sportId }], old =>
+        old ? old.map(m => (m.id === updated.id ? { ...m, ...updated } : m)) : old,
+      )
+      qc.invalidateQueries({ queryKey: ['matches'] })
       // Deliberately does NOT touch event_points/leaderboard — standings only
       // update once an admin reviews and saves from the Scoring page.
-      qc.invalidateQueries({ queryKey: ['matches'] })
       setError(null)
     },
     onError: (e: unknown) => setError(e instanceof Error ? e.message : 'Failed to save'),
@@ -263,7 +309,7 @@ export default function GolfResultsPage() {
 
   const activeRoundName = ROUND_NAMES.includes(tab as typeof ROUND_NAMES[number]) ? tab : ROUND_1_NAME
   const activeBracket = activeRoundName === ROUND_1_NAME ? round1 : round2
-  const showRound2Panel = activeRoundName === ROUND_1_NAME && round1Complete && !hasRound2
+  const showRound2Panel = activeRoundName === ROUND_2_NAME && round1Complete && !hasRound2
 
   function toggleSelected(teamId: string) {
     setSelected(prev => {
@@ -300,9 +346,11 @@ export default function GolfResultsPage() {
       </div>
 
       {!activeBracket ? (
-        <p className="text-center text-gray-400 py-12">
-          Round 2 hasn't been generated yet. Complete Round 1 and select the advancing companies below.
-        </p>
+        showRound2Panel ? null : (
+          <p className="text-center text-gray-400 py-12">
+            Round 1 must be completed before advancing to Round 2.
+          </p>
+        )
       ) : (
         <>
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm divide-y divide-gray-50">
@@ -346,7 +394,7 @@ export default function GolfResultsPage() {
               return (
                 <li key={r.company.id} className="flex items-center gap-3 py-2">
                   <span className="w-5 text-right text-xs tabular-nums text-gray-400">{i + 1}</span>
-                  <span className="flex-1 text-sm text-slate-800 truncate">{r.company.name}</span>
+                  <span className="flex-1 text-sm text-slate-800 truncate">{r.company.short_id ?? r.company.name}</span>
                   <span className="text-xs tabular-nums text-gray-500">
                     {r.match.status === 'forfeit' ? 'Forfeit' : r.total != null ? `${r.total}` : '—'}
                   </span>

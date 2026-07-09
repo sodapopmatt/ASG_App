@@ -37,18 +37,34 @@ def list_event_points(
     return q.order("points", desc=True).execute().data
 
 
+@router.delete("", status_code=204)
+def clear_event_points(
+    sport_id: str = Query(...),
+    _=Depends(require_admin),
+):
+    """Wipe every company's saved points for one sport — zeroes out its
+    contribution to the leaderboard/Standings entirely until placements are
+    saved again. Does not touch matches or brackets."""
+    supabase.table("event_points").delete().eq("sport_id", sport_id).execute()
+
+
 @router.post("/award-placement", response_model=EventPoints)
 def award_placement(
     company_id: str,
     sport_id: str,
     placement: int = Query(ge=1),
     tied_through: int | None = Query(None, description="Last place sharing this placement; points are averaged over the range"),
+    points: int | None = Query(None, ge=0, description="Explicit points override; omit to derive from the sport's scale (the default)"),
     _=Depends(require_admin),
 ):
-    """Compute and record points for a final placement.
-    Uses the sport's points_scale if set, otherwise falls back to the ASG scale.
+    """Record points for a final placement.
+    By default, points are derived from the sport's points_scale (or the ASG
+    scale if unset) — this is the normal path every sport uses. Passing an
+    explicit `points` value overrides that derivation for this one company,
+    for the rare case a placement's scale value needs a manual exception.
     For shared placements (e.g. two companies tied for 3rd), pass tied_through=4
-    to award each the average of the 3rd- and 4th-place values."""
+    to award each the average of the 3rd- and 4th-place values (ignored if
+    `points` is set explicitly)."""
     if tied_through is not None and tied_through < placement:
         raise HTTPException(status_code=422, detail="tied_through must be greater than or equal to placement")
 
@@ -60,8 +76,8 @@ def award_placement(
     if not company.data:
         raise HTTPException(status_code=404, detail="Company not found")
 
-    points = _compute_points(placement, sport.data[0].get("points_scale"), tied_through)
-    payload = {"company_id": company_id, "sport_id": sport_id, "placement": placement, "points": points}
+    final_points = points if points is not None else _compute_points(placement, sport.data[0].get("points_scale"), tied_through)
+    payload = {"company_id": company_id, "sport_id": sport_id, "placement": placement, "points": final_points}
     return (
         supabase.table("event_points")
         .upsert(payload, on_conflict="company_id,sport_id")

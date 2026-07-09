@@ -56,6 +56,7 @@ export default function App() {
           <Route path="manage/results/waterball/:sportId" element={<RequireAuth><WaterballResultsPage /></RequireAuth>} />
           <Route path="manage/results/golf/:sportId" element={<RequireAuth><GolfResultsPage /></RequireAuth>} />
           <Route path="manage/scoring" element={<RequireAuth><ScoringPage /></RequireAuth>} />
+          <Route path="manage/scoring/:sportId" element={<RequireAuth><ScoringPage /></RequireAuth>} />
           <Route path="manage/alerts" element={<RequireAuth><AlertsPage /></RequireAuth>} />
         </Route>
       </Routes>
