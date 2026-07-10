@@ -26,6 +26,7 @@ import GolfResultsPage from './pages/manage/GolfResultsPage'
 import ScoringPage from './pages/manage/ScoringPage'
 import SportConfigPage from './pages/manage/SportConfigPage'
 import AlertsPage from './pages/manage/AlertsPage'
+import ScheduleBlocksPage from './pages/manage/ScheduleBlocksPage'
 
 export default function App() {
   return (
@@ -58,6 +59,7 @@ export default function App() {
           <Route path="manage/scoring" element={<RequireAuth><ScoringPage /></RequireAuth>} />
           <Route path="manage/scoring/:sportId" element={<RequireAuth><ScoringPage /></RequireAuth>} />
           <Route path="manage/alerts" element={<RequireAuth><AlertsPage /></RequireAuth>} />
+          <Route path="manage/schedule-blocks" element={<RequireAuth><ScheduleBlocksPage /></RequireAuth>} />
         </Route>
       </Routes>
     </AuthProvider>

@@ -61,6 +61,19 @@ const ALERTS_CARD: HubCard = {
   ),
 }
 
+const SCHEDULE_BLOCKS_CARD: HubCard = {
+  to: '/manage/schedule-blocks',
+  label: 'Schedule Blocks',
+  description: 'Set lunch/photo breaks that matches schedule around',
+  icon: (
+    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  ),
+}
+
 const SCORING_CARD: HubCard = {
   to: '/manage/scoring',
   label: 'Scoring',
@@ -100,7 +113,7 @@ export default function ManageHub() {
   const isAdmin = profile?.role === 'admin'
 
   const cards = isAdmin
-    ? [TEAMS_CARD, BRACKETS_CARD, RESULTS_CARD, SCORING_CARD, ALERTS_CARD]
+    ? [TEAMS_CARD, BRACKETS_CARD, RESULTS_CARD, SCORING_CARD, SCHEDULE_BLOCKS_CARD, ALERTS_CARD]
     : []
 
   return (

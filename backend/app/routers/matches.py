@@ -27,11 +27,28 @@ def _is_bye_autocomplete(m: dict) -> bool:
     return m.get("home_slot_state") == "bye" or m.get("away_slot_state") == "bye"
 
 
+def _push_past_blocks(start, duration, blocks: list[tuple[object, object]]):
+    """Shift `start` forward past any schedule block (lunch, group photo, ...)
+    that [start, start+duration) would overlap. Loops because blocks can sit
+    back-to-back — pushing past one may land inside the next."""
+    moved = True
+    while moved:
+        moved = False
+        end = start + duration
+        for block_start, block_end in blocks:
+            if start < block_end and end > block_start:
+                start = block_end
+                moved = True
+                break
+    return start
+
+
 def _compute_estimated_starts(
     matches: list[dict],
     sport_duration_map: dict[str, int],
     sport_start_map: dict[str, datetime | None] | None = None,
     heats_bracket_ids: set[str] | None = None,
+    blocks: list[tuple[datetime, datetime]] | None = None,
 ) -> dict[str, datetime | None]:
     """Compute estimated start times accounting for court availability and feeder matches.
 
@@ -53,12 +70,18 @@ def _compute_estimated_starts(
     actual_start anchors a court's timeline when a match is in progress.
     Terminal matches (completed / forfeit / double_forfeit / draw) keep their
     scheduled slot if they had one, otherwise carry no estimate.
+
+    `blocks` are event-wide blackout windows (lunch, group photo, ...): a
+    not-yet-started match whose slot would overlap one is pushed to start
+    right at the block's end instead. A match already in progress is left to
+    finish naturally rather than being force-pushed.
     """
     import heapq
     from datetime import timedelta
 
     heats_bracket_ids = heats_bracket_ids or set()
     sport_start_map = sport_start_map or {}
+    blocks = blocks or []
     _TERMINAL = ("completed", "forfeit", "double_forfeit", "draw")
 
     match_by_id = {m["id"]: m for m in matches}
@@ -156,10 +179,13 @@ def _compute_estimated_starts(
             est = _ready(m)
         else:
             est = _ready(m)
-            if est is not None and loc:
-                if loc in court_free and court_free[loc] > est:
+            if est is not None:
+                if loc and loc in court_free and court_free[loc] > est:
                     est = court_free[loc]
-                court_free[loc] = est + _duration(m)
+                if blocks:
+                    est = _push_past_blocks(est, _duration(m), blocks)
+                if loc:
+                    court_free[loc] = est + _duration(m)
 
         if is_concurrent and bracket_id not in heat_est:
             heat_est[bracket_id] = est
@@ -229,7 +255,10 @@ def _attach_estimated_starts(matches: list[dict]) -> list[dict]:
             and b.get("sport_id") in heats_sport_ids
         }
 
-    estimated = _compute_estimated_starts(matches, sport_duration_map, sport_start_map, heats_bracket_ids)
+    block_rows = supabase.table("schedule_blocks").select("start_time, end_time").execute().data
+    blocks = [(_parse_dt(b["start_time"]), _parse_dt(b["end_time"])) for b in block_rows]
+
+    estimated = _compute_estimated_starts(matches, sport_duration_map, sport_start_map, heats_bracket_ids, blocks)
     for m in matches:
         m["estimated_start"] = estimated.get(m["id"])
     return matches

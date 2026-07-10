@@ -15,6 +15,7 @@ from app.routers import (
     donation_counts,
     waterball_results,
     golf_results,
+    schedule_blocks,
 )
 from app.auth import get_current_profile, UserProfile
 
@@ -51,6 +52,7 @@ _PUBLIC_CACHE_RULES: list[tuple[str, int]] = [
     ("/leaderboard", 15),
     ("/event-points", 15),
     ("/donation-counts", 15),
+    ("/schedule-blocks", 30),
 ]
 
 
@@ -112,6 +114,7 @@ app.include_router(alerts.router,         prefix="/alerts",         tags=["alert
 app.include_router(donation_counts.router, prefix="/donation-counts", tags=["donation-counts"])
 app.include_router(waterball_results.router, prefix="/waterball-results", tags=["waterball-results"])
 app.include_router(golf_results.router,     prefix="/golf-results",     tags=["golf-results"])
+app.include_router(schedule_blocks.router,  prefix="/schedule-blocks",  tags=["schedule-blocks"])
 
 
 @app.get("/me")

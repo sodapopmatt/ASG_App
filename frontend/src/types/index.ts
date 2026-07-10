@@ -123,3 +123,10 @@ export interface Alert {
   created_by: string | null
   created_at: string
 }
+
+export interface ScheduleBlock {
+  id: string
+  label: string
+  start_time: string
+  end_time: string
+}

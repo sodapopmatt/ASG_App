@@ -7,7 +7,8 @@ import { getTeams } from '../api/teams'
 import { getCompanies } from '../api/companies'
 import { getLocations } from '../api/locations'
 import { getBrackets } from '../api/brackets'
-import type { Match, Sport, Team, Company, Location, Bracket } from '../types'
+import { getScheduleBlocks } from '../api/scheduleBlocks'
+import type { Match, Sport, Team, Company, Location, Bracket, ScheduleBlock } from '../types'
 import { compactLabel, buildMultiTeamKeys, compareBracketNames } from '../lib/bracketHelpers'
 import { getSportIcon } from '../lib/sportIcons'
 import { groupMatchesByCompany } from '../lib/waterball'
@@ -56,6 +57,11 @@ function useScheduleData() {
   const sports    = useQuery({ queryKey: ['sports'],    queryFn: getSports,         staleTime: Infinity })
   const teams     = useQuery({ queryKey: ['teams'],     queryFn: () => getTeams(),  staleTime: Infinity })
   const companies = useQuery({ queryKey: ['companies'], queryFn: getCompanies,      staleTime: Infinity })
+  const scheduleBlocks = useQuery({
+    queryKey: ['schedule-blocks'],
+    queryFn: getScheduleBlocks,
+    refetchInterval: 30000,
+  })
 
   const sportMap      = useMemo(() => indexBy(sports.data   ?? [], 'id') as Record<string, Sport>,   [sports.data])
   const teamMap       = useMemo(() => indexBy(teams.data    ?? [], 'id') as Record<string, Team>,    [teams.data])
@@ -65,6 +71,7 @@ function useScheduleData() {
   return {
     matches:   matches.data   ?? [],
     sports:    sports.data    ?? [],
+    scheduleBlocks: scheduleBlocks.data ?? [],
     sportMap,
     teamMap,
     companyMap,
@@ -322,6 +329,38 @@ function StatsStrip({ matches }: { matches: Match[] }) {
         <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" />
         {upcoming} upcoming
       </span>
+    </div>
+  )
+}
+
+function getBlockIcon(label: string): string {
+  const l = label.toLowerCase()
+  if (l.includes('photo')) return '📷'
+  if (l.includes('lunch') || l.includes('meal') || l.includes('dinner') || l.includes('breakfast')) return '🍽️'
+  return '⏸️'
+}
+
+function ScheduleBlockCard({ block }: { block: ScheduleBlock }) {
+  const now = useNow()
+  const startMs = new Date(block.start_time).getTime()
+  const endMs = new Date(block.end_time).getTime()
+  const isLive = now.getTime() >= startMs && now.getTime() < endMs
+  const timeRange = `${formatTime(block.start_time)} – ${formatTime(block.end_time)}`
+
+  return (
+    <div className="rounded-xl border border-gray-200 overflow-hidden">
+      <div className="flex items-center gap-2.5 px-4 py-3 bg-gray-50">
+        <span className="text-xl leading-none shrink-0" aria-hidden="true">{getBlockIcon(block.label)}</span>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-slate-800 truncate">{block.label}</p>
+          <p className="text-xs text-gray-500 truncate">{timeRange}</p>
+        </div>
+        {isLive ? (
+          <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Live</span>
+        ) : (
+          <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">Break</span>
+        )}
+      </div>
     </div>
   )
 }
@@ -831,11 +870,12 @@ function ScheduleOnlyEventCard({ sport }: { sport: Sport }) {
 // ── Timeline view ────────────────────────────────────────────────────────────
 
 function TimelineView({
-  matches, sports, scheduleOnlySports,
+  matches, sports, scheduleOnlySports, scheduleBlocks,
 }: {
   matches: Match[]
   sports: Sport[]
   scheduleOnlySports: Sport[]
+  scheduleBlocks: ScheduleBlock[]
 }) {
   const sportIds = useMemo(() => {
     const ids = [...new Set(matches.map(m => m.sport_id))]
@@ -845,9 +885,11 @@ function TimelineView({
 
   const now = useNow()
   const extraTimes = useMemo(
-    () =>
-      scheduleOnlySports.flatMap(s => [s.schedule_start, s.schedule_end].filter(Boolean) as string[]),
-    [scheduleOnlySports],
+    () => [
+      ...scheduleOnlySports.flatMap(s => [s.schedule_start, s.schedule_end].filter(Boolean) as string[]),
+      ...scheduleBlocks.flatMap(b => [b.start_time, b.end_time]),
+    ],
+    [scheduleOnlySports, scheduleBlocks],
   )
   const timelineSlots = useMemo(() => buildTimelineSlots(matches, extraTimes), [matches, extraTimes])
   const baseMinutes = timelineSlots[0]?.minutes ?? 8 * 60
@@ -862,7 +904,7 @@ function TimelineView({
 
   const sportMap = useMemo(() => indexBy(sports, 'id') as Record<string, Sport>, [sports])
 
-  if (sportIds.length === 0 && scheduleOnlySports.length === 0) {
+  if (sportIds.length === 0 && scheduleOnlySports.length === 0 && scheduleBlocks.length === 0) {
     return <p className="text-center text-gray-500 py-12">No matches to display.</p>
   }
 
@@ -993,6 +1035,44 @@ function TimelineView({
             </Fragment>
           )
         })}
+
+        {/* Schedule block rows (lunch, group photo, ...) */}
+        {scheduleBlocks.map(block => {
+          const startIdx = slotIndex(block.start_time, baseMinutes)
+          const rawEndIdx = slotIndex(block.end_time, baseMinutes)
+          const clampedStart = Math.max(0, Math.min(startIdx, timelineSlots.length - 1))
+          const clampedEnd = Math.max(clampedStart, Math.min(rawEndIdx, timelineSlots.length - 1))
+          const span = clampedEnd - clampedStart + 1
+          const leading = clampedStart
+          const trailing = timelineSlots.length - clampedEnd - 1
+          const startMs = new Date(block.start_time).getTime()
+          const endMs = new Date(block.end_time).getTime()
+          const isLive = now.getTime() >= startMs && now.getTime() < endMs
+          const chipClass = isLive ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'
+          const timeLabel = `${formatTime(block.start_time)} – ${formatTime(block.end_time)}`
+          return (
+            <Fragment key={block.id}>
+              <div className="flex items-center gap-2 px-3 py-3 border-b border-gray-100">
+                <span className="text-base leading-none shrink-0" aria-hidden="true">{getBlockIcon(block.label)}</span>
+                <span className="text-xs font-medium text-slate-700 truncate">{block.label}</span>
+              </div>
+              {Array.from({ length: leading }).map((_, i) => (
+                <div key={`l-${i}`} className="p-1 border-b border-l border-gray-100 min-h-[48px]" />
+              ))}
+              <div
+                className="p-1 border-b border-l border-gray-100 min-h-[48px]"
+                style={{ gridColumn: `span ${span}` }}
+              >
+                <div className={`text-xs rounded px-1.5 py-0.5 whitespace-nowrap leading-snug truncate ${chipClass}`}>
+                  {timeLabel}
+                </div>
+              </div>
+              {Array.from({ length: trailing }).map((_, i) => (
+                <div key={`t-${i}`} className="p-1 border-b border-l border-gray-100 min-h-[48px]" />
+              ))}
+            </Fragment>
+          )
+        })}
       </div>
     </div>
   )
@@ -1008,7 +1088,7 @@ export default function Schedule() {
   const [statusFilter, setStatusFilter]   = useState<StatusFilter>('active')
   const [expandedSports, setExpandedSports] = useState<Set<string>>(new Set())
 
-  const { matches, sports, sportMap, teamMap, companyMap, multiTeamKeys, isLoading, isError } = useScheduleData()
+  const { matches, sports, scheduleBlocks, sportMap, teamMap, companyMap, multiTeamKeys, isLoading, isError } = useScheduleData()
 
   const teams = useMemo(() => Object.values(teamMap), [teamMap])
   const companyTeamIds = useMemo(
@@ -1045,6 +1125,48 @@ export default function Schedule() {
         .sort((a, b) => a.name.localeCompare(b.name)),
     [sports],
   )
+
+  // Schedule blocks (lunch, group photo, ...) render as plain event cards,
+  // same as scheduleOnlySports, slotted into the list by their actual time
+  // rather than always pinned to the top or bottom.
+  const scheduleCards = useMemo(() => {
+    const cards: { key: string; time: number; node: React.ReactNode }[] = [
+      ...scheduleOnlySports.map(s => ({
+        key: `sport-only-${s.id}`,
+        time: s.schedule_start ? new Date(s.schedule_start).getTime() : Infinity,
+        node: <ScheduleOnlyEventCard key={s.id} sport={s} />,
+      })),
+      ...scheduleBlocks.map(b => ({
+        key: `block-${b.id}`,
+        time: new Date(b.start_time).getTime(),
+        node: <ScheduleBlockCard key={b.id} block={b} />,
+      })),
+      ...grouped.map(({ sportId, sport, rounds }) => {
+        const times = rounds
+          .flatMap(r => r.matches)
+          .map(m => m.estimated_start ?? m.scheduled_at)
+          .filter(Boolean) as string[]
+        const earliest = times.length ? times.reduce((a, b) => (a < b ? a : b)) : null
+        return {
+          key: `sport-${sportId}`,
+          time: earliest ? new Date(earliest).getTime() : Infinity,
+          node: (
+            <SportCard
+              key={sportId}
+              sport={sport}
+              rounds={rounds}
+              teamMap={teamMap}
+              companyMap={companyMap}
+              multiTeamKeys={multiTeamKeys}
+              expanded={expandedSports.has(sportId)}
+              onToggle={() => toggleSport(sportId)}
+            />
+          ),
+        }
+      }),
+    ]
+    return cards.sort((a, b) => a.time - b.time)
+  }, [scheduleOnlySports, scheduleBlocks, grouped, teamMap, companyMap, multiTeamKeys, expandedSports])
 
   function toggleSport(sportId: string) {
     setExpandedSports(prev => {
@@ -1117,22 +1239,10 @@ export default function Schedule() {
       {/* Views */}
       {view === 'by_sport' && (
         <div className="space-y-2">
-          {grouped.length === 0 && scheduleOnlySports.length === 0 && (
+          {scheduleCards.length === 0 && (
             <p className="text-center text-gray-500 py-12">No matches found.</p>
           )}
-          {scheduleOnlySports.map(s => <ScheduleOnlyEventCard key={s.id} sport={s} />)}
-          {grouped.map(({ sportId, sport, rounds }) => (
-            <SportCard
-              key={sportId}
-              sport={sport}
-              rounds={rounds}
-              teamMap={teamMap}
-              companyMap={companyMap}
-              multiTeamKeys={multiTeamKeys}
-              expanded={expandedSports.has(sportId)}
-              onToggle={() => toggleSport(sportId)}
-            />
-          ))}
+          {scheduleCards.map(c => c.node)}
         </div>
       )}
 
@@ -1141,6 +1251,7 @@ export default function Schedule() {
           matches={filteredMatches}
           sports={[...sports].sort((a, b) => a.name.localeCompare(b.name))}
           scheduleOnlySports={scheduleOnlySports}
+          scheduleBlocks={scheduleBlocks}
         />
       )}
     </div>
