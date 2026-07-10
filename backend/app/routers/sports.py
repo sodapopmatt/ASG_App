@@ -664,17 +664,37 @@ def _build_records(matches: list[dict], is_pool_swiss: bool = False) -> dict[str
     return records
 
 
-def _rank_standings(records: dict[str, dict], is_pool_swiss: bool = False) -> list[dict]:
+def _head_to_head_winner(matches: list[dict], team_a: str, team_b: str) -> str | None:
+    """Return the decisive winner of the direct match between two teams, if any.
+
+    Only a `completed`/`forfeit` result counts — a draw or double_forfeit has no
+    winner to hand a tiebreak to, and a pair that never played (e.g. a truncated
+    round robin) has no match at all here.
+    """
+    for m in matches:
+        if {m.get("home_team_id"), m.get("away_team_id")} != {team_a, team_b}:
+            continue
+        if m.get("status") in ("completed", "forfeit") and m.get("winner_id") in (team_a, team_b):
+            return m["winner_id"]
+    return None
+
+
+def _rank_standings(records: dict[str, dict], matches: list[dict] | None = None, is_pool_swiss: bool = False) -> list[dict]:
     """Sort and assign ranks to standings records.
 
     pool_swiss (Cornhole): sort by tournament_points â†’ goal_diff â†’ goals_for.
     Cornhole is scored by bag points, so this ranking is intentionally
     score-based (see docstrings above on tournament_points / goal_diff).
 
-    Others (pool_bracket: Soccer, Ultimate Frisbee, Pickleball): wins desc,
-    losses asc, ties share a rank. Per the locked V1 rule, pool play has no
-    score-based tiebreakers here â€” admins break ties manually when seeding
-    the bracket phase.
+    Others (pool_bracket: Soccer, Ultimate Frisbee, Pickleball): wins desc is
+    the primary criterion (this is what "pool winner" means per the
+    rulebook). Ties on wins are broken, in order: head-to-head (only
+    meaningful for a straight 2-team tie â€” a 3+-way tie can't be resolved by
+    one match) â†’ point differential desc â†’ total points scored desc. For
+    sports that don't track point_diff/total_points (Soccer, Ultimate
+    Frisbee â€” those fields stay 0), this silently falls through to a shared
+    rank, same as before. A tie that survives every criterion still shares a
+    rank; the admin resolves it manually when seeding the bracket phase.
     """
     if is_pool_swiss:
         standings = sorted(
@@ -686,16 +706,40 @@ def _rank_standings(records: dict[str, dict], is_pool_swiss: bool = False) -> li
             key = (row["tournament_points"], row["goal_diff"], row["goals_for"])
             row["rank"] = standings[i - 1]["rank"] if key == prev_key else i + 1
             prev_key = key
-    else:
-        standings = sorted(
-            records.values(),
-            key=lambda r: (-r["wins"], r["losses"]),
-        )
-        prev_key = None
-        for i, row in enumerate(standings):
-            key = (row["wins"], row["losses"])
-            row["rank"] = standings[i - 1]["rank"] if key == prev_key else i + 1
-            prev_key = key
+        return standings
+
+    matches = matches or []
+    by_wins: dict[int, list[dict]] = {}
+    for r in records.values():
+        by_wins.setdefault(r["wins"], []).append(r)
+
+    standings: list[dict] = []
+    # Parallel list: the key used purely to decide whether two adjacent rows
+    # are a genuine, unresolved tie (and so should share a rank number).
+    distinct_keys: list[tuple] = []
+
+    for wins in sorted(by_wins.keys(), reverse=True):
+        group = by_wins[wins]
+        if len(group) == 2:
+            a, b = group
+            winner_id = _head_to_head_winner(matches, a["team_id"], b["team_id"])
+            if winner_id in (a["team_id"], b["team_id"]):
+                ordered = [a, b] if winner_id == a["team_id"] else [b, a]
+                standings.extend(ordered)
+                # Head-to-head decisively separates these two regardless of
+                # point_diff/total_points, so give them distinct keys.
+                distinct_keys.append((wins, "h2h", 0))
+                distinct_keys.append((wins, "h2h", 1))
+                continue
+        ordered = sorted(group, key=lambda r: (-r["point_diff"], -r["total_points"]))
+        standings.extend(ordered)
+        distinct_keys.extend((wins, row["point_diff"], row["total_points"]) for row in ordered)
+
+    prev_key = None
+    for i, row in enumerate(standings):
+        key = distinct_keys[i]
+        row["rank"] = standings[i - 1]["rank"] if key == prev_key else i + 1
+        prev_key = key
     return standings
 
 
@@ -709,7 +753,8 @@ def get_standings(sport_id: str):
 
     pool_swiss sports (Cornhole): tournament_points = 4*wins + 2*forfeit_wins + 1*draws.
     Ranking: tournament_points desc â†’ goal_diff desc â†’ goals_for desc.
-    Other sports: wins desc â†’ goal_diff desc â†’ goals_for desc â†’ game_wins â†’ point_diff â†’ total_points.
+    Other sports (pool_bracket): wins desc â†’ head-to-head (2-team ties only) â†’
+    point_diff desc â†’ total_points desc. See `_rank_standings`.
     """
     sport_row = supabase.table("sports").select("bracket_type").eq("id", sport_id).limit(1).execute()
     if not sport_row.data:
@@ -747,8 +792,9 @@ def get_standings(sport_id: str):
 
     result = []
     for bracket in pool_brackets:
-        records = _build_records(by_bracket.get(bracket["id"], []), is_pool_swiss=is_pool_swiss)
-        standings = _rank_standings(records, is_pool_swiss=is_pool_swiss)
+        bracket_matches = by_bracket.get(bracket["id"], [])
+        records = _build_records(bracket_matches, is_pool_swiss=is_pool_swiss)
+        standings = _rank_standings(records, matches=bracket_matches, is_pool_swiss=is_pool_swiss)
         result.append({
             "bracket_id": bracket["id"],
             "name": bracket["name"],
