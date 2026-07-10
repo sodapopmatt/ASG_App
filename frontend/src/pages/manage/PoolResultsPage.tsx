@@ -307,7 +307,7 @@ export default function PoolResultsPage() {
 
   const matchesQuery   = useQuery({
     queryKey: ['matches', { sport_id: sportId }],
-    queryFn: () => getMatches({ sport_id: sportId! }),
+    queryFn: ({ signal }) => getMatches({ sport_id: sportId!, signal }),
     enabled: !!sportId,
     refetchInterval: 5000,
   })

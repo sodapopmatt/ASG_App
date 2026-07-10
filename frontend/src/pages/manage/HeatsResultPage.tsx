@@ -88,13 +88,24 @@ function TeamRow({
 
   const mutation = useMutation({
     mutationFn: (body: { time_ms?: number; forfeit?: boolean }) => submitHeatResult(match!.id, body),
+    // Cancel any in-flight matches poll first so a late, pre-mutation response
+    // can't land after our patch and stomp the fresh result back to stale
+    // values (the "have to submit twice" symptom).
+    onMutate: () => qc.cancelQueries({ queryKey: ['matches'] }),
     onSuccess: (updated) => {
       // Patch the changed match into every cached matches list directly from
       // the response instead of waiting on a full refetch — GET /matches
       // recomputes estimated_start for every match in the sport on each
       // call, which is slow enough to notice.
+      //
+      // /heat-result never joins `locations` or computes `estimated_start`
+      // (only GET /matches does), so keep the previously known values for
+      // those two fields instead of letting the response null them out —
+      // otherwise the court/time briefly blanks and then "reloads".
       qc.setQueriesData<Match[]>({ queryKey: ['matches'] }, old =>
-        old ? old.map(m => (m.id === updated.id ? { ...m, ...updated } : m)) : old,
+        old ? old.map(m => (m.id === updated.id
+          ? { ...m, ...updated, locations: m.locations, estimated_start: m.estimated_start }
+          : m)) : old,
       )
       qc.invalidateQueries({ queryKey: ['matches'] })
       setError(null)
@@ -412,7 +423,7 @@ export default function HeatsResultPage() {
   const { data: companies = [] } = useQuery({ queryKey: ['companies'], queryFn: getCompanies, staleTime: Infinity })
   const { data: matches = [], isLoading: matchesLoading } = useQuery({
     queryKey: ['matches', { sport_id: sportId }],
-    queryFn: () => getMatches({ sport_id: sportId }),
+    queryFn: ({ signal }) => getMatches({ sport_id: sportId, signal }),
     enabled: !!sportId,
     refetchInterval: 5000,
   })

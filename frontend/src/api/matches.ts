@@ -1,13 +1,13 @@
 import { apiFetch } from './client'
 import type { Match } from '../types'
 
-export function getMatches(params?: { sport_id?: string; bracket_id?: string; status?: string }) {
+export function getMatches(params?: { sport_id?: string; bracket_id?: string; status?: string; signal?: AbortSignal }) {
   const q = new URLSearchParams()
   if (params?.sport_id) q.set('sport_id', params.sport_id)
   if (params?.bracket_id) q.set('bracket_id', params.bracket_id)
   if (params?.status) q.set('status', params.status)
   const qs = q.toString()
-  return apiFetch<Match[]>(`/matches${qs ? `?${qs}` : ''}`)
+  return apiFetch<Match[]>(`/matches${qs ? `?${qs}` : ''}`, { signal: params?.signal })
 }
 
 export function startMatch(matchId: string) {

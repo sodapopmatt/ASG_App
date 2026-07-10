@@ -171,7 +171,7 @@ export default function GolfResultsPage() {
   })
   const { data: matches = [], isLoading: matchesLoading } = useQuery<Match[]>({
     queryKey: ['matches', { sport_id: sportId }],
-    queryFn: () => getMatches({ sport_id: sportId! }),
+    queryFn: ({ signal }) => getMatches({ sport_id: sportId!, signal }),
     enabled: !!sportId,
     refetchInterval: 5000,
   })
@@ -193,14 +193,25 @@ export default function GolfResultsPage() {
   const saveMutation = useMutation({
     mutationFn: (vars: { matchId: string; holeScores?: number[]; forfeit?: boolean }) =>
       submitGolfResult(vars.matchId, vars.forfeit ? { forfeit: true } : { hole_scores: vars.holeScores! }),
+    // Cancel any in-flight matches poll first so a late, pre-mutation response
+    // can't land after our patch and stomp the fresh result back to stale
+    // values (the "have to submit twice" symptom).
+    onMutate: () => qc.cancelQueries({ queryKey: ['matches'] }),
     onSuccess: updated => {
       // Patch the one changed match into the cache directly from the response
       // instead of waiting on a full refetch — GET /matches recomputes
       // estimated_start for every match in the sport on each call, which is
       // slow enough to notice. The row updates instantly; a background
       // invalidate still runs to eventually pick up any downstream effects.
+      //
+      // /golf-results never joins `locations` or computes `estimated_start`
+      // (only GET /matches does), so keep the previously known values for
+      // those two fields instead of letting the response null them out —
+      // otherwise the court/time briefly blanks and then "reloads".
       qc.setQueryData<Match[]>(['matches', { sport_id: sportId }], old =>
-        old ? old.map(m => (m.id === updated.id ? { ...m, ...updated } : m)) : old,
+        old ? old.map(m => (m.id === updated.id
+          ? { ...m, ...updated, locations: m.locations, estimated_start: m.estimated_start }
+          : m)) : old,
       )
       qc.invalidateQueries({ queryKey: ['matches'] })
       // Deliberately does NOT touch event_points/leaderboard — standings only

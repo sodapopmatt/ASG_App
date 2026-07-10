@@ -41,14 +41,29 @@ export default function MatchResultModal({
   const isScheduled = match.status === 'scheduled'
   const isDone = match.status === 'completed' || match.status === 'forfeit' || match.status === 'double_forfeit' || match.status === 'draw'
 
+  // Cancel any in-flight matches fetch (e.g. a 5s poll that started before this
+  // mutation) before we write to the cache, so a slow late-arriving response
+  // built from pre-mutation data can't land afterward and stomp our fresh
+  // write back to stale values — the "have to submit twice" symptom.
+  const cancelMatches = () => qc.cancelQueries({ queryKey: ['matches'] })
+
   // Patch the one changed match into every cached matches list directly from
   // the response instead of waiting on a full refetch — GET /matches
   // recomputes estimated_start for every match in the sport on each call,
   // which is slow enough to notice. The row updates instantly; a background
   // invalidate still runs to eventually pick up any downstream effects.
+  //
+  // None of the mutation endpoints (result/forfeit/draw/reset/patch) join
+  // `locations` or compute `estimated_start` — those are only ever produced
+  // by GET /matches. Spreading the raw response over the cached row would
+  // null both out for a moment (the court/time visibly blanking, then
+  // "reloading" once the next poll/invalidate lands), so keep the previously
+  // known values for those two fields until a real GET refreshes them.
   const patchMatchCache = (updated: Match) => {
     qc.setQueriesData<Match[]>({ queryKey: ['matches'] }, old =>
-      old ? old.map(m => (m.id === updated.id ? { ...m, ...updated } : m)) : old,
+      old ? old.map(m => (m.id === updated.id
+        ? { ...m, ...updated, locations: m.locations, estimated_start: m.estimated_start }
+        : m)) : old,
     )
     qc.invalidateQueries({ queryKey: ['matches'] })
   }
@@ -57,12 +72,13 @@ export default function MatchResultModal({
 
 
 
-  const startMutation  = useMutation({ mutationFn: () => startMatch(match.id), onSuccess, onError })
+  const startMutation  = useMutation({ mutationFn: () => startMatch(match.id), onMutate: cancelMatches, onSuccess, onError })
   const scoreMutation  = useMutation({
     mutationFn: () => patchMatch(match.id, {
       home_score: homeScore.trim() === '' ? null : Number(homeScore),
       away_score: awayScore.trim() === '' ? null : Number(awayScore),
     }),
+    onMutate: cancelMatches,
     onSuccess: patchMatchCache,
     onError,
   })
@@ -71,6 +87,7 @@ export default function MatchResultModal({
       home_score: homeScore.trim() === '' ? null : Number(homeScore),
       away_score: awayScore.trim() === '' ? null : Number(awayScore),
     }),
+    onMutate: cancelMatches,
     onSuccess,
     onError,
   })
@@ -83,12 +100,13 @@ export default function MatchResultModal({
       home_points_total: homePointsTotal.trim() === '' ? null : Number(homePointsTotal),
       away_points_total: awayPointsTotal.trim() === '' ? null : Number(awayPointsTotal),
     }),
+    onMutate: cancelMatches,
     onSuccess,
     onError,
   })
-  const forfeitMutation      = useMutation({ mutationFn: (forfeitingTeamId: string) => submitForfeit(match.id, forfeitingTeamId), onSuccess, onError })
-  const doubleForfeitMutation = useMutation({ mutationFn: () => submitDoubleForfeit(match.id), onSuccess, onError })
-  const resetMutation = useMutation({ mutationFn: () => resetMatch(match.id), onSuccess, onError })
+  const forfeitMutation      = useMutation({ mutationFn: (forfeitingTeamId: string) => submitForfeit(match.id, forfeitingTeamId), onMutate: cancelMatches, onSuccess, onError })
+  const doubleForfeitMutation = useMutation({ mutationFn: () => submitDoubleForfeit(match.id), onMutate: cancelMatches, onSuccess, onError })
+  const resetMutation = useMutation({ mutationFn: () => resetMatch(match.id), onMutate: cancelMatches, onSuccess, onError })
 
   const isPending = startMutation.isPending || resultMutation.isPending || drawMutation.isPending || scoreMutation.isPending || forfeitMutation.isPending || doubleForfeitMutation.isPending || resetMutation.isPending
 
