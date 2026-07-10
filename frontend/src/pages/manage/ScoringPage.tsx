@@ -663,17 +663,19 @@ function GolfScoringSection({
       rows.push({ company, rank: participantRank, label: 'R1 only', finalist: false })
     }
 
-    // Companies with no result at all yet — show as blank rows, same as
-    // sports with no matches yet (ComputedScoringSection's buildManualRows).
+    // Companies with a team in this sport but no result at all yet — show as
+    // blank rows. Only companies that actually fielded a team here (not the
+    // whole company list) so a company that never entered Golf doesn't show up.
     const accounted = new Set(rows.map(r => r.company.id))
+    const sportCompanyIds = new Set(teams.map(t => t.company_id))
     const blanks = companies
-      .filter(c => !accounted.has(c.id))
+      .filter(c => sportCompanyIds.has(c.id) && !accounted.has(c.id))
       .sort((a, b) => a.name.localeCompare(b.name))
     for (const company of blanks) {
       rows.push({ company, rank: null, label: 'No results yet', finalist: false })
     }
     return rows
-  }, [matches, brackets, companies, companyByTeam, companyById])
+  }, [matches, brackets, companies, teams, companyByTeam, companyById])
 
   // What actually got saved last time — the baseline default, so a save
   // survives navigating away and back rather than resetting to a fresh
