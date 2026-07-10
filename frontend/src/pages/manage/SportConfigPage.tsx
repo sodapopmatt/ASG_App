@@ -996,6 +996,7 @@ export default function SportConfigPage() {
   const isPoolSwiss = sport?.bracket_type === 'pool_swiss'
   const isWaterball = sport?.scoring_mode === 'water_ball_toss'
   const isGolf = sport?.scoring_mode === 'executive_golf'
+  const isPickleball = sport?.name === 'Pickleball'
 
   const alreadyGenerated = matches.length > 0
 
@@ -1249,6 +1250,9 @@ const genMutation = useMutation({
       if (configAdvancePerPool !== null && configAdvancePerPool !== (sport?.advance_per_pool ?? defaultAdvancePerPool)) {
         await updateSport(sportId!, { advance_per_pool: configAdvancePerPool })
       }
+      // Persist the seed order so bracket slots show seed numbers, same as
+      // the elimination-sport generate path does.
+      await setSeedOrder(sportId!, advancing)
       return generateBracket(sportId!, advancing, false)
     },
     onSuccess: () => {
@@ -2076,9 +2080,11 @@ const genMutation = useMutation({
                         </span>
                         {record && (
                           <span className="text-xs text-gray-400 shrink-0">
-                            {record.wins}–{record.losses} · {record.goal_diff >= 0 ? '+' : ''}{record.goal_diff}GD · {record.goals_for}GF
-                            {sport?.name === 'Pickleball' && (
-                              <> · {record.game_wins}GW · {record.point_diff >= 0 ? '+' : ''}{record.point_diff}PD</>
+                            {record.wins}–{record.losses}
+                            {isPickleball ? (
+                              <> · {record.game_wins}GW · {record.point_diff >= 0 ? '+' : ''}{record.point_diff}PD · {record.total_points}TP</>
+                            ) : (
+                              <> · {record.goal_diff >= 0 ? '+' : ''}{record.goal_diff}GD · {record.goals_for}GF</>
                             )}
                           </span>
                         )}
