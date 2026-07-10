@@ -209,12 +209,21 @@ export default function ResultsPage() {
     return map
   }, [activeMatches])
 
+  // A sport with a dedicated results page (bracket/heats/pool) should stay
+  // listed even once every match is decided — e.g. pool play finishing with
+  // no bracket phase generated yet still has a standings/results page worth
+  // reaching from here. Gate on "has any match ever", not "has a pending one".
+  const sportIdsWithAnyMatches = useMemo(
+    () => new Set(allMatches.map(m => m.sport_id)),
+    [allMatches],
+  )
+
   const sportsWithMatches = useMemo(
     () =>
       sports
-        .filter(s => matchesBySport.has(s.id) || s.scoring_mode === 'donation_count' || s.scoring_mode === 'water_ball_toss' || s.scoring_mode === 'executive_golf')
+        .filter(s => sportIdsWithAnyMatches.has(s.id) || s.scoring_mode === 'donation_count' || s.scoring_mode === 'water_ball_toss' || s.scoring_mode === 'executive_golf')
         .sort((a, b) => a.name.localeCompare(b.name)),
-    [sports, matchesBySport],
+    [sports, sportIdsWithAnyMatches],
   )
 
   if (isLoading) {
