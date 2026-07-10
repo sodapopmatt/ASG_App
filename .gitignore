@@ -1,1 +1,8 @@
 .claude/settings.local.json
+
+# Supabase credentials (production + sandbox) — never commit these
+backend/.env
+backend/.env.*
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
