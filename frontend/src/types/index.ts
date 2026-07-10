@@ -74,6 +74,7 @@ export interface Match {
   notes: string | null
   created_at: string
   estimated_start: string | null
+  pushed_by_block: boolean
 }
 
 export interface Bracket {

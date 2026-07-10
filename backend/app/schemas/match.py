@@ -87,3 +87,4 @@ class Match(BaseModel):
     notes: str | None
     created_at: datetime
     estimated_start: datetime | None = None
+    pushed_by_block: bool = False

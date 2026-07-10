@@ -106,3 +106,108 @@ def test_no_blocks_is_a_no_op():
     ]
     est = _compute(matches, blocks=[])
     assert est["m1"] == datetime(2026, 7, 9, 11, 50, tzinfo=timezone.utc)
+
+
+# ── pushed_by_block (GET /matches field) ────────────────────────────────────
+# StatusBadge on the Schedule page shows an orange "~time" when
+# estimated_start slips later than scheduled_at. Without this field, every
+# match queued behind a lunch/photo block on the same court would show that
+# treatment forever, even though none of the shift is "real" backup — it's
+# all one lunch break. pushed_by_block distinguishes the two by comparing the
+# real (with-blocks) estimate against a same-instant baseline computed with no
+# blocks at all.
+
+import app.routers.matches as matches_router
+from fake_db import FakeSupabase
+
+
+def _seed_sport(db, duration=20):
+    return db.table("sports").insert({
+        "name": "Test Sport",
+        "bracket_type": "single_elimination",
+        "match_duration_minutes": duration,
+    }).execute().data[0]["id"]
+
+
+def _seed_match(db, sport_id, scheduled_at, location_id="north"):
+    return db.table("matches").insert({
+        "sport_id": sport_id,
+        "home_team_id": "t1",
+        "away_team_id": "t2",
+        "location_id": location_id,
+        "status": "scheduled",
+        "scheduled_at": scheduled_at.isoformat(),
+    }).execute().data[0]
+
+
+def _seed_block(db, start, end):
+    db.table("schedule_blocks").insert({
+        "label": "Lunch",
+        "start_time": start.isoformat(),
+        "end_time": end.isoformat(),
+    }).execute()
+
+
+def test_pushed_by_block_true_for_match_landing_on_block_end(monkeypatch):
+    db = FakeSupabase()
+    monkeypatch.setattr(matches_router, "supabase", db)
+    sport_id = _seed_sport(db)
+    _seed_block(db, LUNCH_START, LUNCH_END)
+    m1 = _seed_match(db, sport_id, LUNCH_START + timedelta(minutes=10))  # overlaps lunch
+
+    result = matches_router._attach_estimated_starts([m1])[0]
+
+    assert result["estimated_start"] == LUNCH_END
+    assert result["pushed_by_block"] is True
+
+
+def test_pushed_by_block_true_for_second_match_queued_behind_the_first(monkeypatch):
+    """The actual bug this field fixes: m2 is pushed by 20 extra minutes past
+    the block's end (queued behind m1 on the same court) — it never lands
+    exactly on a block boundary, but the shift is still 100% the same lunch
+    break, not independent backup."""
+    db = FakeSupabase()
+    monkeypatch.setattr(matches_router, "supabase", db)
+    sport_id = _seed_sport(db)
+    _seed_block(db, LUNCH_START, LUNCH_END)
+    m1 = _seed_match(db, sport_id, LUNCH_START + timedelta(minutes=10))
+    m2 = _seed_match(db, sport_id, LUNCH_START + timedelta(minutes=30))
+
+    result = {r["id"]: r for r in matches_router._attach_estimated_starts([m1, m2])}
+
+    assert result[m1["id"]]["estimated_start"] == LUNCH_END
+    assert result[m2["id"]]["estimated_start"] == LUNCH_END + timedelta(minutes=20)
+    assert result[m1["id"]]["pushed_by_block"] is True
+    assert result[m2["id"]]["pushed_by_block"] is True
+
+
+def test_pushed_by_block_false_when_real_backup_exists_independent_of_block(monkeypatch):
+    """m2 would already be running late even with no block at all (its court
+    is held up by m1, which starts on time and takes its full duration) — a
+    schedule block that happens to also apply elsewhere in the day should not
+    mask that real delay."""
+    db = FakeSupabase()
+    monkeypatch.setattr(matches_router, "supabase", db)
+    sport_id = _seed_sport(db, duration=20)
+    far_away_start = datetime(2026, 7, 9, 15, 0, tzinfo=timezone.utc)
+    far_away_end = datetime(2026, 7, 9, 15, 5, tzinfo=timezone.utc)
+    _seed_block(db, far_away_start, far_away_end)  # irrelevant to this court's timing
+    m1 = _seed_match(db, sport_id, datetime(2026, 7, 9, 11, 0, tzinfo=timezone.utc))
+    m2 = _seed_match(db, sport_id, datetime(2026, 7, 9, 11, 10, tzinfo=timezone.utc))  # overlaps m1
+
+    result = {r["id"]: r for r in matches_router._attach_estimated_starts([m1, m2])}
+
+    m2_result = result[m2["id"]]
+    assert m2_result["estimated_start"] == datetime(2026, 7, 9, 11, 20, tzinfo=timezone.utc)
+    assert m2_result["pushed_by_block"] is False
+
+
+def test_pushed_by_block_false_with_no_blocks_at_all(monkeypatch):
+    db = FakeSupabase()
+    monkeypatch.setattr(matches_router, "supabase", db)
+    sport_id = _seed_sport(db)
+    m1 = _seed_match(db, sport_id, datetime(2026, 7, 9, 11, 0, tzinfo=timezone.utc))
+
+    result = matches_router._attach_estimated_starts([m1])[0]
+
+    assert result["pushed_by_block"] is False

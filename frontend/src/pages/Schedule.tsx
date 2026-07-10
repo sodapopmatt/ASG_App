@@ -219,9 +219,14 @@ function StatusBadge({ match }: { match: Match }) {
       )
     }
 
+    // pushed_by_block (backend-computed) means the shift is fully explained
+    // by a schedule block (lunch/photo) — not real backup — so it renders
+    // the same as on-schedule.
+    const showAsPushed = isPushed && !match.pushed_by_block
+
     return (
-      <span className={`${base} ${isPushed ? 'text-orange-700 bg-orange-100' : 'text-blue-700 bg-blue-100'}`}>
-        {effectiveTime ? `${isPushed ? '~' : ''}${formatTime(effectiveTime)}` : 'TBD'}
+      <span className={`${base} ${showAsPushed ? 'text-orange-700 bg-orange-100' : 'text-blue-700 bg-blue-100'}`}>
+        {effectiveTime ? `${showAsPushed ? '~' : ''}${formatTime(effectiveTime)}` : 'TBD'}
       </span>
     )
   }
@@ -1127,10 +1132,10 @@ export default function Schedule() {
   )
 
   // Schedule blocks (lunch, group photo, ...) render as plain event cards,
-  // same as scheduleOnlySports, slotted into the list by their actual time
-  // rather than always pinned to the top or bottom.
+  // pinned to the top of the list ahead of every sport — regardless of their
+  // actual time — so they're never buried mid-list.
   const scheduleCards = useMemo(() => {
-    const cards: { key: string; time: number; node: React.ReactNode }[] = [
+    const cards: { key: string; time: number; pinned?: boolean; node: React.ReactNode }[] = [
       ...scheduleOnlySports.map(s => ({
         key: `sport-only-${s.id}`,
         time: s.schedule_start ? new Date(s.schedule_start).getTime() : Infinity,
@@ -1139,6 +1144,7 @@ export default function Schedule() {
       ...scheduleBlocks.map(b => ({
         key: `block-${b.id}`,
         time: new Date(b.start_time).getTime(),
+        pinned: true,
         node: <ScheduleBlockCard key={b.id} block={b} />,
       })),
       ...grouped.map(({ sportId, sport, rounds }) => {
@@ -1165,7 +1171,10 @@ export default function Schedule() {
         }
       }),
     ]
-    return cards.sort((a, b) => a.time - b.time)
+    return cards.sort((a, b) => {
+      if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1
+      return a.time - b.time
+    })
   }, [scheduleOnlySports, scheduleBlocks, grouped, teamMap, companyMap, multiTeamKeys, expandedSports])
 
   function toggleSport(sportId: string) {

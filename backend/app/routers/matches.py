@@ -259,8 +259,24 @@ def _attach_estimated_starts(matches: list[dict]) -> list[dict]:
     blocks = [(_parse_dt(b["start_time"]), _parse_dt(b["end_time"])) for b in block_rows]
 
     estimated = _compute_estimated_starts(matches, sport_duration_map, sport_start_map, heats_bracket_ids, blocks)
+    # Baseline with no blocks at all: comparing it to `estimated` tells us
+    # whether a match's push is fully explained by a block (baseline was
+    # already on/ahead of its scheduled slot) versus real backup that would
+    # exist regardless (baseline is itself already late). Skipped when there
+    # are no blocks since it would just duplicate `estimated`.
+    baseline = (
+        _compute_estimated_starts(matches, sport_duration_map, sport_start_map, heats_bracket_ids, None)
+        if blocks else estimated
+    )
     for m in matches:
-        m["estimated_start"] = estimated.get(m["id"])
+        est = estimated.get(m["id"])
+        m["estimated_start"] = est
+        scheduled = _parse_dt(m.get("scheduled_at"))
+        base_est = baseline.get(m["id"])
+        m["pushed_by_block"] = bool(
+            blocks and est is not None and scheduled is not None and est > scheduled
+            and base_est is not None and base_est <= scheduled
+        )
     return matches
 
 
