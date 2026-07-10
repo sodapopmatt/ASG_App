@@ -11,7 +11,7 @@ import {
 } from '@g-loot/react-tournament-brackets'
 import type { MatchType, MatchComponentProps } from '@g-loot/react-tournament-brackets'
 import { getMatches } from '../api/matches'
-import { getSports, getStandings } from '../api/sports'
+import { getSports, getStandings, getChampionshipStandings, type TeamStanding } from '../api/sports'
 import { getTeams } from '../api/teams'
 import { getCompanies } from '../api/companies'
 import { getBrackets } from '../api/brackets'
@@ -582,6 +582,112 @@ function HeatsStandingsView({
   )
 }
 
+// ---- Cornhole Swiss championship (read-only mirror of PoolResultsPage) -----
+
+function byRound(matches: Match[]): [string, Match[]][] {
+  const groups: Record<string, Match[]> = {}
+  for (const m of matches) {
+    const key = m.match_round != null ? String(m.match_round) : '?'
+    ;(groups[key] ??= []).push(m)
+  }
+  for (const key of Object.keys(groups)) {
+    groups[key].sort((a, b) => {
+      const aTime = a.scheduled_at ?? ''
+      const bTime = b.scheduled_at ?? ''
+      if (aTime !== bTime) return aTime < bTime ? -1 : 1
+      return a.id < b.id ? -1 : 1
+    })
+  }
+  return Object.entries(groups).sort(([a], [b]) => Number(a) - Number(b))
+}
+
+function ChampionshipStandingsTable({
+  standings,
+  teamMap,
+  companyMap,
+  multiTeamKeys,
+}: {
+  standings: TeamStanding[]
+  teamMap: Record<string, Team>
+  companyMap: Record<string, Company>
+  multiTeamKeys: Set<string>
+}) {
+  return (
+    <div className="rounded-xl border border-gray-200 overflow-hidden mb-4">
+      <table className="w-full text-xs">
+        <thead className="bg-gray-50 border-b border-gray-200">
+          <tr>
+            <th className="text-left px-3 py-2 font-semibold text-gray-500">#</th>
+            <th className="text-left px-3 py-2 font-semibold text-gray-500">Team</th>
+            <th className="text-center px-2 py-2 font-semibold text-gray-500">Pts</th>
+            <th className="text-center px-2 py-2 font-semibold text-gray-500">W</th>
+            <th className="text-center px-2 py-2 font-semibold text-gray-500">D</th>
+            <th className="text-center px-2 py-2 font-semibold text-gray-500">L</th>
+            <th className="text-center px-2 py-2 font-semibold text-gray-500">PD</th>
+            <th className="text-center px-2 py-2 font-semibold text-gray-500">TP</th>
+          </tr>
+        </thead>
+        <tbody>
+          {standings.map((row, i) => (
+            <tr key={row.team_id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+              <td className="px-3 py-2 font-bold text-gray-400">{row.rank}</td>
+              <td className="px-3 py-2 text-slate-700">{compactLabel(row.team_id, teamMap, companyMap, undefined, multiTeamKeys)}</td>
+              <td className="px-2 py-2 text-center font-bold text-blue-700">{row.tournament_points}</td>
+              <td className="px-2 py-2 text-center font-semibold text-green-700">{row.wins}</td>
+              <td className="px-2 py-2 text-center text-slate-600">{row.draws}</td>
+              <td className="px-2 py-2 text-center text-gray-500">{row.losses}</td>
+              <td className="px-2 py-2 text-center text-slate-600">{row.goal_diff > 0 ? `+${row.goal_diff}` : row.goal_diff}</td>
+              <td className="px-2 py-2 text-center text-slate-600">{row.goals_for}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function ChampionshipView({
+  sportId,
+  matches,
+  teamMap,
+  companyMap,
+}: {
+  sportId: string
+  matches: Match[]
+  teamMap: Record<string, Team>
+  companyMap: Record<string, Company>
+}) {
+  const { data: championship } = useQuery({
+    queryKey: ['championship-standings', sportId],
+    queryFn: () => getChampionshipStandings(sportId),
+    refetchInterval: 5000,
+  })
+  const multiTeamKeys = useMemo(() => buildMultiTeamKeys(teamMap), [teamMap])
+  const rounds = useMemo(() => byRound(matches), [matches])
+  const standings = championship?.standings ?? []
+
+  if (matches.length === 0 && standings.length === 0) {
+    return <p className="text-center text-gray-500 py-12">Championship hasn't started yet.</p>
+  }
+
+  return (
+    <div className="space-y-6">
+      {standings.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Championship Standings</p>
+          <ChampionshipStandingsTable standings={standings} teamMap={teamMap} companyMap={companyMap} multiTeamKeys={multiTeamKeys} />
+        </div>
+      )}
+      {rounds.map(([roundKey, roundMatches]) => (
+        <div key={roundKey}>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Round {roundKey}</p>
+          <FallbackMatchList matches={roundMatches} teamMap={teamMap} companyMap={companyMap} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ---- Pool play (standings + matches per pool, optional bracket phase) -------
 
 function PoolPlayView({
@@ -635,6 +741,7 @@ function PoolPlayView({
 
   const showGameScores = sport?.name?.toLowerCase() === 'pickleball'
   const showScoreStats = sport?.bracket_type === 'pool_bracket' && !showGameScores
+  const isSwiss = sport?.bracket_type === 'pool_swiss'
 
   const [phase, setPhase] = useTabMemory<'pools' | 'bracket'>(`pool-phase-${sportId}`, 'pools')
 
@@ -722,15 +829,16 @@ function PoolPlayView({
           onClick={() => setPhase('bracket')}
           className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${phase === 'bracket' ? 'bg-white shadow-sm text-slate-800' : 'text-gray-500'}`}
         >
-          Bracket Phase
+          {isSwiss ? 'Championship' : 'Bracket Phase'}
         </button>
       </div>
-      {phase === 'pools'
-        ? <DivisionTabs sections={sections} storageKey={`pool-tabs-${sportId}`} />
-        : bracketPhaseMatches.length > 0
-          ? <SingleBracketView matches={bracketPhaseMatches} teamMap={teamMap} companyMap={companyMap} showGameScores={showGameScores} />
-          : <p className="text-center text-gray-500 py-12">Bracket phase not generated yet.</p>
-      }
+      {phase === 'pools' ? (
+        <DivisionTabs sections={sections} storageKey={`pool-tabs-${sportId}`} />
+      ) : isSwiss ? (
+        <ChampionshipView sportId={sportId} matches={bracketPhaseMatches} teamMap={teamMap} companyMap={companyMap} />
+      ) : bracketPhaseMatches.length > 0
+        ? <SingleBracketView matches={bracketPhaseMatches} teamMap={teamMap} companyMap={companyMap} showGameScores={showGameScores} />
+        : <p className="text-center text-gray-500 py-12">Bracket phase not generated yet.</p>}
     </div>
   )
 }

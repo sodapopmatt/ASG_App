@@ -480,7 +480,7 @@ export default function PoolResultsPage() {
           </button>
         </div>
 
-        {phase === 'bracket' && bracketPhaseMatches.length > 0 && (
+        {phase === 'bracket' && bracketPhaseMatches.length > 0 && !showCornhole && (
           <div className="flex rounded-lg bg-gray-100 p-1 mb-4">
             <button
               onClick={() => setBracketView('bracket')}
@@ -624,7 +624,7 @@ export default function PoolResultsPage() {
               </div>
             </>
           )
-        ) : bracketView === 'court' ? (
+        ) : bracketView === 'court' && !showCornhole ? (
           <CourtQueue
             matches={bracketPhaseMatches}
             teamMap={teamMap}
