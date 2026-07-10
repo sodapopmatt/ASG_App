@@ -440,12 +440,15 @@ function formatHeatTime(ms: number): string {
   return `${m}:${String(s).padStart(2, '0')}.${String(millis).padStart(3, '0')}`
 }
 
-// Flat heats (Human Pyramid): every team has one opponent-less match whose
-// result lives in matches.notes. low_wins = smallest value first (fastest
-// time); equal values tie. Forfeits land last with 0 points by default.
+// Flat heats (Human Pyramid, Water Ball Toss): every team has one
+// opponent-less match whose result lives in matches.notes. low_wins =
+// smallest value first (fastest time); equal values tie. Forfeits land last
+// with 0 points by default. `formatValue` labels each result (default: a
+// heat time like "1:42.305"; Water Ball Toss passes a rounds-survived label).
 export function rankFlatHeats(
   matches: Match[],
   scoringDirection: 'high_wins' | 'low_wins',
+  formatValue: (value: number) => string = formatHeatTime,
 ): TieGroup[] {
   const results: { teamId: string; value: number }[] = []
   const forfeits: string[] = []
@@ -465,7 +468,7 @@ export function rankFlatHeats(
   const groups: TieGroup[] = []
   let lastValue: number | null = null
   for (const r of results) {
-    const entry: RankedTeam = { teamId: r.teamId, detail: formatHeatTime(r.value) }
+    const entry: RankedTeam = { teamId: r.teamId, detail: formatValue(r.value) }
     if (lastValue !== null && r.value === lastValue) groups[groups.length - 1].teams.push(entry)
     else groups.push({ teams: [entry] })
     lastValue = r.value

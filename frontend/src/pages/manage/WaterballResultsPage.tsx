@@ -8,16 +8,10 @@ import { getCompanies } from '../../api/companies'
 import { getTeams } from '../../api/teams'
 import { getBrackets } from '../../api/brackets'
 import { getMatches, bulkStartMatches, submitHeatResult } from '../../api/matches'
-import { waterballMatchPoints } from '../../lib/waterball'
 import type { Sport, Company, Team, Bracket, Match } from '../../types'
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [String(item[key]), item]))
-}
-
-function pointsFor(match: Match | undefined): number | null {
-  if (!match) return null
-  return waterballMatchPoints(match)
 }
 
 function TeamRow({
@@ -37,7 +31,7 @@ function TeamRow({
 }) {
   const existing = match?.status === 'completed' && match.notes != null ? parseInt(match.notes, 10) : null
   const [rounds, setRounds] = useState(existing != null && !isNaN(existing) ? String(existing) : '')
-  const points = pointsFor(match)
+  const [forceEdit, setForceEdit] = useState(false)
 
   if (!match) return null
 
@@ -52,16 +46,42 @@ function TeamRow({
     )
   }
 
+  // Once a result is saved, grey the row out to confirm it went through;
+  // "Edit" re-opens it for a correction without needing a separate flow.
+  const isSaved = match.status === 'completed' || match.status === 'forfeit'
+  const locked = (isSaved && !forceEdit) || saving
+
+  function handleSave() {
+    const n = Number(rounds)
+    if (rounds === '' || !Number.isInteger(n) || n < 0) return
+    setForceEdit(false)
+    onSave(n, false)
+  }
+
+  function handleForfeit() {
+    setForceEdit(false)
+    onSave(null, true)
+  }
+
+  function handleCancel() {
+    setRounds(existing != null && !isNaN(existing) ? String(existing) : '')
+    setForceEdit(false)
+  }
+
   return (
-    <div className="px-4 py-3 space-y-2">
+    <div className={`px-4 py-3 space-y-2 transition-colors ${locked ? 'bg-gray-50' : ''}`}>
       <div className="flex items-center gap-2">
-        <p className="flex-1 text-sm font-semibold text-slate-800 truncate">
+        <p className={`flex-1 text-sm font-semibold truncate ${locked ? 'text-gray-400' : 'text-slate-800'}`}>
           {team.name ?? `Team ${index + 1}`}
         </p>
-        {points != null && (
-          <span className="text-xs font-bold tabular-nums text-slate-700 bg-gray-50 px-2 py-0.5 rounded-full">
-            {points} pt{points === 1 ? '' : 's'}
-          </span>
+        {isSaved && !saving && (
+          <button
+            type="button"
+            onClick={() => setForceEdit(true)}
+            className="text-xs font-semibold text-blue-600"
+          >
+            Edit
+          </button>
         )}
       </div>
 
@@ -75,35 +95,38 @@ function TeamRow({
           min={0}
           inputMode="numeric"
           value={rounds}
+          disabled={locked}
           onChange={e => setRounds(e.target.value)}
-          className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-sm text-slate-800 text-right tabular-nums"
+          className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-sm text-slate-800 text-right tabular-nums disabled:bg-gray-100 disabled:text-gray-400"
           onKeyDown={e => {
-            if (e.key === 'Enter') {
-              const n = Number(rounds)
-              if (rounds !== '' && Number.isInteger(n) && n >= 0) onSave(n, false)
-            }
+            if (e.key === 'Enter') handleSave()
           }}
         />
-        <button
-          type="button"
-          onClick={() => {
-            const n = Number(rounds)
-            if (rounds === '' || !Number.isInteger(n) || n < 0) return
-            onSave(n, false)
-          }}
-          disabled={saving || rounds === ''}
-          className="text-xs font-semibold text-blue-600 disabled:text-gray-300"
-        >
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-        <button
-          type="button"
-          onClick={() => onSave(null, true)}
-          disabled={saving}
-          className="text-xs text-red-500 ml-auto"
-        >
-          Forfeit (no-show)
-        </button>
+        {saving && <span className="text-xs text-gray-400">Saving…</span>}
+        {!locked && (
+          <>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={rounds === ''}
+              className="text-xs font-semibold text-blue-600 disabled:text-gray-300"
+            >
+              Save
+            </button>
+            {forceEdit && (
+              <button type="button" onClick={handleCancel} className="text-xs text-gray-500">
+                Cancel
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleForfeit}
+              className="text-xs text-red-500 ml-auto"
+            >
+              Forfeit (no-show)
+            </button>
+          </>
+        )}
       </div>
     </div>
   )
