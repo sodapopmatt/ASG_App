@@ -41,7 +41,18 @@ export default function MatchResultModal({
   const isScheduled = match.status === 'scheduled'
   const isDone = match.status === 'completed' || match.status === 'forfeit' || match.status === 'double_forfeit' || match.status === 'draw'
 
-  const onSuccess = () => { qc.invalidateQueries({ queryKey: ['matches'] }); onClose() }
+  // Patch the one changed match into every cached matches list directly from
+  // the response instead of waiting on a full refetch — GET /matches
+  // recomputes estimated_start for every match in the sport on each call,
+  // which is slow enough to notice. The row updates instantly; a background
+  // invalidate still runs to eventually pick up any downstream effects.
+  const patchMatchCache = (updated: Match) => {
+    qc.setQueriesData<Match[]>({ queryKey: ['matches'] }, old =>
+      old ? old.map(m => (m.id === updated.id ? { ...m, ...updated } : m)) : old,
+    )
+    qc.invalidateQueries({ queryKey: ['matches'] })
+  }
+  const onSuccess = (updated: Match) => { patchMatchCache(updated); onClose() }
   const onError = (e: unknown) => setError(e instanceof Error ? e.message : 'Failed to submit')
 
 
@@ -52,7 +63,7 @@ export default function MatchResultModal({
       home_score: homeScore.trim() === '' ? null : Number(homeScore),
       away_score: awayScore.trim() === '' ? null : Number(awayScore),
     }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['matches'] }) },
+    onSuccess: patchMatchCache,
     onError,
   })
   const drawMutation   = useMutation({

@@ -487,7 +487,7 @@ export default function BracketResultsPage() {
 
       {activeMatch && (
         <MatchResultModal
-          match={activeMatch}
+          match={matchById[activeMatch.id] ?? activeMatch}
           teamMap={teamMap}
           companyMap={companyMap}
           onClose={() => setActiveMatch(null)}

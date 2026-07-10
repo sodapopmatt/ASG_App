@@ -88,7 +88,17 @@ function TeamRow({
 
   const mutation = useMutation({
     mutationFn: (body: { time_ms?: number; forfeit?: boolean }) => submitHeatResult(match!.id, body),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['matches'] }); setError(null) },
+    onSuccess: (updated) => {
+      // Patch the changed match into every cached matches list directly from
+      // the response instead of waiting on a full refetch — GET /matches
+      // recomputes estimated_start for every match in the sport on each
+      // call, which is slow enough to notice.
+      qc.setQueriesData<Match[]>({ queryKey: ['matches'] }, old =>
+        old ? old.map(m => (m.id === updated.id ? { ...m, ...updated } : m)) : old,
+      )
+      qc.invalidateQueries({ queryKey: ['matches'] })
+      setError(null)
+    },
     onError: (e) => setError(e instanceof Error ? e.message : 'Failed to save'),
   })
 

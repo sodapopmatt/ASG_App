@@ -170,10 +170,18 @@ export default function WaterballResultsPage() {
   const saveMutation = useMutation({
     mutationFn: (vars: { matchId: string; rounds_survived: number | null; forfeit: boolean }) =>
       submitHeatResult(vars.matchId, vars.forfeit ? { forfeit: true } : { time_ms: vars.rounds_survived! }),
-    onSuccess: () => {
+    onSuccess: updated => {
+      // Patch the one changed match into the cache directly from the response
+      // instead of waiting on a full refetch — GET /matches recomputes
+      // estimated_start for every match in the sport on each call, which is
+      // slow enough to notice. The row updates instantly; a background
+      // invalidate still runs to eventually pick up any downstream effects.
+      qc.setQueryData<Match[]>(['matches', { sport_id: sportId }], old =>
+        old ? old.map(m => (m.id === updated.id ? { ...m, ...updated } : m)) : old,
+      )
+      qc.invalidateQueries({ queryKey: ['matches'] })
       // Deliberately does NOT touch event_points/leaderboard here — standings
       // only update once an admin reviews and saves from the Scoring page.
-      qc.invalidateQueries({ queryKey: ['matches'] })
       setError(null)
     },
     onError: (e: unknown) => setError(e instanceof Error ? e.message : 'Failed to save'),

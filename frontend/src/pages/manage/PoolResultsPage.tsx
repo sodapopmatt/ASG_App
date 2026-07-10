@@ -349,6 +349,7 @@ export default function PoolResultsPage() {
   const sport      = useMemo(() => (sportsQuery.data ?? []).find(s => s.id === sportId), [sportsQuery.data, sportId])
 
   const sportMatches = matchesQuery.data ?? []
+  const matchById = useMemo(() => indexBy(sportMatches, 'id') as Record<string, Match>, [sportMatches])
 
   const pools: Bracket[] = useMemo(
     () => (bracketsQuery.data ?? []).filter(b => b.phase === 'pool').sort((a, b) => compareBracketNames(a.name, b.name)),
@@ -635,7 +636,7 @@ export default function PoolResultsPage() {
 
       {activeMatch && (
         <MatchResultModal
-          match={activeMatch}
+          match={matchById[activeMatch.id] ?? activeMatch}
           teamMap={teamMap}
           companyMap={companyMap}
           onClose={() => setActiveMatch(null)}
