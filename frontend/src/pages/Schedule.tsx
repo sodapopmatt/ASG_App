@@ -345,31 +345,6 @@ function getBlockIcon(label: string): string {
   return '⏸️'
 }
 
-function ScheduleBlockCard({ block }: { block: ScheduleBlock }) {
-  const now = useNow()
-  const startMs = new Date(block.start_time).getTime()
-  const endMs = new Date(block.end_time).getTime()
-  const isLive = now.getTime() >= startMs && now.getTime() < endMs
-  const timeRange = `${formatTime(block.start_time)} – ${formatTime(block.end_time)}`
-
-  return (
-    <div className="rounded-xl border border-gray-200 overflow-hidden">
-      <div className="flex items-center gap-2.5 px-4 py-3 bg-gray-50">
-        <span className="text-xl leading-none shrink-0" aria-hidden="true">{getBlockIcon(block.label)}</span>
-        <div className="flex-1 min-w-0">
-          <p className="font-semibold text-slate-800 truncate">{block.label}</p>
-          <p className="text-xs text-gray-500 truncate">{timeRange}</p>
-        </div>
-        {isLive ? (
-          <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Live</span>
-        ) : (
-          <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">Break</span>
-        )}
-      </div>
-    </div>
-  )
-}
-
 // ── Heats schedule view ──────────────────────────────────────────────────────
 
 const HEATS_PHASE_LABELS: Record<string, string> = {
@@ -1131,21 +1106,14 @@ export default function Schedule() {
     [sports],
   )
 
-  // Schedule blocks (lunch, group photo, ...) render as plain event cards,
-  // pinned to the top of the list ahead of every sport — regardless of their
-  // actual time — so they're never buried mid-list.
+  // Schedule blocks (lunch, group photo, ...) are shown in the Timeline view
+  // only, not here — this "By Sport" list stays sport-cards-only.
   const scheduleCards = useMemo(() => {
-    const cards: { key: string; time: number; pinned?: boolean; node: React.ReactNode }[] = [
+    const cards: { key: string; time: number; node: React.ReactNode }[] = [
       ...scheduleOnlySports.map(s => ({
         key: `sport-only-${s.id}`,
         time: s.schedule_start ? new Date(s.schedule_start).getTime() : Infinity,
         node: <ScheduleOnlyEventCard key={s.id} sport={s} />,
-      })),
-      ...scheduleBlocks.map(b => ({
-        key: `block-${b.id}`,
-        time: new Date(b.start_time).getTime(),
-        pinned: true,
-        node: <ScheduleBlockCard key={b.id} block={b} />,
       })),
       ...grouped.map(({ sportId, sport, rounds }) => {
         const times = rounds
@@ -1171,11 +1139,8 @@ export default function Schedule() {
         }
       }),
     ]
-    return cards.sort((a, b) => {
-      if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1
-      return a.time - b.time
-    })
-  }, [scheduleOnlySports, scheduleBlocks, grouped, teamMap, companyMap, multiTeamKeys, expandedSports])
+    return cards.sort((a, b) => a.time - b.time)
+  }, [scheduleOnlySports, grouped, teamMap, companyMap, multiTeamKeys, expandedSports])
 
   function toggleSport(sportId: string) {
     setExpandedSports(prev => {
