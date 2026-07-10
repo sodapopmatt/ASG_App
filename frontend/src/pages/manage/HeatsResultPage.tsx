@@ -414,6 +414,7 @@ export default function HeatsResultPage() {
     queryKey: ['matches', { sport_id: sportId }],
     queryFn: () => getMatches({ sport_id: sportId }),
     enabled: !!sportId,
+    refetchInterval: 5000,
   })
   const { data: brackets = [], isLoading: bracketsLoading } = useQuery({
     queryKey: ['brackets', sportId],
