@@ -19,6 +19,7 @@ import {
   scalePoints,
   defaultPoints,
   collapseToCompanies,
+  buildManualRows,
   rankSingleElim,
   rankDoubleElim,
   rankPoolBracket,
@@ -27,6 +28,14 @@ import {
   rankRelayHeats,
 } from '../../lib/ranking'
 import type { CompanyRow, TieGroup } from '../../lib/ranking'
+
+const ChevronDownIcon = ({ open }: { open: boolean }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+    fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    className={`transition-transform shrink-0 ${open ? 'rotate-180' : ''}`}>
+    <polyline points="6 9 12 15 18 9" />
+  </svg>
+)
 
 // Runs `fn` over `items` with at most `limit` requests in flight at once —
 // firing dozens of writes fully in parallel can overwhelm the connection
@@ -215,31 +224,46 @@ function AutoRankedScoringSection({
                   style={{ gridTemplateColumns: '2rem 1fr 3rem 3.5rem 3.5rem' }}
                 >
                   <span className="text-xs font-bold text-gray-400 tabular-nums">{p ?? '—'}</span>
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-800 truncate">
-                      {row.companyName}
-                      {row.forfeited && (
-                        <span className="ml-1.5 align-middle text-[10px] font-bold text-amber-700 bg-amber-100 rounded px-1.5 py-0.5">
-                          Forfeit
-                        </span>
-                      )}
-                    </p>
-                    <p className="text-xs text-gray-400 truncate">{row.detail}</p>
-                    {hasOtherTeams && (
-                      <button
-                        type="button"
-                        onClick={() => setExpandedRows(prev => {
-                          const next = new Set(prev)
-                          if (expanded) next.delete(row.companyId)
-                          else next.add(row.companyId)
-                          return next
-                        })}
-                        className="text-xs text-blue-600 font-medium mt-0.5"
-                      >
-                        {expanded ? '▾ Hide teams' : `▸ ${row.otherTeams.length} other team${row.otherTeams.length > 1 ? 's' : ''}`}
-                      </button>
-                    )}
-                  </div>
+                  {hasOtherTeams ? (
+                    <button
+                      type="button"
+                      onClick={() => setExpandedRows(prev => {
+                        const next = new Set(prev)
+                        if (expanded) next.delete(row.companyId)
+                        else next.add(row.companyId)
+                        return next
+                      })}
+                      className="min-w-0 flex items-center gap-2 text-left"
+                    >
+                      <ChevronDownIcon open={expanded} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-slate-800 truncate flex items-center gap-1.5">
+                          <span className="truncate">{row.companyName}</span>
+                          <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full shrink-0">
+                            {row.otherTeams.length + 1}
+                          </span>
+                          {row.forfeited && (
+                            <span className="text-[10px] font-bold text-amber-700 bg-amber-100 rounded px-1.5 py-0.5 shrink-0">
+                              Forfeit
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-xs text-gray-400 truncate">{row.detail}</p>
+                      </div>
+                    </button>
+                  ) : (
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-800 truncate">
+                        {row.companyName}
+                        {row.forfeited && (
+                          <span className="ml-1.5 align-middle text-[10px] font-bold text-amber-700 bg-amber-100 rounded px-1.5 py-0.5">
+                            Forfeit
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-xs text-gray-400 truncate">{row.detail}</p>
+                    </div>
+                  )}
                   <button
                     type="button"
                     onClick={() => setEditingRows(prev => {
@@ -276,11 +300,15 @@ function AutoRankedScoringSection({
                   />
                 </div>
                 {expanded && hasOtherTeams && (
-                  <div className="px-4 pb-2 -mt-1 pl-[2rem] space-y-0.5">
+                  <div className="px-4 pb-2.5 pl-[3.25rem] space-y-1">
                     {row.otherTeams.map((t, i) => (
-                      <p key={i} className="text-xs text-gray-400">
-                        <span className="font-medium text-gray-500">{t.teamName}</span> — {t.detail}
-                      </p>
+                      <div
+                        key={i}
+                        className="flex items-center justify-between gap-2 bg-gray-50 rounded-lg border border-gray-200 px-3 py-1.5"
+                      >
+                        <span className="text-xs font-medium text-slate-600">{t.teamName}</span>
+                        <span className="text-xs text-gray-400">{t.detail}</span>
+                      </div>
                     ))}
                   </div>
                 )}
@@ -391,130 +419,21 @@ function ComputedScoringSection({
     return <p className="text-sm text-gray-400 text-center py-6">Loading…</p>
   }
 
-  if (rows.length === 0) {
-    return (
-      <div className="space-y-3">
-        <p className="text-xs text-gray-400 text-center">
-          Nothing to auto-rank yet — placements are computed once results come in, or can be entered manually below.
-        </p>
-        <StandardScoringSection sport={sport} companies={companies} eventPoints={eventPoints} />
-      </div>
-    )
-  }
+  const savedByCompany = Object.fromEntries(
+    eventPoints.filter(ep => ep.sport_id === sport.id).map(ep => [ep.company_id, ep])
+  )
+  const displayRows = rows.length > 0 ? rows : buildManualRows(companies, savedByCompany)
+  const footnote = rows.length > 0
+    ? (RANKING_FOOTNOTES[sport.bracket_type] ?? 'The leaderboard only updates once you publish.')
+    : 'No results recorded yet — enter placements manually below. The leaderboard only updates once you publish.'
 
   return (
     <AutoRankedScoringSection
       sport={sport}
-      rows={rows}
+      rows={displayRows}
       eventPoints={eventPoints}
-      footnote={RANKING_FOOTNOTES[sport.bracket_type] ?? 'The leaderboard only updates once you publish.'}
+      footnote={footnote}
     />
-  )
-}
-
-// ── Standard scoring (inline placement table for non-relay sports) ────────────
-
-function StandardScoringSection({
-  sport,
-  companies,
-  eventPoints,
-}: {
-  sport: Sport
-  companies: Company[]
-  eventPoints: EventPoints[]
-}) {
-  const qc = useQueryClient()
-  const sportPoints = useMemo(
-    () => eventPoints.filter(ep => ep.sport_id === sport.id),
-    [eventPoints, sport.id],
-  )
-  const existingByCompany = useMemo(
-    () => Object.fromEntries(sportPoints.map(ep => [ep.company_id, ep])),
-    [sportPoints],
-  )
-
-  const [placements, setPlacements] = useState<Record<string, string>>(() =>
-    Object.fromEntries(sportPoints.map(ep => [ep.company_id, String(ep.placement)]))
-  )
-  const [saving, setSaving] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
-  const [saved, setSaved] = useState(false)
-
-  // Sort: placed companies first (by placement), then unplaced alphabetically
-  const sortedCompanies = useMemo(() => {
-    return [...companies].sort((a, b) => {
-      const pa = existingByCompany[a.id]?.placement
-      const pb = existingByCompany[b.id]?.placement
-      if (pa != null && pb != null) return pa - pb
-      if (pa != null) return -1
-      if (pb != null) return 1
-      return a.name.localeCompare(b.name)
-    })
-  }, [companies, existingByCompany])
-
-  async function handleSaveAll() {
-    setSaving(true)
-    setSaveError(null)
-    try {
-      for (const company of companies) {
-        const p = placements[company.id]
-        if (!p) continue
-        await awardPlacement(company.id, sport.id, Number(p))
-      }
-      qc.invalidateQueries({ queryKey: ['event-points'] })
-      qc.invalidateQueries({ queryKey: ['leaderboard'] })
-      setSaved(true)
-      setTimeout(() => setSaved(false), 3000)
-    } catch (e) {
-      setSaveError(e instanceof Error ? e.message : 'Failed to save placements')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="grid gap-2 px-4 py-2 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-400 uppercase tracking-wider"
-          style={{ gridTemplateColumns: '2rem 1fr auto auto' }}>
-          <span>#</span><span>Company</span><span className="text-right">Pts</span><span className="text-right">Place</span>
-        </div>
-        <div className="divide-y divide-gray-50">
-          {sortedCompanies.map(company => {
-            const existing = existingByCompany[company.id]
-            const p = placements[company.id]
-            return (
-              <div key={company.id} className="grid items-center px-4 py-2.5 gap-2"
-                style={{ gridTemplateColumns: '2rem 1fr auto auto' }}>
-                <span className="text-xs font-bold text-gray-400 tabular-nums">
-                  {existing?.placement ?? '—'}
-                </span>
-                <span className="text-sm font-semibold text-slate-800 truncate">{company.name}</span>
-                <span className={`text-sm font-bold tabular-nums ${existing ? 'text-blue-600' : 'text-gray-200'}`}>
-                  {existing?.points ?? 0}
-                </span>
-                <input
-                  type="number"
-                  min={1}
-                  value={p ?? ''}
-                  onChange={e => setPlacements(prev => ({ ...prev, [company.id]: e.target.value }))}
-                  placeholder="—"
-                  className="w-14 text-center text-sm rounded-lg border border-gray-200 px-2 py-1 text-slate-700 tabular-nums"
-                />
-              </div>
-            )
-          })}
-        </div>
-      </div>
-      {saveError && <p className="text-sm text-red-600">{saveError}</p>}
-      <button
-        onClick={handleSaveAll}
-        disabled={saving}
-        className="w-full py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
-      >
-        {saving ? 'Saving…' : saved ? 'Saved!' : 'Save All Placements'}
-      </button>
-    </div>
   )
 }
 

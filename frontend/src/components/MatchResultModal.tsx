@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { startMatch, submitResult, submitForfeit, submitDoubleForfeit, submitDraw, patchMatch } from '../api/matches'
+import { startMatch, submitResult, submitForfeit, submitDoubleForfeit, submitDraw, patchMatch, resetMatch } from '../api/matches'
 import type { Match, Team, Company } from '../types'
 import { buildMultiTeamKeys, compactLabel } from '../lib/bracketHelpers'
 
@@ -77,8 +77,9 @@ export default function MatchResultModal({
   })
   const forfeitMutation      = useMutation({ mutationFn: (forfeitingTeamId: string) => submitForfeit(match.id, forfeitingTeamId), onSuccess, onError })
   const doubleForfeitMutation = useMutation({ mutationFn: () => submitDoubleForfeit(match.id), onSuccess, onError })
+  const resetMutation = useMutation({ mutationFn: () => resetMatch(match.id), onSuccess, onError })
 
-  const isPending = startMutation.isPending || resultMutation.isPending || drawMutation.isPending || scoreMutation.isPending || forfeitMutation.isPending || doubleForfeitMutation.isPending
+  const isPending = startMutation.isPending || resultMutation.isPending || drawMutation.isPending || scoreMutation.isPending || forfeitMutation.isPending || doubleForfeitMutation.isPending || resetMutation.isPending
 
   const handleForfeit = (forfeitingTeamId: string, label: string) => {
     if (!window.confirm(`Mark "${label}" as forfeited? Their opponent will be recorded as the winner.`)) return
@@ -88,6 +89,11 @@ export default function MatchResultModal({
   const handleDoubleForfeit = () => {
     if (!window.confirm('Mark both teams as forfeited? Neither team will advance.')) return
     doubleForfeitMutation.mutate()
+  }
+
+  const handleReset = () => {
+    if (!window.confirm('Undo this match\'s result and return it to unplayed? Any team that already advanced because of this result will be pulled back out of later matches.')) return
+    resetMutation.mutate()
   }
 
   const switchMode = (next: PanelMode) => { setMode(next); setError(null) }
@@ -146,36 +152,40 @@ export default function MatchResultModal({
         <div className="px-4 py-4 space-y-3">
           {mode === 'result' && (
             <>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Score (optional)</p>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1 truncate">{homeLabel}</label>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    min={0}
-                    value={homeScore}
-                    onChange={e => { setHomeScore(e.target.value); setError(null) }}
-                    placeholder="—"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-center text-slate-800 tabular-nums"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1 truncate">{awayLabel}</label>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    min={0}
-                    value={awayScore}
-                    onChange={e => { setAwayScore(e.target.value); setError(null) }}
-                    placeholder="—"
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-center text-slate-800 tabular-nums"
-                  />
-                </div>
-              </div>
+              {!showGameScores && (
+                <>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Score</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1 truncate">{homeLabel}</label>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        value={homeScore}
+                        onChange={e => { setHomeScore(e.target.value); setError(null) }}
+                        placeholder="—"
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-center text-slate-800 tabular-nums"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1 truncate">{awayLabel}</label>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        value={awayScore}
+                        onChange={e => { setAwayScore(e.target.value); setError(null) }}
+                        placeholder="—"
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-center text-slate-800 tabular-nums"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
               {showGameScores && (
                 <>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider pt-1">Games Won (optional)</p>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider pt-1">Games Won</p>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="block text-xs text-gray-400 mb-1 truncate">{homeLabel}</label>
@@ -202,7 +212,7 @@ export default function MatchResultModal({
                       />
                     </div>
                   </div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider pt-1">Total Points (optional)</p>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider pt-1">Total Points</p>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="block text-xs text-gray-400 mb-1 truncate">{homeLabel}</label>
@@ -231,13 +241,15 @@ export default function MatchResultModal({
                   </div>
                 </>
               )}
-              <button
-                onClick={() => scoreMutation.mutate()}
-                disabled={isPending || (homeScore.trim() === '' && awayScore.trim() === '')}
-                className="w-full py-2 rounded-xl bg-amber-50 border border-amber-300 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-40 transition-colors"
-              >
-                {scoreMutation.isPending ? 'Saving…' : 'Update Score'}
-              </button>
+              {!showGameScores && (
+                <button
+                  onClick={() => scoreMutation.mutate()}
+                  disabled={isPending || (homeScore.trim() === '' && awayScore.trim() === '')}
+                  className="w-full py-2 rounded-xl bg-amber-50 border border-amber-300 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-40 transition-colors"
+                >
+                  {scoreMutation.isPending ? 'Saving…' : 'Update Score'}
+                </button>
+              )}
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider pt-1">Who won?</p>
               <div className="grid grid-cols-2 gap-2">
                 <button
@@ -255,12 +267,23 @@ export default function MatchResultModal({
                   {awayLabel}
                 </button>
               </div>
+              {isDone && (
+                <div className="flex justify-center pt-1">
+                  <button
+                    onClick={handleReset}
+                    disabled={isPending}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 border border-red-300 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:opacity-40 transition-colors"
+                  >
+                    {resetMutation.isPending ? 'Resetting…' : 'Reset Match'}
+                  </button>
+                </div>
+              )}
             </>
           )}
 
           {mode === 'draw' && (
             <>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Final Score (optional)</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Final Score</p>
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs text-gray-400 mb-1 truncate">{homeLabel}</label>

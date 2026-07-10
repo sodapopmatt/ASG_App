@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from app.database import supabase
 from app.auth import require_admin
 from app.schemas.match import Match, MatchCreate, MatchUpdate, MatchResult, MatchForfeit, MatchDoubleForfeit, MatchDraw, HeatResult
-from app.bracket_engine.generator import advance_winner, advance_double_forfeit, settle_bracket, retract_winner
+from app.bracket_engine.generator import advance_winner, advance_double_forfeit, settle_bracket, retract_winner, retract_double_forfeit
 
 router = APIRouter()
 
@@ -410,6 +410,23 @@ def _ensure_result_changeable(match: dict) -> None:
         )
 
 
+def _ensure_double_forfeit_revertible(match: dict) -> None:
+    """409 if a downstream match has progressed past the byes this double
+    forfeit created. Unlike _ensure_result_changeable, there's no cascade
+    unwind for this case (see retract_double_forfeit) — reverting is only
+    safe while those matches are still untouched."""
+    for key in ("winner_next_match_id", "loser_next_match_id"):
+        next_id = match.get(key)
+        if not next_id:
+            continue
+        downstream = supabase.table("matches").select("status").eq("id", next_id).limit(1).execute()
+        if downstream.data and downstream.data[0]["status"] != "scheduled":
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot undo: a downstream match has already progressed from this double forfeit.",
+            )
+
+
 @router.post("/{match_id}/result", response_model=Match)
 def post_result(match_id: str, result: MatchResult, _=Depends(require_admin)):
     response = supabase.table("matches").select(
@@ -548,6 +565,48 @@ def post_draw(match_id: str, body: MatchDraw | None = None, _=Depends(require_ad
         update["notes"] = body.notes
 
     return supabase.table("matches").update(update).eq("id", match_id).execute().data[0]
+
+
+@router.post("/{match_id}/reset", response_model=Match)
+def post_reset(match_id: str, _=Depends(require_admin)):
+    """Undo a submitted result/forfeit/double-forfeit/draw, returning the match
+    to its pre-result state (in_progress if it had been started, else
+    scheduled). Reuses the same retraction machinery as correcting a result
+    via /result or /forfeit, so it's subject to the same safety rule: blocked
+    if a downstream match has genuinely been played further."""
+    response = supabase.table("matches").select(
+        "sport_id, status, home_team_id, away_team_id, winner_id, "
+        "winner_next_match_id, loser_next_match_id, actual_start"
+    ).eq("id", match_id).limit(1).execute()
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Match not found")
+
+    match = response.data[0]
+    if match["status"] not in ("completed", "forfeit", "double_forfeit", "draw"):
+        raise HTTPException(status_code=422, detail="Match has no result to undo")
+
+    if match["winner_id"]:
+        _ensure_result_changeable(match)
+        loser_id = match["away_team_id"] if match["winner_id"] == match["home_team_id"] else match["home_team_id"]
+        retract_winner(match_id, match["winner_id"], loser_id, supabase)
+    elif match["status"] == "double_forfeit":
+        _ensure_double_forfeit_revertible(match)
+        retract_double_forfeit(match_id, supabase)
+
+    update = {
+        "winner_id": None,
+        "status": "in_progress" if match["actual_start"] else "scheduled",
+        "home_score": None,
+        "away_score": None,
+        "home_games_won": None,
+        "away_games_won": None,
+        "home_points_total": None,
+        "away_points_total": None,
+        "played_at": None,
+    }
+    updated = supabase.table("matches").update(update).eq("id", match_id).execute().data[0]
+    settle_bracket(match["sport_id"], supabase)
+    return updated
 
 
 @router.post("/{match_id}/heat-result", response_model=Match)

@@ -76,6 +76,10 @@ export function submitDoubleForfeit(matchId: string, notes?: string) {
   })
 }
 
+export function resetMatch(matchId: string) {
+  return apiFetch<Match>(`/matches/${matchId}/reset`, { method: 'POST' })
+}
+
 export function submitHeatResult(matchId: string, body: { time_ms?: number; forfeit?: boolean }) {
   return apiFetch<Match>(`/matches/${matchId}/heat-result`, {
     method: 'POST',

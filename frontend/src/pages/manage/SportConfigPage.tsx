@@ -2,6 +2,9 @@
 import { useParams, Navigate } from 'react-router-dom'
 import BackLink from '../../components/BackLink'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { getSports, generateBracket, resetBrackets, resetBracketPhase, updateSport, setSeedOrder, setPoolSetup, getStandings, type DivisionSpec, type PoolSpec, type HeatSpec } from '../../api/sports'
 import { getMatches, patchMatch } from '../../api/matches'
 import { getTeams } from '../../api/teams'
@@ -141,6 +144,39 @@ function DownIcon() {
       fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="6 9 12 15 18 9" />
     </svg>
+  )
+}
+
+function DragHandleIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+      <circle cx="9" cy="6" r="1.5" /><circle cx="15" cy="6" r="1.5" />
+      <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
+      <circle cx="9" cy="18" r="1.5" /><circle cx="15" cy="18" r="1.5" />
+    </svg>
+  )
+}
+
+// Wraps one row of a drag-reorderable list. Drag handle + dnd-kit wiring live
+// here so callers just render their row content as `children`.
+function SortableRow({ id, children }: { id: string; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
+      className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200"
+    >
+      <button
+        {...attributes}
+        {...listeners}
+        className="p-1 -ml-1 text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing touch-none shrink-0"
+        aria-label="Drag to reorder"
+      >
+        <DragHandleIcon />
+      </button>
+      {children}
+    </div>
   )
 }
 
@@ -1188,10 +1224,14 @@ const genMutation = useMutation({
         return
       }
       if (isPool) return generateBracket(sportId!, [], false, undefined, poolSpecs)
-      if (splitEnabled) return generateBracket(sportId!, [], false, divisionSpecs)
       // Flat heats (Human Pyramid): no seeding order needed — use live sportTeams so
       // newly registered teams are always included, not just those present at page load.
       if (isHeats) return generateBracket(sportId!, sportTeams.map(t => t.id), false)
+      // Persist the current seed order regardless of whether "Save Seed Order"
+      // was clicked, so the seed number shown on bracket slots always matches
+      // what was actually generated (not a stale earlier save).
+      await setSeedOrder(sportId!, seeds.map(t => t.id))
+      if (splitEnabled) return generateBracket(sportId!, [], false, divisionSpecs)
       return generateBracket(sportId!, seeds.map(t => t.id), false)
     },
     onSuccess: () => {
@@ -1303,6 +1343,19 @@ const genMutation = useMutation({
     reorderSeeds(next)
   }
 
+  const seedsDragSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+  )
+  function handleSeedsDragEnd(e: DragEndEvent) {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const oldIdx = seeds.findIndex(t => t.id === active.id)
+    const newIdx = seeds.findIndex(t => t.id === over.id)
+    if (oldIdx === -1 || newIdx === -1) return
+    reorderSeeds(arrayMove(seeds, oldIdx, newIdx))
+  }
+
   // Jump a team directly to a 1-based seed position, so reordering a long list
   // doesn't require clicking an arrow repeatedly.
   function moveTeamToPosition(teamId: string, position: number) {
@@ -1340,6 +1393,19 @@ const genMutation = useMutation({
     if (swap < 0 || swap >= next.length) return
     ;[next[idx], next[swap]] = [next[swap], next[idx]]
     setAdvOverride(next)
+  }
+
+  const advancingDragSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+  )
+  function handleAdvancingDragEnd(e: DragEndEvent) {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const oldIdx = advancing.indexOf(String(active.id))
+    const newIdx = advancing.indexOf(String(over.id))
+    if (oldIdx === -1 || newIdx === -1) return
+    setAdvOverride(arrayMove(advancing, oldIdx, newIdx))
   }
 
   function addCourt() {
@@ -1827,30 +1893,34 @@ const genMutation = useMutation({
 
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Teams</p>
                 {seedSaveError && <p className="text-sm text-red-600">{seedSaveError}</p>}
-                <div className="space-y-1">
-                  {orderedTeams.map((team, idx) => (
-                    <div key={team.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
-                      <SeedPositionInput
-                        position={idx + 1}
-                        max={seeds.length}
-                        onCommit={p => moveTeamToPosition(team.id, p)}
-                      />
-                      <span className="flex-1 text-sm text-slate-700 truncate min-w-0">
-                        {companyMap[team.company_id]?.name ?? '—'}
-                        {team.name && <span className="text-gray-400"> · {team.name}</span>}
-                      </span>
-                      <DivToggle
-                        value={teamDivOf(team.id)}
-                        names={divNames}
-                        onChange={v => setTeamDiv(prev => ({ ...prev, [team.id]: v }))}
-                      />
-                      <div className="flex gap-0.5">
-                        <button onClick={() => move(idx, -1)} disabled={idx === 0} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><UpIcon /></button>
-                        <button onClick={() => move(idx, 1)} disabled={idx === seeds.length - 1} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><DownIcon /></button>
-                      </div>
+                <DndContext sensors={seedsDragSensors} collisionDetection={closestCenter} onDragEnd={handleSeedsDragEnd}>
+                  <SortableContext items={orderedTeams.map(t => t.id)} strategy={verticalListSortingStrategy}>
+                    <div className="space-y-1">
+                      {orderedTeams.map((team, idx) => (
+                        <SortableRow key={team.id} id={team.id}>
+                          <SeedPositionInput
+                            position={idx + 1}
+                            max={seeds.length}
+                            onCommit={p => moveTeamToPosition(team.id, p)}
+                          />
+                          <span className="flex-1 text-sm text-slate-700 truncate min-w-0">
+                            {companyMap[team.company_id]?.name ?? '—'}
+                            {team.name && <span className="text-gray-400"> · {team.name}</span>}
+                          </span>
+                          <DivToggle
+                            value={teamDivOf(team.id)}
+                            names={divNames}
+                            onChange={v => setTeamDiv(prev => ({ ...prev, [team.id]: v }))}
+                          />
+                          <div className="flex gap-0.5">
+                            <button onClick={() => move(idx, -1)} disabled={idx === 0} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><UpIcon /></button>
+                            <button onClick={() => move(idx, 1)} disabled={idx === seeds.length - 1} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><DownIcon /></button>
+                          </div>
+                        </SortableRow>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  </SortableContext>
+                </DndContext>
                 <button
                   onClick={saveSeedOrder}
                   disabled={seedSaving || !seedsDirty}
@@ -1887,25 +1957,29 @@ const genMutation = useMutation({
               <>
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Seed order</p>
                 {seedSaveError && <p className="text-sm text-red-600">{seedSaveError}</p>}
-                <div className="space-y-1">
-                  {seeds.map((team, idx) => (
-                    <div key={team.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
-                      <SeedPositionInput
-                        position={idx + 1}
-                        max={seeds.length}
-                        onCommit={p => moveTeamToPosition(team.id, p)}
-                      />
-                      <span className="flex-1 text-sm text-slate-700">
-                        {companyMap[team.company_id]?.name ?? '—'}
-                        {team.name && <span className="text-gray-400"> · {team.name}</span>}
-                      </span>
-                      <div className="flex gap-0.5">
-                        <button onClick={() => move(idx, -1)} disabled={idx === 0} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><UpIcon /></button>
-                        <button onClick={() => move(idx, 1)} disabled={idx === seeds.length - 1} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><DownIcon /></button>
-                      </div>
+                <DndContext sensors={seedsDragSensors} collisionDetection={closestCenter} onDragEnd={handleSeedsDragEnd}>
+                  <SortableContext items={seeds.map(t => t.id)} strategy={verticalListSortingStrategy}>
+                    <div className="space-y-1">
+                      {seeds.map((team, idx) => (
+                        <SortableRow key={team.id} id={team.id}>
+                          <SeedPositionInput
+                            position={idx + 1}
+                            max={seeds.length}
+                            onCommit={p => moveTeamToPosition(team.id, p)}
+                          />
+                          <span className="flex-1 text-sm text-slate-700">
+                            {companyMap[team.company_id]?.name ?? '—'}
+                            {team.name && <span className="text-gray-400"> · {team.name}</span>}
+                          </span>
+                          <div className="flex gap-0.5">
+                            <button onClick={() => move(idx, -1)} disabled={idx === 0} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><UpIcon /></button>
+                            <button onClick={() => move(idx, 1)} disabled={idx === seeds.length - 1} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><DownIcon /></button>
+                          </div>
+                        </SortableRow>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  </SortableContext>
+                </DndContext>
                 <button
                   onClick={saveSeedOrder}
                   disabled={seedSaving || !seedsDirty}
@@ -1985,33 +2059,48 @@ const genMutation = useMutation({
           {advancing.length === 0 ? (
             <p className="text-sm text-slate-400 italic">No standings yet — enter pool results first.</p>
           ) : (
-            <div className="space-y-1">
-              {advancing.map((teamId, idx) => {
-                const record = teamRecord[teamId]
-                return (
-                  <div key={teamId} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
-                    <span className="text-xs font-bold text-gray-400 w-5 text-center">{idx + 1}</span>
-                    <span className="flex-1 text-sm text-slate-700 truncate min-w-0">
-                      {teamLabel(teamId, teamMap, companyMap, multiTeamKeys)}
-                    </span>
-                    {record && (
-                      <span className="text-xs text-gray-400 shrink-0">
-                        {record.wins}–{record.losses} · {record.goal_diff >= 0 ? '+' : ''}{record.goal_diff}GD · {record.goals_for}GF
-                        {sport?.name === 'Pickleball' && (
-                          <> · {record.game_wins}GW · {record.point_diff >= 0 ? '+' : ''}{record.point_diff}PD</>
+            <DndContext
+              sensors={advancingDragSensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleAdvancingDragEnd}
+            >
+              <SortableContext items={advancing} strategy={verticalListSortingStrategy} disabled={hasBracketPhase}>
+                <div className="space-y-1">
+                  {advancing.map((teamId, idx) => {
+                    const record = teamRecord[teamId]
+                    const rowContent = (
+                      <>
+                        <span className="text-xs font-bold text-gray-400 w-5 text-center">{idx + 1}</span>
+                        <span className="flex-1 text-sm text-slate-700 truncate min-w-0">
+                          {teamLabel(teamId, teamMap, companyMap, multiTeamKeys)}
+                        </span>
+                        {record && (
+                          <span className="text-xs text-gray-400 shrink-0">
+                            {record.wins}–{record.losses} · {record.goal_diff >= 0 ? '+' : ''}{record.goal_diff}GD · {record.goals_for}GF
+                            {sport?.name === 'Pickleball' && (
+                              <> · {record.game_wins}GW · {record.point_diff >= 0 ? '+' : ''}{record.point_diff}PD</>
+                            )}
+                          </span>
                         )}
-                      </span>
-                    )}
-                    {!hasBracketPhase && (
-                      <div className="flex gap-0.5">
-                        <button onClick={() => moveAdvancing(idx, -1)} disabled={idx === 0} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><UpIcon /></button>
-                        <button onClick={() => moveAdvancing(idx, 1)} disabled={idx === advancing.length - 1} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><DownIcon /></button>
+                        {!hasBracketPhase && (
+                          <div className="flex gap-0.5">
+                            <button onClick={() => moveAdvancing(idx, -1)} disabled={idx === 0} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><UpIcon /></button>
+                            <button onClick={() => moveAdvancing(idx, 1)} disabled={idx === advancing.length - 1} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><DownIcon /></button>
+                          </div>
+                        )}
+                      </>
+                    )
+                    return hasBracketPhase ? (
+                      <div key={teamId} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
+                        {rowContent}
                       </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
+                    ) : (
+                      <SortableRow key={teamId} id={teamId}>{rowContent}</SortableRow>
+                    )
+                  })}
+                </div>
+              </SortableContext>
+            </DndContext>
           )}
 
           {genError && <p className="text-sm text-red-600">{genError}</p>}

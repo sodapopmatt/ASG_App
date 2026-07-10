@@ -1,9 +1,9 @@
 declare module '@g-loot/react-tournament-brackets' {
-  import { ReactElement, ComponentType } from 'react'
+  import { ReactElement, ReactNode, ComponentType } from 'react'
 
   export interface ParticipantType {
     id: string | number
-    name?: string
+    name?: ReactNode
     isWinner?: boolean
     status?: string | null
     resultText?: string | null

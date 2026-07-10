@@ -733,6 +733,39 @@ def retract_winner(match_id: str, winner_id: str, loser_id: str | None, db: Clie
         _clear_team_from_slot(row["loser_next_match_id"], loser_id, db)
 
 
+def _clear_bye_slot(match_id: str, db: Client) -> None:
+    """Reverse _fill_bye_slot: clear whichever empty slot is marked bye back to open."""
+    row = db.table("matches").select(
+        "home_team_id, away_team_id, home_slot_state, away_slot_state"
+    ).eq("id", match_id).limit(1).execute()
+    if not row.data:
+        return
+    slot = row.data[0]
+    if slot["home_team_id"] is None and slot["home_slot_state"] == "bye":
+        db.table("matches").update({"home_slot_state": None}).eq("id", match_id).execute()
+    elif slot["away_team_id"] is None and slot["away_slot_state"] == "bye":
+        db.table("matches").update({"away_slot_state": None}).eq("id", match_id).execute()
+
+
+def retract_double_forfeit(match_id: str, db: Client) -> None:
+    """Undo advance_double_forfeit: clear the bye markers it set in both downstream
+    slots. Unlike retract_winner, this does not unwind further cascades — the
+    caller (matches.py's _ensure_double_forfeit_revertible) must confirm neither
+    slot has progressed any further before calling this."""
+    match = db.table("matches").select(
+        "winner_next_match_id, loser_next_match_id"
+    ).eq("id", match_id).limit(1).execute()
+
+    if not match.data:
+        return
+
+    row = match.data[0]
+    for key in ("winner_next_match_id", "loser_next_match_id"):
+        next_id = row.get(key)
+        if next_id:
+            _clear_bye_slot(next_id, db)
+
+
 def settle_bracket(sport_id: str, db: Client) -> None:
     """Sweep all bracket matches for a sport and auto-resolve anything that no longer needs a human decision."""
     _TERMINAL = {"completed", "forfeit", "double_forfeit"}

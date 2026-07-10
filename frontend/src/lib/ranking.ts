@@ -27,8 +27,10 @@ export interface OtherTeamResult {
 export interface CompanyRow {
   companyId: string
   companyName: string
-  placement: number    // compressed company placement (tied companies share it)
-  tiedThrough: number  // last place in the tie; == placement when untied
+  // null = nothing computed yet (no bracket/results at all) — the admin
+  // fills this in by hand, same editable row as a computed placement.
+  placement: number | null
+  tiedThrough: number | null  // last place in the tie; == placement when untied
   detail: string
   forfeited: boolean
   zeroPoints: boolean
@@ -54,7 +56,7 @@ export function defaultPoints(
   row: Pick<CompanyRow, 'placement' | 'tiedThrough' | 'zeroPoints'>,
   pointsScale: Record<string, number> | null,
 ): number {
-  if (row.zeroPoints) return 0
+  if (row.zeroPoints || row.placement === null || row.tiedThrough === null) return 0
   let sum = 0
   let count = 0
   for (let p = row.placement; p <= row.tiedThrough; p++) {
@@ -62,6 +64,35 @@ export function defaultPoints(
     count++
   }
   return count > 0 ? Math.round(sum / count) : 0
+}
+
+// A sport with no matches/results at all yet — every company starts blank
+// (placement unknown) so the admin can fill placements in by hand, in the
+// exact same editable table used once results exist. Previously-saved
+// placements (if an admin already entered some) sort to the top.
+export function buildManualRows(
+  companies: Company[],
+  savedByCompany: Record<string, { placement: number }>,
+): CompanyRow[] {
+  return [...companies]
+    .sort((a, b) => {
+      const pa = savedByCompany[a.id]?.placement
+      const pb = savedByCompany[b.id]?.placement
+      if (pa != null && pb != null) return pa - pb
+      if (pa != null) return -1
+      if (pb != null) return 1
+      return a.name.localeCompare(b.name)
+    })
+    .map(c => ({
+      companyId: c.id,
+      companyName: c.name,
+      placement: null,
+      tiedThrough: null,
+      detail: 'No results yet',
+      forfeited: false,
+      zeroPoints: false,
+      otherTeams: [],
+    }))
 }
 
 // ── Shared match helpers ──────────────────────────────────────────────────────
@@ -498,6 +529,10 @@ export function collapseToCompanies(
   const rows: CompanyRow[] = []
   const rowByCompany = new Map<string, CompanyRow>()
   const placedCompanies = new Set<string>()
+  // Every team that showed up in some tie group — anything left over never
+  // appeared in a single match (e.g. added to the roster after the bracket
+  // was generated) and would otherwise vanish from Scoring entirely.
+  const accountedTeams = new Set<string>()
   let nextPlacement = 1
 
   // Distinguishes a company's teams when they have no team.name set, so the
@@ -524,6 +559,7 @@ export function collapseToCompanies(
     for (const rt of group.teams) {
       const team = teamById[rt.teamId]
       if (!team) continue
+      accountedTeams.add(team.id)
       if (placedCompanies.has(team.company_id)) {
         pendingOther.push({
           companyId: team.company_id,
@@ -562,6 +598,39 @@ export function collapseToCompanies(
       rowByCompany.get(p.companyId)?.otherTeams.push({ teamName: p.teamName, detail: p.detail })
     }
   }
+
+  // Sweep: any team never mentioned by a single tie group (no matches at
+  // all yet) still needs to be visible — attach it to its company's row if
+  // one exists, or give the company a blank row so it isn't dropped outright.
+  for (const team of teams) {
+    if (accountedTeams.has(team.id)) continue
+    accountedTeams.add(team.id)
+    let row = rowByCompany.get(team.company_id)
+    if (!row) {
+      row = {
+        companyId: team.company_id,
+        companyName: companyById[team.company_id]?.name ?? '?',
+        placement: null,
+        tiedThrough: null,
+        detail: 'No results yet',
+        forfeited: false,
+        zeroPoints: false,
+        otherTeams: [],
+      }
+      rows.push(row)
+      rowByCompany.set(team.company_id, row)
+    }
+    row.otherTeams.push({ teamName: teamLabel(team), detail: 'No result yet' })
+  }
+
+  // Keep ranked rows in their existing (placement) order; place any blank,
+  // nothing-recorded rows after them, sorted alphabetically for scannability.
+  rows.sort((a, b) => {
+    if (a.placement !== null && b.placement !== null) return 0
+    if (a.placement !== null) return -1
+    if (b.placement !== null) return 1
+    return a.companyName.localeCompare(b.companyName)
+  })
 
   return rows
 }

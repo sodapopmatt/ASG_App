@@ -101,6 +101,7 @@ function ChampionshipCard({
 }) {
   const isDone = match.status === 'completed' || match.status === 'forfeit' || match.status === 'double_forfeit' || match.status === 'draw'
   const isLive = match.status === 'in_progress'
+  const hasScore = match.home_score != null && match.away_score != null
   return (
     <button
       onClick={onClick}
@@ -108,13 +109,19 @@ function ChampionshipCard({
     >
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <p className={`text-sm truncate ${match.winner_id && match.winner_id === match.home_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'} ${!match.home_team_id ? 'italic text-gray-400 font-normal' : ''}`}>
-            {fullLabel(match.home_team_id, teamMap, companyMap)}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className={`text-sm truncate flex-1 ${match.winner_id && match.winner_id === match.home_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'} ${!match.home_team_id ? 'italic text-gray-400 font-normal' : ''}`}>
+              {fullLabel(match.home_team_id, teamMap, companyMap)}
+            </p>
+            {hasScore && <span className="text-sm font-bold text-slate-700 bg-gray-100 rounded-md px-2 py-0.5 tabular-nums shrink-0 min-w-[2rem] text-center">{match.home_score}</span>}
+          </div>
           <p className="text-xs text-gray-400 my-0.5">vs</p>
-          <p className={`text-sm truncate ${match.winner_id && match.winner_id === match.away_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'} ${!match.away_team_id ? 'italic text-gray-400 font-normal' : ''}`}>
-            {fullLabel(match.away_team_id, teamMap, companyMap)}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className={`text-sm truncate flex-1 ${match.winner_id && match.winner_id === match.away_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'} ${!match.away_team_id ? 'italic text-gray-400 font-normal' : ''}`}>
+              {fullLabel(match.away_team_id, teamMap, companyMap)}
+            </p>
+            {hasScore && <span className="text-sm font-bold text-slate-700 bg-gray-100 rounded-md px-2 py-0.5 tabular-nums shrink-0 min-w-[2rem] text-center">{match.away_score}</span>}
+          </div>
         </div>
         {isLive ? (
           <span className="shrink-0 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full animate-pulse">Live</span>
@@ -143,6 +150,7 @@ function CourtQueueCard({
 }) {
   const isDone = match.status === 'completed' || match.status === 'forfeit' || match.status === 'double_forfeit' || match.status === 'draw'
   const isLive = match.status === 'in_progress'
+  const hasScore = match.home_score != null && match.away_score != null
   const effectiveTime = match.estimated_start ?? match.scheduled_at
   const time = effectiveTime
     ? new Date(effectiveTime).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
@@ -155,13 +163,19 @@ function CourtQueueCard({
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
           {time && <p className="text-xs text-gray-400 mb-1 tabular-nums">{time}</p>}
-          <p className={`text-sm truncate ${match.winner_id && match.winner_id === match.home_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'} ${!match.home_team_id ? 'italic text-gray-400 font-normal' : ''}`}>
-            {fullLabel(match.home_team_id, teamMap, companyMap)}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className={`text-sm truncate flex-1 ${match.winner_id && match.winner_id === match.home_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'} ${!match.home_team_id ? 'italic text-gray-400 font-normal' : ''}`}>
+              {fullLabel(match.home_team_id, teamMap, companyMap)}
+            </p>
+            {hasScore && <span className="text-sm font-bold text-slate-700 bg-gray-100 rounded-md px-2 py-0.5 tabular-nums shrink-0 min-w-[2rem] text-center">{match.home_score}</span>}
+          </div>
           <p className="text-xs text-gray-400 my-0.5">vs</p>
-          <p className={`text-sm truncate ${match.winner_id && match.winner_id === match.away_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'} ${!match.away_team_id ? 'italic text-gray-400 font-normal' : ''}`}>
-            {fullLabel(match.away_team_id, teamMap, companyMap)}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className={`text-sm truncate flex-1 ${match.winner_id && match.winner_id === match.away_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'} ${!match.away_team_id ? 'italic text-gray-400 font-normal' : ''}`}>
+              {fullLabel(match.away_team_id, teamMap, companyMap)}
+            </p>
+            {hasScore && <span className="text-sm font-bold text-slate-700 bg-gray-100 rounded-md px-2 py-0.5 tabular-nums shrink-0 min-w-[2rem] text-center">{match.away_score}</span>}
+          </div>
         </div>
         {isLive ? (
           <span className="shrink-0 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full animate-pulse">Live</span>

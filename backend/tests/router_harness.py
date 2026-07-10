@@ -29,6 +29,9 @@ class RouterHarness:
     def draw(self, match_id: str, home_score=None, away_score=None):
         return matches_router.post_draw(match_id, MatchDraw(home_score=home_score, away_score=away_score))
 
+    def reset(self, match_id: str):
+        return matches_router.post_reset(match_id)
+
     def generate(self, sport_id: str, **kw):
         return sports_router.generate_bracket(sport_id, GenerateBracketRequest(**kw))
 

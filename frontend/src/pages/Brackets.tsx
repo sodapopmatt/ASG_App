@@ -633,8 +633,8 @@ function PoolPlayView({
     return compactLabel(teamId, teamMap, companyMap, undefined, multiTeamKeys)
   }
 
-  const showGameScores  = sport?.name?.toLowerCase() === 'pickleball'
-  const showSoccerStats = sport?.name?.toLowerCase() === 'soccer'
+  const showGameScores = sport?.name?.toLowerCase() === 'pickleball'
+  const showScoreStats = sport?.bracket_type === 'pool_bracket' && !showGameScores
 
   const [phase, setPhase] = useTabMemory<'pools' | 'bracket'>(`pool-phase-${sportId}`, 'pools')
 
@@ -656,13 +656,13 @@ function PoolPlayView({
                 <th className="text-left px-3 py-2 font-semibold text-gray-500">#</th>
                 <th className="text-left px-3 py-2 font-semibold text-gray-500">Team</th>
                 <th className="text-center px-2 py-2 font-semibold text-gray-500">W</th>
-                {showSoccerStats && <th className="text-center px-2 py-2 font-semibold text-gray-500">D</th>}
+                {showScoreStats && <th className="text-center px-2 py-2 font-semibold text-gray-500">D</th>}
                 <th className="text-center px-2 py-2 font-semibold text-gray-500">L</th>
-                {showSoccerStats && (
+                {showScoreStats && (
                   <>
-                    <th className="text-center px-2 py-2 font-semibold text-gray-500">GF</th>
-                    <th className="text-center px-2 py-2 font-semibold text-gray-500">GA</th>
-                    <th className="text-center px-2 py-2 font-semibold text-gray-500">GD</th>
+                    <th className="text-center px-2 py-2 font-semibold text-gray-500">PF</th>
+                    <th className="text-center px-2 py-2 font-semibold text-gray-500">PA</th>
+                    <th className="text-center px-2 py-2 font-semibold text-gray-500">PD</th>
                   </>
                 )}
                 {showGameScores && (
@@ -682,9 +682,9 @@ function PoolPlayView({
                   </td>
                   <td className="px-3 py-2 text-slate-700">{teamName(row.team_id)}</td>
                   <td className="px-2 py-2 text-center font-semibold text-green-700">{row.wins}</td>
-                  {showSoccerStats && <td className="px-2 py-2 text-center text-slate-600">{row.draws}</td>}
+                  {showScoreStats && <td className="px-2 py-2 text-center text-slate-600">{row.draws}</td>}
                   <td className="px-2 py-2 text-center text-gray-500">{row.losses}</td>
-                  {showSoccerStats && (
+                  {showScoreStats && (
                     <>
                       <td className="px-2 py-2 text-center text-slate-600">{row.goals_for}</td>
                       <td className="px-2 py-2 text-center text-slate-600">{row.goals_against}</td>
@@ -782,7 +782,7 @@ function FallbackMatchList({
           <div key={m.id} className={`bg-white rounded-xl border-2 shadow-sm overflow-hidden ${isLive ? 'border-amber-400' : 'border-gray-200'}`}>
             <div className={`flex items-center px-3 py-2.5 gap-2 ${homeWon ? 'bg-green-50' : ''}`}>
               <span className={`flex-1 text-sm truncate ${homeWon ? 'font-semibold text-green-700' : !m.home_team_id ? 'italic text-gray-400' : 'font-semibold text-slate-800'}`}>{homeLabel}</span>
-              {hasScore && <span className="text-sm font-semibold text-slate-600 tabular-nums shrink-0">{m.home_score}</span>}
+              {hasScore && <span className="text-sm font-bold text-slate-700 bg-gray-100 rounded-md px-2 py-0.5 tabular-nums shrink-0 min-w-[2rem] text-center">{m.home_score}</span>}
               {homeWon && <span className="text-green-600 text-xs font-bold">WIN</span>}
               {(m.status === 'double_forfeit' || (m.status === 'forfeit' && m.winner_id !== m.home_team_id)) && m.home_team_id && (
                 <span className="text-xs text-red-400 font-medium">FF</span>
@@ -791,7 +791,7 @@ function FallbackMatchList({
             <div className="border-t border-gray-100" />
             <div className={`flex items-center px-3 py-2.5 gap-2 ${awayWon ? 'bg-green-50' : ''}`}>
               <span className={`flex-1 text-sm truncate ${awayWon ? 'font-semibold text-green-700' : !m.away_team_id ? 'italic text-gray-400' : 'font-semibold text-slate-800'}`}>{awayLabel}</span>
-              {hasScore && <span className="text-sm font-semibold text-slate-600 tabular-nums shrink-0">{m.away_score}</span>}
+              {hasScore && <span className="text-sm font-bold text-slate-700 bg-gray-100 rounded-md px-2 py-0.5 tabular-nums shrink-0 min-w-[2rem] text-center">{m.away_score}</span>}
               {awayWon && <span className="text-green-600 text-xs font-bold">WIN</span>}
               {(m.status === 'double_forfeit' || (m.status === 'forfeit' && m.winner_id !== m.away_team_id)) && m.away_team_id && (
                 <span className="text-xs text-red-400 font-medium">FF</span>

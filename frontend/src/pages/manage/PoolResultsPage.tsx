@@ -43,14 +43,14 @@ function MatchCard({
             <p className={`text-sm truncate flex-1 ${match.winner_id && match.winner_id === match.home_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'}`}>
               {compactLabel(match.home_team_id, teamMap, companyMap, undefined, multiTeamKeys)}
             </p>
-            {hasScore && <span className="text-sm font-semibold text-slate-600 tabular-nums shrink-0">{match.home_score}</span>}
+            {hasScore && <span className="text-sm font-bold text-slate-700 bg-gray-100 rounded-md px-2 py-0.5 tabular-nums shrink-0 min-w-[2rem] text-center">{match.home_score}</span>}
           </div>
           <p className="text-xs text-gray-400 my-0.5">vs</p>
           <div className="flex items-center gap-2">
             <p className={`text-sm truncate flex-1 ${match.winner_id && match.winner_id === match.away_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'}`}>
               {compactLabel(match.away_team_id, teamMap, companyMap, undefined, multiTeamKeys)}
             </p>
-            {hasScore && <span className="text-sm font-semibold text-slate-600 tabular-nums shrink-0">{match.away_score}</span>}
+            {hasScore && <span className="text-sm font-bold text-slate-700 bg-gray-100 rounded-md px-2 py-0.5 tabular-nums shrink-0 min-w-[2rem] text-center">{match.away_score}</span>}
           </div>
           <p className="text-xs text-gray-400 mt-1">
             {match.locations?.name ? `${match.locations.name} · ` : ''}
@@ -393,8 +393,8 @@ export default function PoolResultsPage() {
   }, [standingsQuery.data])
 
   const showGameScores    = sport?.name?.toLowerCase() === 'pickleball'
-  const showSoccerStats   = sport?.name?.toLowerCase() === 'soccer'
   const showCornhole      = sport?.bracket_type === 'pool_swiss'
+  const showScoreStats    = sport?.bracket_type === 'pool_bracket' && !showGameScores
   // Draws are valid for any pool play match (no winner_next_match_id), not
   // just Soccer/Cornhole — the backend's /matches/{id}/draw endpoint accepts
   // this for all pool_bracket / pool_swiss sports (Ultimate, Pickleball too).
@@ -512,13 +512,13 @@ export default function PoolResultsPage() {
                                 <th className="text-left px-3 py-2 font-semibold text-gray-500">Team</th>
                                 {showCornhole && <th className="text-center px-2 py-2 font-semibold text-gray-500">Pts</th>}
                                 <th className="text-center px-2 py-2 font-semibold text-gray-500">W</th>
-                                {(showSoccerStats || showCornhole) && <th className="text-center px-2 py-2 font-semibold text-gray-500">D</th>}
+                                {(showScoreStats || showCornhole) && <th className="text-center px-2 py-2 font-semibold text-gray-500">D</th>}
                                 <th className="text-center px-2 py-2 font-semibold text-gray-500">L</th>
-                                {showSoccerStats && (
+                                {showScoreStats && (
                                   <>
-                                    <th className="text-center px-2 py-2 font-semibold text-gray-500">GF</th>
-                                    <th className="text-center px-2 py-2 font-semibold text-gray-500">GA</th>
-                                    <th className="text-center px-2 py-2 font-semibold text-gray-500">GD</th>
+                                    <th className="text-center px-2 py-2 font-semibold text-gray-500">PF</th>
+                                    <th className="text-center px-2 py-2 font-semibold text-gray-500">PA</th>
+                                    <th className="text-center px-2 py-2 font-semibold text-gray-500">PD</th>
                                   </>
                                 )}
                                 {showCornhole && (
@@ -545,9 +545,9 @@ export default function PoolResultsPage() {
                                     <td className="px-3 py-2 text-slate-700">{label}</td>
                                     {showCornhole && <td className="px-2 py-2 text-center font-bold text-blue-700">{row.tournament_points}</td>}
                                     <td className="px-2 py-2 text-center font-semibold text-green-700">{row.wins}</td>
-                                    {(showSoccerStats || showCornhole) && <td className="px-2 py-2 text-center text-slate-600">{row.draws}</td>}
+                                    {(showScoreStats || showCornhole) && <td className="px-2 py-2 text-center text-slate-600">{row.draws}</td>}
                                     <td className="px-2 py-2 text-center text-gray-500">{row.losses}</td>
-                                    {showSoccerStats && (
+                                    {showScoreStats && (
                                       <>
                                         <td className="px-2 py-2 text-center text-slate-600">{row.goals_for}</td>
                                         <td className="px-2 py-2 text-center text-slate-600">{row.goals_against}</td>

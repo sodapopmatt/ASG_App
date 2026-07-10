@@ -39,6 +39,26 @@ export function compactLabel(
   return showSuffix ? `${label} · ${team.name}` : label
 }
 
+// Same as compactLabel, but suffixed with the team's seed number (1-based, greyed
+// out) — used only in bracket diagram slots, not standings/modals where seed is noise.
+export function seededLabel(
+  teamId: string | null,
+  teamMap: Record<string, Team>,
+  companyMap: Record<string, Company>,
+  slotState?: 'tbd' | 'bye',
+  multiTeamKeys?: Set<string>,
+): React.ReactNode {
+  const label = compactLabel(teamId, teamMap, companyMap, slotState, multiTeamKeys)
+  const seed = teamId ? teamMap[teamId]?.seed : null
+  if (seed == null) return label
+  return (
+    <>
+      {label}
+      <span style={{ color: '#9ca3af' }}> · {seed + 1}</span>
+    </>
+  )
+}
+
 export function formatMatchTime(iso: string | null | undefined): string {
   if (!iso) return ''
   const d = new Date(iso)
@@ -46,11 +66,18 @@ export function formatMatchTime(iso: string | null | undefined): string {
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
 }
 
-// Groups matches by court name for the "By Courts" queue view (bye matches are
-// excluded — they never actually get played on a court). Each group is sorted
-// by estimated/scheduled time so a ref sees their court's queue in order.
+// Groups matches by court name for the "By Courts" queue view. Excludes bye
+// matches (they never actually get played on a court) and fully-TBD matches
+// with no court assigned (e.g. a grand final waiting on both semis) — nothing
+// is actionable there yet, so it shouldn't clutter the court tabs with a
+// "No court assigned" bucket. Once a court is assigned or either side of the
+// match resolves to a real team, it reappears. Each group is sorted by
+// estimated/scheduled time so a ref sees their court's queue in order.
 export function groupMatchesByCourt(matches: Match[]): Map<string, Match[]> {
-  const playable = matches.filter(m => m.home_slot_state !== 'bye' && m.away_slot_state !== 'bye')
+  const playable = matches.filter(m =>
+    m.home_slot_state !== 'bye' && m.away_slot_state !== 'bye' &&
+    (m.locations?.name != null || m.home_team_id != null || m.away_team_id != null),
+  )
   const byCourt = new Map<string, Match[]>()
   for (const m of playable) {
     const key = m.locations?.name ?? 'No court assigned'
@@ -112,24 +139,24 @@ export function toLibraryMatch(
     participants: [
       {
         id: m.home_team_id ?? `${m.home_slot_state}-home-${m.id}`,
-        name: compactLabel(m.home_team_id, teamMap, companyMap, m.home_slot_state, multiTeamKeys),
+        name: seededLabel(m.home_team_id, teamMap, companyMap, m.home_slot_state, multiTeamKeys),
         isWinner: m.winner_id != null && m.winner_id === m.home_team_id,
         status: isDone ? 'PLAYED' : null,
         resultText:
           m.status === 'double_forfeit' ? 'FF'
           : m.status === 'forfeit' && m.winner_id !== m.home_team_id ? 'FF'
-          : m.status === 'completed' && m.home_score != null ? String(m.home_score)
+          : m.home_score != null ? String(m.home_score)
           : null,
       },
       {
         id: m.away_team_id ?? `${m.away_slot_state}-away-${m.id}`,
-        name: compactLabel(m.away_team_id, teamMap, companyMap, m.away_slot_state, multiTeamKeys),
+        name: seededLabel(m.away_team_id, teamMap, companyMap, m.away_slot_state, multiTeamKeys),
         isWinner: m.winner_id != null && m.winner_id === m.away_team_id,
         status: isDone ? 'PLAYED' : null,
         resultText:
           m.status === 'double_forfeit' ? 'FF'
           : m.status === 'forfeit' && m.winner_id !== m.away_team_id ? 'FF'
-          : m.status === 'completed' && m.away_score != null ? String(m.away_score)
+          : m.away_score != null ? String(m.away_score)
           : null,
       },
     ],
