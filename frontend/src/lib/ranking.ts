@@ -126,6 +126,27 @@ interface Elimination {
   round: number
   forfeited: boolean
   phase: string | null
+  scoreMargin: number
+  ownScore: number
+}
+
+// How closely a losing team lost, from its own perspective (negative — they
+// lost). Prefers `home/away_points_total` (Pickleball's actual scored data —
+// games are won on total points, not the generic `home/away_score` field,
+// which Pickleball never fills in) and falls back to `home/away_score` for
+// sports that use that instead. 0/0 when neither is recorded, which
+// naturally keeps those teams tied with each other (same convention as the
+// pool tiebreak's point_diff).
+function marginFor(m: Match, loserId: string): { scoreMargin: number; ownScore: number } {
+  const [home, away] = m.home_points_total != null && m.away_points_total != null
+    ? [m.home_points_total, m.away_points_total]
+    : m.home_score != null && m.away_score != null
+      ? [m.home_score, m.away_score]
+      : [null, null]
+  if (home == null || away == null) return { scoreMargin: 0, ownScore: 0 }
+  return loserId === m.home_team_id
+    ? { scoreMargin: home - away, ownScore: home }
+    : { scoreMargin: away - home, ownScore: away }
 }
 
 // Where (and how) each team's tournament ended: its lost match, or a
@@ -141,14 +162,19 @@ function collectEliminations(matches: Match[], phaseOf: (m: Match) => string | n
     const phase = phaseOf(m)
     if (m.status === 'double_forfeit') {
       for (const teamId of [m.home_team_id, m.away_team_id]) {
-        if (teamId) deadTeams.set(teamId, { round: m.match_round ?? 0, forfeited: true, phase })
+        if (teamId) deadTeams.set(teamId, { round: m.match_round ?? 0, forfeited: true, phase, scoreMargin: 0, ownScore: 0 })
       }
       continue
     }
     const loser = loserOf(m)
     if (loser) {
       const existing = eliminated.get(loser)
-      const entry: Elimination = { round: m.match_round ?? 0, forfeited: m.status === 'forfeit', phase }
+      const entry: Elimination = {
+        round: m.match_round ?? 0,
+        forfeited: m.status === 'forfeit',
+        phase,
+        ...marginFor(m, loser),
+      }
       // A team can lose twice in double elim (WB then LB) — keep the later loss.
       if (!existing || entry.round >= existing.round) eliminated.set(loser, entry)
     }
@@ -196,16 +222,25 @@ export function rankSingleElim(
     stillIn.forEach(id => placed.add(id))
   }
 
-  // Eliminated teams by round, later rounds first.
-  const byRound = new Map<number, RankedTeam[]>()
+  // Eliminated teams by round, later rounds first; within a round, teams that
+  // lost by a narrower margin (then scored more) rank ahead — same-round
+  // losses with no recorded score (or an identical margin) stay tied.
+  const byRound = new Map<number, { teamId: string; detail: string; key: number[]; forfeited: boolean }[]>()
   for (const [teamId, e] of eliminated) {
     if (placed.has(teamId)) continue
     const list = byRound.get(e.round) ?? []
-    list.push({ teamId, detail: e.forfeited ? 'Forfeited' : `Out in round ${e.round}`, forfeited: e.forfeited })
+    list.push({
+      teamId,
+      detail: e.forfeited ? 'Forfeited' : `Out in round ${e.round}`,
+      key: [e.scoreMargin, e.ownScore],
+      forfeited: e.forfeited,
+    })
     byRound.set(e.round, list)
   }
   for (const round of [...byRound.keys()].sort((a, b) => b - a)) {
-    groups.push({ teams: byRound.get(round)!, detail: `Out in round ${round}` })
+    for (const g of groupByRecord(byRound.get(round)!)) {
+      groups.push({ ...g, detail: `Out in round ${round}` })
+    }
   }
 
   const dead = [...deadTeams.keys()].filter(id => !placed.has(id) && !eliminated.has(id))
@@ -251,7 +286,7 @@ export function rankDoubleElim(
 
   // A team is only OUT of double elim when it loses in the losers bracket or
   // in a finals match (a winners-bracket loss just drops it down).
-  const knockedOut = new Map<string, { round: number; forfeited: boolean; finals: boolean }>()
+  const knockedOut = new Map<string, { round: number; forfeited: boolean; finals: boolean; scoreMargin: number; ownScore: number }>()
   for (const m of elimMatches) {
     const phase = phaseOf(m)
     if (phase !== 'losers' && phase !== 'finals') continue
@@ -261,6 +296,7 @@ export function rankDoubleElim(
       round: m.match_round ?? 0,
       forfeited: m.status === 'forfeit',
       finals: phase === 'finals',
+      ...marginFor(m, loser),
     })
   }
 
@@ -270,13 +306,16 @@ export function rankDoubleElim(
     stillIn.forEach(id => placed.add(id))
   }
 
-  // Division-final losers (venue split) rank above every losers-bracket round.
-  const divisionFinalLosers: RankedTeam[] = []
-  const byRound = new Map<number, RankedTeam[]>()
+  // Division-final losers (venue split) rank above every losers-bracket
+  // round; within either group, narrower score margins (then higher own
+  // score) break ties — same convention as the winners-bracket rounds.
+  const divisionFinalLosers: { teamId: string; detail: string; key: number[]; forfeited: boolean }[] = []
+  const byRound = new Map<number, { teamId: string; detail: string; key: number[]; forfeited: boolean }[]>()
   for (const [teamId, k] of knockedOut) {
-    const entry: RankedTeam = {
+    const entry = {
       teamId,
       detail: k.forfeited ? 'Forfeited' : k.finals ? 'Lost division final' : `Out in losers round ${k.round}`,
+      key: [k.scoreMargin, k.ownScore],
       forfeited: k.forfeited,
     }
     if (k.finals) divisionFinalLosers.push(entry)
@@ -286,9 +325,11 @@ export function rankDoubleElim(
       byRound.set(k.round, list)
     }
   }
-  if (divisionFinalLosers.length > 0) groups.push({ teams: divisionFinalLosers, detail: 'Lost division final' })
+  if (divisionFinalLosers.length > 0) {
+    for (const g of groupByRecord(divisionFinalLosers)) groups.push({ ...g, detail: 'Lost division final' })
+  }
   for (const round of [...byRound.keys()].sort((a, b) => b - a)) {
-    groups.push({ teams: byRound.get(round)!, detail: `Out in losers round ${round}` })
+    for (const g of groupByRecord(byRound.get(round)!)) groups.push({ ...g, detail: `Out in losers round ${round}` })
   }
 
   const dead = [...deadTeams.keys()].filter(id => !placed.has(id) && !knockedOut.has(id))
@@ -301,12 +342,13 @@ export function rankDoubleElim(
 
 // ── Pool play ─────────────────────────────────────────────────────────────────
 
-// Teams with identical cross-pool records tie. `order` lists the record fields
-// to sort by, best first; each is (team) => number with higher = better.
-function groupByRecord(
-  rows: { teamId: string; detail: string; key: number[] }[],
+// Teams with identical records (by `key`, best-first per entry) tie; teams
+// with distinct keys are split into their own ranked groups. `key` order
+// encodes tiebreak priority, e.g. [wins, -losses, point_diff, total_points].
+function groupByRecord<T extends { teamId: string; detail: string; key: number[]; forfeited?: boolean }>(
+  rows: T[],
 ): TieGroup[] {
-  const byKey = new Map<string, { teamId: string; detail: string; key: number[] }[]>()
+  const byKey = new Map<string, T[]>()
   for (const r of rows) {
     const k = r.key.join('|')
     const list = byKey.get(k) ?? []
@@ -320,11 +362,14 @@ function groupByRecord(
       }
       return 0
     })
-    .map(list => ({ teams: list.map(r => ({ teamId: r.teamId, detail: r.detail })) }))
+    .map(list => ({ teams: list.map(r => ({ teamId: r.teamId, detail: r.detail, forfeited: r.forfeited })) }))
 }
 
 // Bracket-phase finishers first (single-elim logic), then everyone knocked out
-// at pool stage by cross-pool W-L record (identical records tie).
+// at pool stage, ranked cross-pool by W-L record, then point differential,
+// then total points scored (same tiebreak order as the pools' own standings;
+// sports that don't track points, e.g. Soccer, stay 0 and fall through to a
+// tied record).
 export function rankPoolBracket(
   matches: Match[],
   brackets: Bracket[],
@@ -343,7 +388,7 @@ export function rankPoolBracket(
       .map(s => ({
         teamId: s.team_id,
         detail: `${s.wins}–${s.losses} in ${pool.name}`,
-        key: [s.wins, -s.losses],
+        key: [s.wins, -s.losses, s.point_diff, s.total_points],
       })),
   )
 

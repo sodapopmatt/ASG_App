@@ -728,7 +728,7 @@ function PoolPlayView({
       {phase === 'pools'
         ? <DivisionTabs sections={sections} storageKey={`pool-tabs-${sportId}`} />
         : bracketPhaseMatches.length > 0
-          ? <SingleBracketView matches={bracketPhaseMatches} teamMap={teamMap} companyMap={companyMap} />
+          ? <SingleBracketView matches={bracketPhaseMatches} teamMap={teamMap} companyMap={companyMap} showGameScores={showGameScores} />
           : <p className="text-center text-gray-500 py-12">Bracket phase not generated yet.</p>
       }
     </div>
@@ -848,17 +848,19 @@ function SingleBracketView({
   teamMap,
   companyMap,
   onMatchClick,
+  showGameScores,
 }: {
   matches: Match[]
   teamMap: Record<string, Team>
   companyMap: Record<string, Company>
   onMatchClick?: (matchId: string) => void
+  showGameScores?: boolean
 }) {
   const libMatches = useMemo(() => {
     const ids = new Set(matches.map(m => m.id))
     const multiTeamKeys = buildMultiTeamKeys(teamMap)
-    return stableSortMatches(matches).map(m => toLibraryMatch(m, teamMap, companyMap, ids, multiTeamKeys))
-  }, [matches, teamMap, companyMap])
+    return stableSortMatches(matches).map(m => toLibraryMatch(m, teamMap, companyMap, ids, multiTeamKeys, showGameScores))
+  }, [matches, teamMap, companyMap, showGameScores])
 
   if (libMatches.length === 0) return <p className="text-center text-gray-500 py-12">No matches yet.</p>
 

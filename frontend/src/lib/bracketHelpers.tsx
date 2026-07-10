@@ -97,9 +97,15 @@ export function groupMatchesByCourt(matches: Match[]): Map<string, Match[]> {
 
 export function stableSortMatches(matches: Match[]): Match[] {
   return [...matches].sort((a, b) => {
-    const ka = a.scheduled_at ?? a.id
-    const kb = b.scheduled_at ?? b.id
-    return ka < kb ? -1 : ka > kb ? 1 : 0
+    // scheduled_at is frequently null (e.g. rounds beyond the first, or a
+    // bracket phase generated with no courts assigned) — comparing that
+    // directly against a's/b's raw id string mixes an ISO date with a UUID,
+    // an effectively arbitrary comparison. Bucket missing times together
+    // first, and use id only as a genuine tiebreak once times match.
+    const ta = a.scheduled_at ?? ''
+    const tb = b.scheduled_at ?? ''
+    if (ta !== tb) return ta < tb ? -1 : 1
+    return a.id < b.id ? -1 : 1
   })
 }
 
@@ -109,6 +115,7 @@ export function toLibraryMatch(
   companyMap: Record<string, Company>,
   withinIds?: Set<string>,
   multiTeamKeys?: Set<string>,
+  showGameScores?: boolean,
 ): MatchType {
   const isDone = m.status === 'completed' || m.status === 'forfeit' || m.status === 'double_forfeit' || m.status === 'draw'
 
@@ -145,6 +152,7 @@ export function toLibraryMatch(
         resultText:
           m.status === 'double_forfeit' ? 'FF'
           : m.status === 'forfeit' && m.winner_id !== m.home_team_id ? 'FF'
+          : showGameScores ? (m.home_games_won != null ? String(m.home_games_won) : null)
           : m.home_score != null ? String(m.home_score)
           : null,
       },
@@ -156,6 +164,7 @@ export function toLibraryMatch(
         resultText:
           m.status === 'double_forfeit' ? 'FF'
           : m.status === 'forfeit' && m.winner_id !== m.away_team_id ? 'FF'
+          : showGameScores ? (m.away_games_won != null ? String(m.away_games_won) : null)
           : m.away_score != null ? String(m.away_score)
           : null,
       },
@@ -349,17 +358,19 @@ export function SingleBracketView({
   teamMap,
   companyMap,
   onMatchClick,
+  showGameScores,
 }: {
   matches: Match[]
   teamMap: Record<string, Team>
   companyMap: Record<string, Company>
   onMatchClick: (matchId: string) => void
+  showGameScores?: boolean
 }) {
   const libMatches = useMemo(() => {
     const ids = new Set(matches.map(m => m.id))
     const multiTeamKeys = buildMultiTeamKeys(teamMap)
-    return stableSortMatches(matches).map(m => toLibraryMatch(m, teamMap, companyMap, ids, multiTeamKeys))
-  }, [matches, teamMap, companyMap])
+    return stableSortMatches(matches).map(m => toLibraryMatch(m, teamMap, companyMap, ids, multiTeamKeys, showGameScores))
+  }, [matches, teamMap, companyMap, showGameScores])
 
   if (libMatches.length === 0) return <p className="text-center text-gray-500 py-12">No matches yet.</p>
 

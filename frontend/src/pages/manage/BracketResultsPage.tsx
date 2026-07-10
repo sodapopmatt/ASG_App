@@ -142,15 +142,19 @@ function CourtQueueCard({
   teamMap,
   companyMap,
   onClick,
+  showGameScores = false,
 }: {
   match: Match
   teamMap: Record<string, Team>
   companyMap: Record<string, Company>
   onClick: () => void
+  showGameScores?: boolean
 }) {
   const isDone = match.status === 'completed' || match.status === 'forfeit' || match.status === 'double_forfeit' || match.status === 'draw'
   const isLive = match.status === 'in_progress'
-  const hasScore = match.home_score != null && match.away_score != null
+  const homeDisplayScore = showGameScores ? match.home_games_won : match.home_score
+  const awayDisplayScore = showGameScores ? match.away_games_won : match.away_score
+  const hasScore = homeDisplayScore != null && awayDisplayScore != null
   const effectiveTime = match.estimated_start ?? match.scheduled_at
   const time = effectiveTime
     ? new Date(effectiveTime).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
@@ -167,14 +171,14 @@ function CourtQueueCard({
             <p className={`text-sm truncate flex-1 ${match.winner_id && match.winner_id === match.home_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'} ${!match.home_team_id ? 'italic text-gray-400 font-normal' : ''}`}>
               {fullLabel(match.home_team_id, teamMap, companyMap)}
             </p>
-            {hasScore && <span className="text-sm font-bold text-slate-700 bg-gray-100 rounded-md px-2 py-0.5 tabular-nums shrink-0 min-w-[2rem] text-center">{match.home_score}</span>}
+            {hasScore && <span className="text-sm font-bold text-slate-700 bg-gray-100 rounded-md px-2 py-0.5 tabular-nums shrink-0 min-w-[2rem] text-center">{homeDisplayScore}</span>}
           </div>
           <p className="text-xs text-gray-400 my-0.5">vs</p>
           <div className="flex items-center gap-2">
             <p className={`text-sm truncate flex-1 ${match.winner_id && match.winner_id === match.away_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'} ${!match.away_team_id ? 'italic text-gray-400 font-normal' : ''}`}>
               {fullLabel(match.away_team_id, teamMap, companyMap)}
             </p>
-            {hasScore && <span className="text-sm font-bold text-slate-700 bg-gray-100 rounded-md px-2 py-0.5 tabular-nums shrink-0 min-w-[2rem] text-center">{match.away_score}</span>}
+            {hasScore && <span className="text-sm font-bold text-slate-700 bg-gray-100 rounded-md px-2 py-0.5 tabular-nums shrink-0 min-w-[2rem] text-center">{awayDisplayScore}</span>}
           </div>
         </div>
         {isLive ? (
@@ -198,6 +202,7 @@ function CourtView({
   selectedCourt,
   onSelectCourt,
   onMatchClick,
+  showGameScores = false,
 }: {
   matches: Match[]
   teamMap: Record<string, Team>
@@ -205,6 +210,7 @@ function CourtView({
   selectedCourt: string
   onSelectCourt: (court: string) => void
   onMatchClick: (matchId: string) => void
+  showGameScores?: boolean
 }) {
   const groups = useMemo(() => groupMatchesByCourt(matches), [matches])
 
@@ -242,6 +248,7 @@ function CourtView({
             teamMap={teamMap}
             companyMap={companyMap}
             onClick={() => onMatchClick(m.id)}
+            showGameScores={showGameScores}
           />
         ))}
       </div>
@@ -343,6 +350,7 @@ export default function BracketResultsPage() {
   if (isLoading) return <Skeleton />
 
   const bracketType = sport?.bracket_type
+  const showGameScores = sport?.name?.toLowerCase() === 'pickleball'
 
   function renderElimination(matches: Match[]) {
     if (bracketType === 'single_elimination') {
@@ -466,6 +474,7 @@ export default function BracketResultsPage() {
               selectedCourt={activeCourt}
               onSelectCourt={setActiveCourt}
               onMatchClick={handleMatchClick}
+              showGameScores={showGameScores}
             />
           ) : bracketType === 'single_elimination' || bracketType === 'double_elimination' ? (
             renderBrackets()
@@ -478,6 +487,7 @@ export default function BracketResultsPage() {
                 teamMap={teamMap}
                 companyMap={companyMap}
                 onMatchClick={handleMatchClick}
+                showGameScores={showGameScores}
               />
             )
           ) : (
@@ -492,6 +502,7 @@ export default function BracketResultsPage() {
           teamMap={teamMap}
           companyMap={companyMap}
           onClose={() => setActiveMatch(null)}
+          showGameScores={showGameScores}
         />
       )}
     </>
