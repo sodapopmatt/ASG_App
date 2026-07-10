@@ -74,7 +74,12 @@ export default function MatchResultModal({
 
   const startMutation  = useMutation({ mutationFn: () => startMatch(match.id), onMutate: cancelMatches, onSuccess, onError })
   const scoreMutation  = useMutation({
-    mutationFn: () => patchMatch(match.id, {
+    mutationFn: () => patchMatch(match.id, showGameScores ? {
+      home_games_won: homeGamesWon.trim() === '' ? null : Number(homeGamesWon),
+      away_games_won: awayGamesWon.trim() === '' ? null : Number(awayGamesWon),
+      home_points_total: homePointsTotal.trim() === '' ? null : Number(homePointsTotal),
+      away_points_total: awayPointsTotal.trim() === '' ? null : Number(awayPointsTotal),
+    } : {
       home_score: homeScore.trim() === '' ? null : Number(homeScore),
       away_score: awayScore.trim() === '' ? null : Number(awayScore),
     }),
@@ -270,15 +275,15 @@ export default function MatchResultModal({
                   </div>
                 </>
               )}
-              {!showGameScores && (
-                <button
-                  onClick={() => scoreMutation.mutate()}
-                  disabled={isPending || (homeScore.trim() === '' && awayScore.trim() === '')}
-                  className="w-full py-2 rounded-xl bg-amber-50 border border-amber-300 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-40 transition-colors"
-                >
-                  {scoreMutation.isPending ? 'Saving…' : 'Update Score'}
-                </button>
-              )}
+              <button
+                onClick={() => scoreMutation.mutate()}
+                disabled={isPending || (showGameScores
+                  ? (homeGamesWon.trim() === '' && awayGamesWon.trim() === '' && homePointsTotal.trim() === '' && awayPointsTotal.trim() === '')
+                  : (homeScore.trim() === '' && awayScore.trim() === ''))}
+                className="w-full py-2 rounded-xl bg-amber-50 border border-amber-300 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-40 transition-colors"
+              >
+                {scoreMutation.isPending ? 'Saving…' : 'Update Score'}
+              </button>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider pt-1">Who won?</p>
               <div className="grid grid-cols-2 gap-2">
                 <button

@@ -54,6 +54,10 @@ class MatchUpdate(BaseModel):
     location_id: UUID | None = None
     home_score: int | None = None
     away_score: int | None = None
+    home_games_won: int | None = None
+    away_games_won: int | None = None
+    home_points_total: int | None = None
+    away_points_total: int | None = None
 
 
 class LocationBrief(BaseModel):

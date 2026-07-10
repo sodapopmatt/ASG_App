@@ -10,7 +10,7 @@ import { getCompanies } from '../../api/companies'
 import { getBrackets } from '../../api/brackets'
 import type { Match, Team, Company, Bracket } from '../../types'
 import MatchResultModal from '../../components/MatchResultModal'
-import { buildMultiTeamKeys, compactLabel, compareBracketNames, groupMatchesByCourt, SingleBracketView } from '../../lib/bracketHelpers'
+import { buildMultiTeamKeys, compactLabel, compareBracketNames, formatMatchTime, groupMatchesByCourt, SingleBracketView } from '../../lib/bracketHelpers'
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [String(item[key]), item]))
@@ -22,16 +22,21 @@ function MatchCard({
   companyMap,
   multiTeamKeys,
   onClick,
+  showGameScores = false,
 }: {
   match: Match
   teamMap: Record<string, Team>
   companyMap: Record<string, Company>
   multiTeamKeys: Set<string>
   onClick: () => void
+  showGameScores?: boolean
 }) {
   const isDone = match.status === 'completed' || match.status === 'forfeit' || match.status === 'double_forfeit' || match.status === 'draw'
   const isLive = match.status === 'in_progress'
-  const hasScore = match.home_score != null && match.away_score != null
+  const homeDisplayScore = showGameScores ? match.home_games_won : match.home_score
+  const awayDisplayScore = showGameScores ? match.away_games_won : match.away_score
+  const hasScore = homeDisplayScore != null && awayDisplayScore != null
+  const hasPoints = showGameScores && match.home_points_total != null && match.away_points_total != null
   return (
     <button
       onClick={onClick}
@@ -43,20 +48,36 @@ function MatchCard({
             <p className={`text-sm truncate flex-1 ${match.winner_id && match.winner_id === match.home_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'}`}>
               {compactLabel(match.home_team_id, teamMap, companyMap, undefined, multiTeamKeys)}
             </p>
-            {hasScore && <span className="text-sm font-bold text-slate-700 bg-gray-100 rounded-md px-2 py-0.5 tabular-nums shrink-0 min-w-[2rem] text-center">{match.home_score}</span>}
+            {hasScore && (
+              <span className="text-sm font-bold text-slate-700 bg-gray-100 rounded-md px-2 py-0.5 tabular-nums shrink-0 text-center">
+                {homeDisplayScore} {showGameScores ? 'GW' : ''}
+              </span>
+            )}
+            {hasPoints && (
+              <span className="text-sm font-bold text-slate-700 bg-gray-100 rounded-md px-2 py-0.5 tabular-nums shrink-0 text-center">
+                {match.home_points_total} TP
+              </span>
+            )}
           </div>
           <p className="text-xs text-gray-400 my-0.5">vs</p>
           <div className="flex items-center gap-2">
             <p className={`text-sm truncate flex-1 ${match.winner_id && match.winner_id === match.away_team_id ? 'font-bold text-green-700' : 'font-semibold text-slate-800'}`}>
               {compactLabel(match.away_team_id, teamMap, companyMap, undefined, multiTeamKeys)}
             </p>
-            {hasScore && <span className="text-sm font-bold text-slate-700 bg-gray-100 rounded-md px-2 py-0.5 tabular-nums shrink-0 min-w-[2rem] text-center">{match.away_score}</span>}
+            {hasScore && (
+              <span className="text-sm font-bold text-slate-700 bg-gray-100 rounded-md px-2 py-0.5 tabular-nums shrink-0 text-center">
+                {awayDisplayScore} {showGameScores ? 'GW' : ''}
+              </span>
+            )}
+            {hasPoints && (
+              <span className="text-sm font-bold text-slate-700 bg-gray-100 rounded-md px-2 py-0.5 tabular-nums shrink-0 text-center">
+                {match.away_points_total} TP
+              </span>
+            )}
           </div>
           <p className="text-xs text-gray-400 mt-1">
             {match.locations?.name ? `${match.locations.name} · ` : ''}
-            {match.scheduled_at
-              ? new Date(match.scheduled_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-              : 'No time set'}
+            {formatMatchTime(match.estimated_start ?? match.scheduled_at) || 'No time set'}
           </p>
         </div>
         {isLive ? (
@@ -81,6 +102,7 @@ function CourtQueue({
   selectedCourt,
   onSelectCourt,
   onMatchClick,
+  showGameScores = false,
 }: {
   matches: Match[]
   teamMap: Record<string, Team>
@@ -89,6 +111,7 @@ function CourtQueue({
   selectedCourt: string
   onSelectCourt: (court: string) => void
   onMatchClick: (match: Match) => void
+  showGameScores?: boolean
 }) {
   const groups = useMemo(() => groupMatchesByCourt(matches), [matches])
   const courtNames = [...groups.keys()]
@@ -126,6 +149,7 @@ function CourtQueue({
             companyMap={companyMap}
             multiTeamKeys={multiTeamKeys}
             onClick={() => onMatchClick(m)}
+            showGameScores={showGameScores}
           />
         ))}
       </div>
@@ -589,6 +613,7 @@ export default function PoolResultsPage() {
                               companyMap={companyMap}
                               multiTeamKeys={multiTeamKeys}
                               onClick={() => setActiveMatch(m)}
+                              showGameScores={showGameScores}
                             />
                           ))
                         ))}
@@ -608,6 +633,7 @@ export default function PoolResultsPage() {
             selectedCourt={activeCourt}
             onSelectCourt={setActiveCourt}
             onMatchClick={setActiveMatch}
+            showGameScores={showGameScores}
           />
         ) : showCornhole ? (
           <ChampionshipTab
