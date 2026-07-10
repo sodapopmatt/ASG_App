@@ -605,9 +605,9 @@ export function collapseToCompanies(
   for (const team of teams) {
     if (accountedTeams.has(team.id)) continue
     accountedTeams.add(team.id)
-    let row = rowByCompany.get(team.company_id)
-    if (!row) {
-      row = {
+    const existingRow = rowByCompany.get(team.company_id)
+    if (!existingRow) {
+      rows.push({
         companyId: team.company_id,
         companyName: companyById[team.company_id]?.name ?? '?',
         placement: null,
@@ -616,11 +616,12 @@ export function collapseToCompanies(
         forfeited: false,
         zeroPoints: false,
         otherTeams: [],
-      }
-      rows.push(row)
-      rowByCompany.set(team.company_id, row)
+      })
+      rowByCompany.set(team.company_id, rows[rows.length - 1])
+    } else {
+      // A genuine second team for this company (the first already has a row).
+      existingRow.otherTeams.push({ teamName: teamLabel(team), detail: 'No result yet' })
     }
-    row.otherTeams.push({ teamName: teamLabel(team), detail: 'No result yet' })
   }
 
   // Keep ranked rows in their existing (placement) order; place any blank,
