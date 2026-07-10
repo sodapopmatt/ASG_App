@@ -304,6 +304,10 @@ function AutoRankedScoringSection({
                 </div>
                 {expanded && hasOtherTeams && (
                   <div className="px-4 pb-2.5 pl-[3.25rem] space-y-1">
+                    <div className="flex items-center justify-between gap-2 bg-gray-50 rounded-lg border border-gray-200 px-3 py-1.5">
+                      <span className="text-xs font-medium text-slate-600">{row.primaryTeamName ?? 'Team'}</span>
+                      <span className="text-xs text-gray-400">{row.detail}</span>
+                    </div>
                     {row.otherTeams.map((t, i) => (
                       <div
                         key={i}

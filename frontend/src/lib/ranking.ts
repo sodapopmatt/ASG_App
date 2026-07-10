@@ -34,6 +34,11 @@ export interface CompanyRow {
   detail: string
   forfeited: boolean
   zeroPoints: boolean
+  // Name/label of the team whose result this row's placement/detail came
+  // from — the company row itself isn't a team, so the admin's per-team
+  // breakdown needs this to label that first entry (undefined when there's
+  // no team context at all, e.g. a manual placement row).
+  primaryTeamName?: string
   // Results of this company's OTHER teams (all worse than the one that
   // scored) — for the admin's optional per-team breakdown. Never affects
   // placement or points; purely informational.
@@ -548,7 +553,7 @@ export function collapseToCompanies(
   }
 
   for (const group of groups) {
-    const fresh: { companyId: string; team: RankedTeam }[] = []
+    const fresh: { companyId: string; team: RankedTeam; teamName: string }[] = []
     // A company's non-scoring team can appear in this SAME group as its
     // scoring team (e.g. an entire company still undecided in the bracket,
     // tied with everyone else not yet eliminated) — that row doesn't exist
@@ -569,7 +574,7 @@ export function collapseToCompanies(
         continue
       }
       placedCompanies.add(team.company_id)
-      fresh.push({ companyId: team.company_id, team: rt })
+      fresh.push({ companyId: team.company_id, team: rt, teamName: teamLabel(team) })
     }
 
     if (fresh.length > 0) {
@@ -584,6 +589,7 @@ export function collapseToCompanies(
           detail: f.team.detail ?? group.detail ?? '',
           forfeited: !!f.team.forfeited,
           zeroPoints: !!group.zeroPoints,
+          primaryTeamName: f.teamName,
           otherTeams: [],
         }
         rows.push(row)
@@ -615,6 +621,7 @@ export function collapseToCompanies(
         detail: 'No results yet',
         forfeited: false,
         zeroPoints: false,
+        primaryTeamName: teamLabel(team),
         otherTeams: [],
       })
       rowByCompany.set(team.company_id, rows[rows.length - 1])
