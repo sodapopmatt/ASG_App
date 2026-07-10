@@ -252,16 +252,19 @@ function AutoRankedScoringSection({
                       </div>
                     </button>
                   ) : (
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-slate-800 truncate">
-                        {row.companyName}
-                        {row.forfeited && (
-                          <span className="ml-1.5 align-middle text-[10px] font-bold text-amber-700 bg-amber-100 rounded px-1.5 py-0.5">
-                            Forfeit
-                          </span>
-                        )}
-                      </p>
-                      <p className="text-xs text-gray-400 truncate">{row.detail}</p>
+                    <div className="min-w-0 flex items-center gap-2">
+                      <span className="shrink-0 inline-block" style={{ width: 14 }} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-slate-800 truncate">
+                          {row.companyName}
+                          {row.forfeited && (
+                            <span className="ml-1.5 align-middle text-[10px] font-bold text-amber-700 bg-amber-100 rounded px-1.5 py-0.5">
+                              Forfeit
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-xs text-gray-400 truncate">{row.detail}</p>
+                      </div>
                     </div>
                   )}
                   <button
@@ -472,16 +475,6 @@ function DonationScoringSection({
     [companies, countByCompany, pointsByCompany],
   )
 
-  const hasAny = sorted.some(r => r.count > 0)
-
-  if (!hasAny) {
-    return (
-      <p className="text-sm text-gray-400 text-center py-6">
-        No donations recorded yet. Enter counts from Enter Results first.
-      </p>
-    )
-  }
-
   // Assign ranks with ties
   let rank = 1
   const ranked = sorted.map((row, i) => {
@@ -564,15 +557,23 @@ function WaterballScoringSection({
       if (!companyId) continue
       bestByCompany[companyId] = Math.max(points, bestByCompany[companyId] ?? -1)
     }
-    const rows = companies
+    const scored = companies
       .map(c => ({ company: c, score: bestByCompany[c.id] ?? null }))
       .filter((r): r is { company: Company; score: number } => r.score != null)
       .sort((a, b) => b.score - a.score)
     let rank = 1
-    return rows.map((r, i) => {
-      if (i > 0 && r.score !== rows[i - 1].score) rank = i + 1
-      return { ...r, rank }
+    const rankedRows = scored.map((r, i) => {
+      if (i > 0 && r.score !== scored[i - 1].score) rank = i + 1
+      return { ...r, rank: rank as number | null }
     })
+    // Companies with no result at all yet — show as blank rows, same as
+    // sports with no matches yet (ComputedScoringSection's buildManualRows).
+    const scoredIds = new Set(rankedRows.map(r => r.company.id))
+    const blanks = companies
+      .filter(c => !scoredIds.has(c.id))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(c => ({ company: c, score: null as number | null, rank: null as number | null }))
+    return [...rankedRows, ...blanks]
   }, [matches, companies, companyByTeam])
 
   const savedByCompany = useMemo(
@@ -602,14 +603,6 @@ function WaterballScoringSection({
     return <p className="text-sm text-gray-400 text-center py-6">Loading…</p>
   }
 
-  if (preview.length === 0) {
-    return (
-      <p className="text-sm text-gray-400 text-center py-6">
-        No results recorded yet. Enter rounds survived from Enter Results first.
-      </p>
-    )
-  }
-
   return (
     <div className="space-y-3">
       <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
@@ -631,9 +624,9 @@ function WaterballScoringSection({
                 className="grid items-center px-4 py-2.5 gap-2"
                 style={{ gridTemplateColumns: '2rem 1fr auto auto' }}
               >
-                <span className="text-xs font-bold text-gray-400 tabular-nums">{row.rank}</span>
+                <span className="text-xs font-bold text-gray-400 tabular-nums">{row.rank ?? '—'}</span>
                 <span className="text-sm font-semibold text-slate-800 truncate">{row.company.name}</span>
-                <span className="text-sm tabular-nums text-slate-600 text-right">{row.score}</span>
+                <span className="text-sm tabular-nums text-slate-600 text-right">{row.score ?? '—'}</span>
                 <span className={`text-sm font-bold tabular-nums text-right ${savedEp ? 'text-blue-600' : 'text-gray-300'}`}>
                   {savedEp?.points ?? '—'}
                 </span>
@@ -729,7 +722,7 @@ function GolfScoringSection({
       .filter(r => r.company)
       .sort((a, b) => a.total - b.total)
     let rank = 1
-    const rows = finalists.map((r, i) => {
+    const rows: { company: Company; rank: number | null; label: string; finalist: boolean }[] = finalists.map((r, i) => {
       if (i > 0 && r.total !== finalists[i - 1].total) rank = i + 1
       return {
         company: r.company,
@@ -746,8 +739,18 @@ function GolfScoringSection({
       if (!company) continue
       rows.push({ company, rank: participantRank, label: 'R1 only', finalist: false })
     }
+
+    // Companies with no result at all yet — show as blank rows, same as
+    // sports with no matches yet (ComputedScoringSection's buildManualRows).
+    const accounted = new Set(rows.map(r => r.company.id))
+    const blanks = companies
+      .filter(c => !accounted.has(c.id))
+      .sort((a, b) => a.name.localeCompare(b.name))
+    for (const company of blanks) {
+      rows.push({ company, rank: null, label: 'No results yet', finalist: false })
+    }
     return rows
-  }, [matches, brackets, companyByTeam, companyById])
+  }, [matches, brackets, companies, companyByTeam, companyById])
 
   // What actually got saved last time — the baseline default, so a save
   // survives navigating away and back rather than resetting to a fresh
@@ -834,14 +837,6 @@ function GolfScoringSection({
 
   if (matchesLoading) {
     return <p className="text-sm text-gray-400 text-center py-6">Loading…</p>
-  }
-
-  if (preview.length === 0) {
-    return (
-      <p className="text-sm text-gray-400 text-center py-6">
-        No results recorded yet. Enter hole scores from Enter Results first.
-      </p>
-    )
   }
 
   return (

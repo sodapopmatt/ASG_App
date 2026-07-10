@@ -280,7 +280,7 @@ No dedicated table — Executive Golf is `bracket_type = 'heats'` with real `mat
   2. After all prelim heats complete, admin opens Semi-Finals tab → "Generate Semi-Finals" card appears; snake-distributes top 2 per prelim heat into 2 semi-final heats
   3. After both semi-finals complete, admin opens Final tab → "Generate Final Heat" card appears; top 3 per semi advance
   4. Final ranks 1–6 get gold/silver/bronze treatment in UI
-- **Relay Race custom scoring scale (official ASG table):** 1st–6th: 40/38/36/34/32/30; 7th: 26; 8th: 24; 9th: 22; 10th–11th: 18 each; 12th–13th: 14 each; 14th+: 4 each; forfeit/DQ: 0
+- **Relay Race custom scoring scale (official ASG table):** 1st–6th: 40/38/36/34/32/30; 7th–8th: 26 each; 9th–10th: 22 each; 11th–12th: 18 each; 13th–14th: 14 each; 15th+: 4 each; forfeit/DQ: 0
   - Auto-applied to `sport.points_scale` when generating grouped heats from SportConfigPage
   - ScoringPage auto-computes placements from heat results; admin can override before saving
 

@@ -1088,7 +1088,7 @@ export default function SportConfigPage() {
   // Custom points scale for multi-phase heats (official ASG Relay Race tiers)
   const RELAY_RACE_SCALE: Record<string, number> = {
     '1': 40, '2': 38, '3': 36, '4': 34, '5': 32, '6': 30,
-    '7': 26, '8': 24, '9': 22, '10': 18, '11': 18, '12': 14, '13': 14,
+    '7': 26, '8': 26, '9': 22, '10': 22, '11': 18, '12': 18, '13': 14, '14': 14,
     'default': 4,
   }
 
