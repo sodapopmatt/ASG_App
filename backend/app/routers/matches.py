@@ -522,7 +522,8 @@ def post_result(match_id: str, result: MatchResult, _=Depends(require_admin)):
     loser_id = match["away_team_id"] if winner_id == match["home_team_id"] else match["home_team_id"]
     advance_winner(match_id, winner_id, loser_id, supabase)
     _assign_dynamic_court(match_id)
-    settle_bracket(match["sport_id"], supabase)
+    if match.get("winner_next_match_id") or match.get("loser_next_match_id"):
+        settle_bracket(match["sport_id"], supabase)
 
     return updated
 
@@ -563,7 +564,8 @@ def post_forfeit(match_id: str, body: MatchForfeit, _=Depends(require_admin)):
 
     advance_winner(match_id, winner_id, forfeiting_id, supabase)
     _assign_dynamic_court(match_id)
-    settle_bracket(match["sport_id"], supabase)
+    if match.get("winner_next_match_id") or match.get("loser_next_match_id"):
+        settle_bracket(match["sport_id"], supabase)
 
     return updated
 
@@ -571,7 +573,7 @@ def post_forfeit(match_id: str, body: MatchForfeit, _=Depends(require_admin)):
 @router.post("/{match_id}/double-forfeit", response_model=Match)
 def post_double_forfeit(match_id: str, body: MatchDoubleForfeit | None = None, _=Depends(require_admin)):
     response = supabase.table("matches").select(
-        "id, sport_id, status"
+        "id, sport_id, status, winner_next_match_id, loser_next_match_id"
     ).eq("id", match_id).limit(1).execute()
     if not response.data:
         raise HTTPException(status_code=404, detail="Match not found")
@@ -592,7 +594,8 @@ def post_double_forfeit(match_id: str, body: MatchDoubleForfeit | None = None, _
 
     updated = supabase.table("matches").update(update).eq("id", match_id).execute().data[0]
     advance_double_forfeit(match_id, supabase)
-    settle_bracket(match["sport_id"], supabase)
+    if match.get("winner_next_match_id") or match.get("loser_next_match_id"):
+        settle_bracket(match["sport_id"], supabase)
     return updated
 
 
@@ -661,7 +664,8 @@ def post_reset(match_id: str, _=Depends(require_admin)):
         "played_at": None,
     }
     updated = supabase.table("matches").update(update).eq("id", match_id).execute().data[0]
-    settle_bracket(match["sport_id"], supabase)
+    if match.get("winner_next_match_id") or match.get("loser_next_match_id"):
+        settle_bracket(match["sport_id"], supabase)
     return updated
 
 
