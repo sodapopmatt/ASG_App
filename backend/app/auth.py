@@ -8,7 +8,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 
 from app.config import settings
-from app.database import supabase
+from app.database import supabase, db_call
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,9 @@ def get_current_profile(user: AuthUser = Depends(get_current_user)) -> UserProfi
             return cached[1]
 
     try:
-        response = supabase.table("user_profiles").select("role, company_id").eq("id", user.id).limit(1).execute()
+        response = db_call(
+            lambda: supabase.table("user_profiles").select("role, company_id").eq("id", user.id).limit(1).execute()
+        )
     except Exception:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Could not verify user profile, please retry")
     if not response.data:

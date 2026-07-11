@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from app.database import supabase
+from app.database import supabase, db_call
 from app.auth import require_admin
 from app.schemas.match import Match, MatchCreate, MatchUpdate, MatchResult, MatchForfeit, MatchDoubleForfeit, MatchDraw, HeatResult
 from app.bracket_engine.generator import advance_winner, advance_double_forfeit, settle_bracket, retract_winner, retract_double_forfeit
@@ -223,13 +223,12 @@ def _attach_estimated_starts(matches: list[dict]) -> list[dict]:
     sport_start_map: dict[str, datetime | None] = {}
     heats_sport_ids: set[str] = set()
     if sport_ids:
-        sports = (
-            supabase.table("sports")
+        sports = db_call(
+            lambda: supabase.table("sports")
             .select("id, match_duration_minutes, schedule_start, bracket_type, scoring_mode")
             .in_("id", sport_ids)
             .execute()
-            .data
-        )
+        ).data
         sport_duration_map = {s["id"]: s["match_duration_minutes"] or 30 for s in sports}
         sport_start_map = {s["id"]: _parse_dt(s.get("schedule_start")) for s in sports}
         # Executive Golf is bracket_type="heats" (one match per company, no
@@ -250,13 +249,12 @@ def _attach_estimated_starts(matches: list[dict]) -> list[dict]:
     heats_bracket_ids: set[str] = set()
     bracket_ids = list({m["bracket_id"] for m in matches if m.get("bracket_id")})
     if bracket_ids:
-        brackets = (
-            supabase.table("brackets")
+        brackets = db_call(
+            lambda: supabase.table("brackets")
             .select("id, phase, sport_id")
             .in_("id", bracket_ids)
             .execute()
-            .data
-        )
+        ).data
         heats_bracket_ids = {
             b["id"] for b in brackets
             if b.get("phase") in ("heats", "bracket", "finals")
@@ -365,7 +363,7 @@ def _get_cached_blocks() -> list[dict]:
     global _blocks_cache
     if _blocks_cache and (time.monotonic() - _blocks_cache[0]) < _BLOCKS_CACHE_TTL:
         return _blocks_cache[1]
-    data = supabase.table("schedule_blocks").select("start_time, end_time, sport_ids").execute().data
+    data = db_call(lambda: supabase.table("schedule_blocks").select("start_time, end_time, sport_ids").execute()).data
     _blocks_cache = (time.monotonic(), data)
     return data
 
