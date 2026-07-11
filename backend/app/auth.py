@@ -6,7 +6,7 @@ from threading import Lock
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from app.database import supabase, db_call
+from app.database import supabase, supabase_anon, db_call
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             return AuthUser(id=cached[1])
 
     try:
-        response = supabase.auth.get_user(token)
+        response = supabase_anon.auth.get_user(token)
     except Exception as exc:
         logger.warning("supabase.auth.get_user failed: %s", exc)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")

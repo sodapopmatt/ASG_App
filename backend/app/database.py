@@ -9,6 +9,11 @@ logger = logging.getLogger(__name__)
 
 supabase: Client = create_client(settings.supabase_url, settings.supabase_service_role_key)
 
+# Separate anon-key client used ONLY for verifying user access tokens via
+# supabase.auth.get_user(). The main service-role client can behave
+# unpredictably when its own auth headers collide with a user-supplied JWT.
+supabase_anon: Client = create_client(settings.supabase_url, settings.supabase_anon_key)
+
 T = TypeVar("T")
 
 
