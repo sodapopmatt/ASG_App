@@ -80,7 +80,10 @@ export default function DonationResultsPage() {
 
   const handleAdd = (company_id: string) => {
     const raw = addValues[company_id] ?? ''
-    if (raw === '') return
+    if (raw === '') {
+      setError('Enter a number to add')
+      return
+    }
     const n = Number(raw)
     if (!Number.isInteger(n) || n <= 0) {
       setError('Enter a positive whole number to add')
@@ -239,7 +242,7 @@ export default function DonationResultsPage() {
                   <button
                     type="button"
                     onClick={() => handleAdd(c.id)}
-                    disabled={!addValues[c.id] || isSaving}
+                    disabled={isSaving}
                     className="text-xs font-semibold text-blue-600 disabled:text-gray-300"
                   >
                     {isSaving ? 'Adding…' : 'Add'}
