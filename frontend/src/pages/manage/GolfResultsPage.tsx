@@ -98,9 +98,9 @@ function CompanyRow({
           <label key={i} className="flex items-center gap-1">
             <span className="text-xs text-gray-500">H{i + 1}</span>
             <input
-              type="number"
-              min={0}
+              type="text"
               inputMode="numeric"
+              pattern="[0-9]*"
               value={h}
               disabled={locked}
               onChange={e => setHoles(prev => prev.map((v, j) => (j === i ? e.target.value : v)))}

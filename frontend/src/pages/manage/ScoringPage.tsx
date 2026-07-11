@@ -278,8 +278,9 @@ function AutoRankedScoringSection({
                     {editing ? 'Done' : 'Edit'}
                   </button>
                   <input
-                    type="number"
-                    min={1}
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     disabled={!editing}
                     value={p ?? ''}
                     onChange={e => {
@@ -290,7 +291,8 @@ function AutoRankedScoringSection({
                     className="w-14 text-center text-sm rounded-lg border border-gray-200 px-2 py-1 text-slate-700 tabular-nums justify-self-end disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-100"
                   />
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     disabled={!editing}
                     value={pts}
                     onChange={e => {
@@ -640,8 +642,9 @@ function DonationScoringSection({
                   {editing ? 'Done' : 'Edit'}
                 </button>
                 <input
-                  type="number"
-                  min={1}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   disabled={!editing}
                   value={p ?? ''}
                   onChange={e => {
@@ -652,8 +655,8 @@ function DonationScoringSection({
                   className="w-14 text-center text-sm rounded-lg border border-gray-200 px-2 py-1 text-slate-700 tabular-nums justify-self-end disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-100"
                 />
                 <input
-                  type="number"
-                  min={0}
+                  type="text"
+                  inputMode="decimal"
                   disabled={!editing}
                   value={pts}
                   onChange={e => {
@@ -980,8 +983,9 @@ function GolfScoringSection({
                   {editing ? 'Done' : 'Edit'}
                 </button>
                 <input
-                  type="number"
-                  min={1}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   disabled={!editing}
                   value={p ?? ''}
                   onChange={e => {
@@ -992,8 +996,8 @@ function GolfScoringSection({
                   className="w-14 text-center text-sm rounded-lg border border-gray-200 px-2 py-1 text-slate-700 tabular-nums justify-self-end disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-100"
                 />
                 <input
-                  type="number"
-                  min={0}
+                  type="text"
+                  inputMode="decimal"
                   disabled={!editing}
                   value={pts}
                   onChange={e => {

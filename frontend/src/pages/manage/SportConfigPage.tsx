@@ -406,9 +406,9 @@ function SeedPositionInput({
   useEffect(() => setDraft(String(position)), [position])
   return (
     <input
-      type="number"
+      type="text"
       inputMode="numeric"
-      min={1}
+      pattern="[0-9]*"
       max={max}
       value={draft}
       onChange={e => setDraft(e.target.value)}
@@ -1492,8 +1492,9 @@ const genMutation = useMutation({
             <label className="space-y-1 block">
               <span className="text-xs text-gray-400">Match duration (min)</span>
               <input
-                type="number"
-                min={5}
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 value={effectiveDuration}
                 onChange={e => setConfigDuration(Number(e.target.value))}
                 className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
@@ -1597,9 +1598,9 @@ const genMutation = useMutation({
             />
             <span className="text-sm text-gray-400">1 through</span>
             <input
-              type="number"
-              min={1}
-              max={100}
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
               placeholder="24"
               value={bulkCount}
               onChange={e => setBulkCount(e.target.value === '' ? '' : Math.max(1, Number(e.target.value)))}
@@ -1730,9 +1731,9 @@ const genMutation = useMutation({
             <label className="space-y-1 block">
               <span className="text-xs text-gray-400">Number of preliminary heats</span>
               <input
-                type="number"
-                min={1}
-                max={Math.max(1, sportTeams.length)}
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 value={numHeats}
                 onChange={e => setNumHeats(Math.max(1, Number(e.target.value)))}
                 className="w-24 text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
@@ -1763,9 +1764,9 @@ const genMutation = useMutation({
               <label className="space-y-1 block">
                 <span className="text-xs text-gray-400">Number of pools</span>
                 <input
-                  type="number"
-                  min={1}
-                  max={Math.floor(sportTeams.length / 2) || 1}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   autoFocus
                   value={effectivePoolCount}
                   onChange={e => {
@@ -1796,9 +1797,9 @@ const genMutation = useMutation({
               <label className="space-y-1 block">
                 <span className="text-xs text-gray-400">Games per team (pool stage)</span>
                 <input
-                  type="number"
-                  min={1}
-                  max={Math.max(1, Math.ceil(sportTeams.length / effectivePoolCount) - 1)}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   placeholder="All opponents (full round robin)"
                   autoFocus
                   value={effectivePoolPlayRounds > 0 ? effectivePoolPlayRounds : ''}
@@ -1825,8 +1826,9 @@ const genMutation = useMutation({
               <label className="space-y-1 block">
                 <span className="text-xs text-gray-400">Number of Board Sets per Group</span>
                 <input
-                  type="number"
-                  min={1}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   value={effectiveAssumedCourts}
                   onChange={e => setConfigAssumedCourts(Number(e.target.value))}
                   onBlur={() => configMutation.mutate()}
@@ -2045,8 +2047,9 @@ const genMutation = useMutation({
               <label className="space-y-1 block">
                 <span className="text-xs text-gray-400">Teams advancing per pool</span>
                 <input
-                  type="number"
-                  min={1}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   autoFocus
                   value={advanceCount}
                   onChange={e => setConfigAdvancePerPool(Math.max(1, Number(e.target.value)))}

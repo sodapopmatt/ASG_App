@@ -91,9 +91,9 @@ function TeamRow({
         )}
         <span className="text-xs text-gray-500">Rounds survived:</span>
         <input
-          type="number"
-          min={0}
+          type="text"
           inputMode="numeric"
+          pattern="[0-9]*"
           value={rounds}
           disabled={locked}
           onChange={e => setRounds(e.target.value)}

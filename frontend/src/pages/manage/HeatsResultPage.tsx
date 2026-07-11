@@ -156,19 +156,19 @@ function TeamRow({
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1 flex-1">
                 <div className="flex flex-col items-center">
-                <input type="number" min={0} max={99} value={mm} onChange={e => setMm(e.target.value)} placeholder="0"
+                <input type="text" inputMode="numeric" pattern="[0-9]*" value={mm} onChange={e => setMm(e.target.value)} placeholder="0"
                   className="w-14 text-center text-sm rounded-lg border border-gray-200 px-2 py-2 text-slate-700 tabular-nums" />
                 <span className="text-xs text-gray-400 mt-0.5">min</span>
               </div>
               <span className="text-gray-400 font-bold pb-4">:</span>
               <div className="flex flex-col items-center">
-                <input type="number" min={0} max={59} value={ss} onChange={e => setSs(e.target.value)} placeholder="00"
+                <input type="text" inputMode="numeric" pattern="[0-9]*" value={ss} onChange={e => setSs(e.target.value)} placeholder="00"
                   className="w-14 text-center text-sm rounded-lg border border-gray-200 px-2 py-2 text-slate-700 tabular-nums" />
                 <span className="text-xs text-gray-400 mt-0.5">sec</span>
               </div>
               <span className="text-gray-400 font-bold pb-4">.</span>
               <div className="flex flex-col items-center">
-                <input type="number" min={0} max={999} value={ms} onChange={e => setMs(e.target.value)} placeholder="000"
+                <input type="text" inputMode="numeric" pattern="[0-9]*" value={ms} onChange={e => setMs(e.target.value)} placeholder="000"
                   className="w-16 text-center text-sm rounded-lg border border-gray-200 px-2 py-2 text-slate-700 tabular-nums" />
                 <span className="text-xs text-gray-400 mt-0.5">ms</span>
               </div>
