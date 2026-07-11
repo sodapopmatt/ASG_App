@@ -9,6 +9,18 @@ export const resetBrackets = (sportId: string) =>
 export const resetBracketPhase = (sportId: string) =>
   apiFetch<void>(`/sports/${sportId}/bracket-phase`, { method: 'DELETE' })
 
+export interface ReconcileAdvancementResponse {
+  reconciled_count: number
+  reconciled: Array<{
+    match_id: string
+    before: Record<string, [string | null, string | null]>
+    after: Record<string, [string | null, string | null]>
+  }>
+}
+
+export const reconcileAdvancement = (sportId: string) =>
+  apiFetch<ReconcileAdvancementResponse>(`/sports/${sportId}/reconcile-advancement`, { method: 'POST' })
+
 export interface DivisionSpec {
   name: string
   team_ids: string[]

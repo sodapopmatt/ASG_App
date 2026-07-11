@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { getSports, generateBracket, resetBrackets, resetBracketPhase, updateSport, setSeedOrder, setPoolSetup, getStandings, type DivisionSpec, type PoolSpec, type HeatSpec } from '../../api/sports'
+import { getSports, generateBracket, resetBrackets, resetBracketPhase, reconcileAdvancement, updateSport, setSeedOrder, setPoolSetup, getStandings, type DivisionSpec, type PoolSpec, type HeatSpec } from '../../api/sports'
 import { getMatches, patchMatch } from '../../api/matches'
 import { getTeams } from '../../api/teams'
 import { getCompanies } from '../../api/companies'
@@ -1274,6 +1274,17 @@ const genMutation = useMutation({
     onError: (e) => setGenError(e instanceof Error ? e.message : 'Failed to restart bracket phase'),
   })
 
+  const reconcileMutation = useMutation({
+    mutationFn: () => reconcileAdvancement(sportId!),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['matches'] })
+      qc.invalidateQueries({ queryKey: ['brackets'] })
+      const n = data?.reconciled_count ?? 0
+      alert(n === 0 ? 'No stuck advancements found.' : `Reconciled ${n} match${n === 1 ? '' : 'es'}. Brackets refreshed.`)
+    },
+    onError: (e) => alert(`Reconcile failed: ${e instanceof Error ? e.message : 'unknown error'}`),
+  })
+
   const resetMutation = useMutation({
     mutationFn: () => resetBrackets(sportId!),
     onSuccess: () => {
@@ -2208,6 +2219,20 @@ const genMutation = useMutation({
               </>
             )}
         </>
+      </CollapsibleSection>
+
+      {/* Fix stuck advancement */}
+      <CollapsibleSection title="Fix stuck brackets" borderColor="border-amber-100" defaultOpen={false}>
+        <p className="text-xs text-gray-600 mb-2">
+          If teams that won or lost aren't showing up in their next match, tap this to re-run advancement for all completed matches in this sport. Safe to run multiple times.
+        </p>
+        <button
+          onClick={() => reconcileMutation.mutate()}
+          disabled={reconcileMutation.isPending}
+          className="w-full py-2 rounded-lg border border-amber-300 text-amber-700 font-semibold text-sm hover:bg-amber-50 disabled:opacity-50"
+        >
+          {reconcileMutation.isPending ? 'Reconciling…' : 'Reconcile Advancement'}
+        </button>
       </CollapsibleSection>
 
       {/* Danger zone */}
