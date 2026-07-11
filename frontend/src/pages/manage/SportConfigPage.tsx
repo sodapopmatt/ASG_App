@@ -990,8 +990,6 @@ export default function SportConfigPage() {
   const isGolf = sport?.scoring_mode === 'executive_golf'
   const isPickleball = sport?.name === 'Pickleball'
 
-  const alreadyGenerated = matches.length > 0 || (isPool && brackets.some(b => b.phase === 'pool'))
-
   // â”€â”€ Pool play setup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const effectivePoolCount = Math.max(1, Math.min(
     poolCount ?? Math.ceil(sportTeams.length / 8),
@@ -1091,6 +1089,8 @@ export default function SportConfigPage() {
     queryFn: () => getBrackets(sportId!),
     enabled: !!sportId && isPool,
   })
+
+  const alreadyGenerated = matches.length > 0 || (isPool && brackets.some(b => b.phase === 'pool'))
   const hasBracketPhase = isPool && brackets.some(b => b.phase !== 'pool')
   // Keep the bracket phase card visible even after the first bracket is generated
   // so pickleball (and any pool_bracket sport) can generate a second bracket (e.g. 13th–20th).
@@ -1234,7 +1234,14 @@ const genMutation = useMutation({
       setGenError(null)
       if (isPool && sportId) saveResolvedGroups()
     },
-    onError: (e) => setGenError(e instanceof Error ? e.message : 'Failed to generate bracket'),
+    onError: (e) => {
+      // Invalidate brackets so the UI reflects any orphan brackets that may
+      // have been created before the request timed out — otherwise the Generate
+      // button stays visible and a retry hits the 409 guard.
+      qc.invalidateQueries({ queryKey: ['brackets'] })
+      qc.invalidateQueries({ queryKey: ['matches'] })
+      setGenError(e instanceof Error ? e.message : 'Failed to generate bracket')
+    },
   })
 
   const bracketPhaseMutation = useMutation({
