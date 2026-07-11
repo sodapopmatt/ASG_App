@@ -195,9 +195,9 @@ export default function DonationResultsPage() {
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-500">Set total:</span>
                   <input
-                    type="number"
-                    min={0}
+                    type="text"
                     inputMode="numeric"
+                    pattern="[0-9]*"
                     value={editValue}
                     onChange={e => setEditValue(e.target.value)}
                     className="w-24 rounded-lg border border-gray-200 px-2 py-1 text-sm text-slate-800 text-right tabular-nums"
@@ -227,9 +227,9 @@ export default function DonationResultsPage() {
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-400">+ Add:</span>
                   <input
-                    type="number"
-                    min={1}
+                    type="text"
                     inputMode="numeric"
+                    pattern="[0-9]*"
                     value={addValues[c.id] ?? ''}
                     onChange={e => setAddValues(v => ({ ...v, [c.id]: e.target.value }))}
                     placeholder="0"
