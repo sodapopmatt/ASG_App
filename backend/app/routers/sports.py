@@ -1019,57 +1019,79 @@ def generate_swiss_round(sport_id: str, _=Depends(require_admin)):
 @router.post("/{sport_id}/reconcile-advancement")
 def reconcile_advancement(sport_id: str, _=Depends(require_admin)):
     """Re-run bracket advancement for any completed matches whose downstream
-    slots never got populated (typically because a Supabase call failed
-    mid-write during the original result submission). Safe to run any time —
-    _fill_team_slot is a no-op when the team is already in the target slot.
+    slots never got populated. Optimized to minimize round-trips: fetches all
+    matches once, computes needed updates in memory, batches updates.
+    Safe to run repeatedly — a slot that already contains the team is skipped.
     """
-    matches = supabase.table("matches").select(
+    all_matches = supabase.table("matches").select(
         "id, status, winner_id, home_team_id, away_team_id, "
+        "home_slot_state, away_slot_state, "
         "winner_next_match_id, loser_next_match_id"
     ).eq("sport_id", sport_id).execute().data or []
 
-    reconciled: list[dict] = []
-    for m in matches:
+    by_id = {m["id"]: m for m in all_matches}
+    updates_by_match: dict[str, dict] = {}
+
+    def _plan_fill(target_id: str, team_id: str):
+        target = by_id.get(target_id)
+        if not target:
+            return
+        # Include any pending in-memory updates so we don't fill twice.
+        pending = updates_by_match.get(target_id, {})
+        home_team = pending.get("home_team_id", target.get("home_team_id"))
+        away_team = pending.get("away_team_id", target.get("away_team_id"))
+        if home_team == team_id or away_team == team_id:
+            return
+        if home_team is None and target.get("home_slot_state") != "bye":
+            updates_by_match.setdefault(target_id, {})["home_team_id"] = team_id
+        elif away_team is None and target.get("away_slot_state") != "bye":
+            updates_by_match.setdefault(target_id, {})["away_team_id"] = team_id
+
+    def _plan_bye(target_id: str):
+        target = by_id.get(target_id)
+        if not target:
+            return
+        pending = updates_by_match.get(target_id, {})
+        home_state = pending.get("home_slot_state", target.get("home_slot_state"))
+        away_state = pending.get("away_slot_state", target.get("away_slot_state"))
+        home_team = pending.get("home_team_id", target.get("home_team_id"))
+        away_team = pending.get("away_team_id", target.get("away_team_id"))
+        if home_team is None and home_state != "bye":
+            updates_by_match.setdefault(target_id, {})["home_slot_state"] = "bye"
+        elif away_team is None and away_state != "bye":
+            updates_by_match.setdefault(target_id, {})["away_slot_state"] = "bye"
+
+    for m in all_matches:
         status = m.get("status")
-        if status == "completed" and m.get("winner_id"):
+        w_next = m.get("winner_next_match_id")
+        l_next = m.get("loser_next_match_id")
+        if status in ("completed", "forfeit") and m.get("winner_id"):
             winner_id = m["winner_id"]
             loser_id = (
                 m["away_team_id"] if winner_id == m.get("home_team_id")
                 else m.get("home_team_id")
             )
-            before = _slot_snapshot(m.get("winner_next_match_id"), m.get("loser_next_match_id"))
-            advance_winner(m["id"], winner_id, loser_id, supabase)
-            after = _slot_snapshot(m.get("winner_next_match_id"), m.get("loser_next_match_id"))
-            if before != after:
-                reconciled.append({"match_id": m["id"], "before": before, "after": after})
-        elif status == "forfeit" and m.get("winner_id"):
-            winner_id = m["winner_id"]
-            loser_id = (
-                m["away_team_id"] if winner_id == m.get("home_team_id")
-                else m.get("home_team_id")
-            )
-            before = _slot_snapshot(m.get("winner_next_match_id"), m.get("loser_next_match_id"))
-            advance_winner(m["id"], winner_id, loser_id, supabase)
-            after = _slot_snapshot(m.get("winner_next_match_id"), m.get("loser_next_match_id"))
-            if before != after:
-                reconciled.append({"match_id": m["id"], "before": before, "after": after})
+            if w_next:
+                _plan_fill(w_next, winner_id)
+            if l_next and loser_id:
+                _plan_fill(l_next, loser_id)
         elif status == "double_forfeit":
-            before = _slot_snapshot(m.get("winner_next_match_id"), m.get("loser_next_match_id"))
-            advance_double_forfeit(m["id"], supabase)
-            after = _slot_snapshot(m.get("winner_next_match_id"), m.get("loser_next_match_id"))
-            if before != after:
-                reconciled.append({"match_id": m["id"], "before": before, "after": after})
+            if w_next:
+                _plan_bye(w_next)
+            if l_next:
+                _plan_bye(l_next)
 
-    # Final pass: propagate through byes.
-    settle_bracket(sport_id, supabase)
+    # Apply updates: one round-trip per changed match.
+    applied = 0
+    for match_id, update in updates_by_match.items():
+        try:
+            supabase.table("matches").update(update).eq("id", match_id).execute()
+            applied += 1
+        except Exception:
+            pass  # keep going; report count at the end
 
-    return {"reconciled_count": len(reconciled), "reconciled": reconciled}
-
-
-def _slot_snapshot(winner_next: str | None, loser_next: str | None) -> dict:
-    """Snapshot the current team_ids in downstream matches for diffing."""
-    ids = [x for x in (winner_next, loser_next) if x]
-    if not ids:
-        return {}
-    rows = supabase.table("matches").select("id, home_team_id, away_team_id").in_("id", ids).execute().data or []
-    return {r["id"]: (r.get("home_team_id"), r.get("away_team_id")) for r in rows}
+    return {
+        "reconciled_count": applied,
+        "planned_updates": len(updates_by_match),
+        "matches_scanned": len(all_matches),
+    }

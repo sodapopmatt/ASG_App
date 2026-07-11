@@ -11,11 +11,8 @@ export const resetBracketPhase = (sportId: string) =>
 
 export interface ReconcileAdvancementResponse {
   reconciled_count: number
-  reconciled: Array<{
-    match_id: string
-    before: Record<string, [string | null, string | null]>
-    after: Record<string, [string | null, string | null]>
-  }>
+  planned_updates: number
+  matches_scanned: number
 }
 
 export const reconcileAdvancement = (sportId: string) =>
