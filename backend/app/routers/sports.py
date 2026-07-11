@@ -3,6 +3,7 @@ from app.database import supabase
 from app.auth import require_admin
 from app.schemas.sport import Sport, SportCreate, SportUpdate
 from app.bracket_engine import persist_bracket, persist_pools, clear_brackets, clear_bracket_phase
+from app.bracket_engine.generator import advance_winner, advance_double_forfeit, settle_bracket
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -1013,3 +1014,62 @@ def generate_swiss_round(sport_id: str, _=Depends(require_admin)):
         "round": next_round,
         "matches_created": len(created),
     }
+
+
+@router.post("/{sport_id}/reconcile-advancement")
+def reconcile_advancement(sport_id: str, _=Depends(require_admin)):
+    """Re-run bracket advancement for any completed matches whose downstream
+    slots never got populated (typically because a Supabase call failed
+    mid-write during the original result submission). Safe to run any time —
+    _fill_team_slot is a no-op when the team is already in the target slot.
+    """
+    matches = supabase.table("matches").select(
+        "id, status, winner_id, home_team_id, away_team_id, "
+        "winner_next_match_id, loser_next_match_id"
+    ).eq("sport_id", sport_id).execute().data or []
+
+    reconciled: list[dict] = []
+    for m in matches:
+        status = m.get("status")
+        if status == "completed" and m.get("winner_id"):
+            winner_id = m["winner_id"]
+            loser_id = (
+                m["away_team_id"] if winner_id == m.get("home_team_id")
+                else m.get("home_team_id")
+            )
+            before = _slot_snapshot(m.get("winner_next_match_id"), m.get("loser_next_match_id"))
+            advance_winner(m["id"], winner_id, loser_id, supabase)
+            after = _slot_snapshot(m.get("winner_next_match_id"), m.get("loser_next_match_id"))
+            if before != after:
+                reconciled.append({"match_id": m["id"], "before": before, "after": after})
+        elif status == "forfeit" and m.get("winner_id"):
+            winner_id = m["winner_id"]
+            loser_id = (
+                m["away_team_id"] if winner_id == m.get("home_team_id")
+                else m.get("home_team_id")
+            )
+            before = _slot_snapshot(m.get("winner_next_match_id"), m.get("loser_next_match_id"))
+            advance_winner(m["id"], winner_id, loser_id, supabase)
+            after = _slot_snapshot(m.get("winner_next_match_id"), m.get("loser_next_match_id"))
+            if before != after:
+                reconciled.append({"match_id": m["id"], "before": before, "after": after})
+        elif status == "double_forfeit":
+            before = _slot_snapshot(m.get("winner_next_match_id"), m.get("loser_next_match_id"))
+            advance_double_forfeit(m["id"], supabase)
+            after = _slot_snapshot(m.get("winner_next_match_id"), m.get("loser_next_match_id"))
+            if before != after:
+                reconciled.append({"match_id": m["id"], "before": before, "after": after})
+
+    # Final pass: propagate through byes.
+    settle_bracket(sport_id, supabase)
+
+    return {"reconciled_count": len(reconciled), "reconciled": reconciled}
+
+
+def _slot_snapshot(winner_next: str | None, loser_next: str | None) -> dict:
+    """Snapshot the current team_ids in downstream matches for diffing."""
+    ids = [x for x in (winner_next, loser_next) if x]
+    if not ids:
+        return {}
+    rows = supabase.table("matches").select("id, home_team_id, away_team_id").in_("id", ids).execute().data or []
+    return {r["id"]: (r.get("home_team_id"), r.get("away_team_id")) for r in rows}
