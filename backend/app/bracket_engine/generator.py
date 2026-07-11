@@ -777,23 +777,35 @@ def settle_bracket(sport_id: str, db: Client) -> None:
     """Sweep all bracket matches for a sport and auto-resolve anything that no longer needs a human decision."""
     _TERMINAL = {"completed", "forfeit", "double_forfeit"}
 
+    # Fetch all matches once; maintain in-memory state so subsequent loop
+    # iterations don't re-query the entire table (was O(N*iterations) queries).
+    rows = db.table("matches").select(
+        "id, status, home_team_id, away_team_id, home_slot_state, away_slot_state, "
+        "winner_next_match_id, loser_next_match_id"
+    ).eq("sport_id", sport_id).execute().data
+    by_id: dict[str, dict] = {r["id"]: dict(r) for r in rows}
+
+    def _refresh(match_id: str) -> None:
+        """Re-fetch one match after a write touches its slots."""
+        r = db.table("matches").select(
+            "id, status, home_team_id, away_team_id, home_slot_state, away_slot_state, "
+            "winner_next_match_id, loser_next_match_id"
+        ).eq("id", match_id).limit(1).execute().data
+        if r:
+            by_id[match_id] = dict(r[0])
+
     changed = True
     while changed:
         changed = False
 
-        rows = db.table("matches").select(
-            "id, status, home_team_id, away_team_id, home_slot_state, away_slot_state, "
-            "winner_next_match_id, loser_next_match_id"
-        ).eq("sport_id", sport_id).execute().data
-
-        terminal_ids = {r["id"] for r in rows if r["status"] in _TERMINAL}
+        terminal_ids = {mid for mid, r in by_id.items() if r["status"] in _TERMINAL}
 
         upstream_of: dict[str, list[str]] = {}
-        for r in rows:
+        for r in by_id.values():
             for dst in filter(None, [r["winner_next_match_id"], r["loser_next_match_id"]]):
                 upstream_of.setdefault(dst, []).append(r["id"])
 
-        for m in rows:
+        for m in list(by_id.values()):
             if m["status"] != "scheduled":
                 continue
 
@@ -812,17 +824,28 @@ def settle_bracket(sport_id: str, db: Client) -> None:
 
             if home_is_bye and away_is_bye:
                 db.table("matches").update({"status": "double_forfeit"}).eq("id", m["id"]).execute()
+                by_id[m["id"]]["status"] = "double_forfeit"
                 advance_double_forfeit(m["id"], db)
+                for key in ("winner_next_match_id", "loser_next_match_id"):
+                    nid = m.get(key)
+                    if nid and nid in by_id:
+                        _refresh(nid)
                 changed = True
             elif home_is_bye or away_is_bye:
                 solo = home_id or away_id
                 db.table("matches").update(
                     {"winner_id": solo, "status": "completed"}
                 ).eq("id", m["id"]).execute()
+                by_id[m["id"]]["status"] = "completed"
+                by_id[m["id"]]["winner_id"] = solo
                 if m["winner_next_match_id"]:
                     _fill_team_slot(m["winner_next_match_id"], solo, db)
+                    if m["winner_next_match_id"] in by_id:
+                        _refresh(m["winner_next_match_id"])
                 # A match won by bye has no real loser — bye out the loser slot too
                 if m["loser_next_match_id"]:
                     _fill_bye_slot(m["loser_next_match_id"], db)
+                    if m["loser_next_match_id"] in by_id:
+                        _refresh(m["loser_next_match_id"])
                 changed = True
             # else: both slots have real teams — a human must play this match

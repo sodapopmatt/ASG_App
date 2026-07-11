@@ -660,7 +660,7 @@ function ChampionshipView({
   const { data: championship } = useQuery({
     queryKey: ['championship-standings', sportId],
     queryFn: () => getChampionshipStandings(sportId),
-    refetchInterval: 5000,
+    refetchInterval: 30000,
   })
   const multiTeamKeys = useMemo(() => buildMultiTeamKeys(teamMap), [teamMap])
   const rounds = useMemo(() => byRound(matches), [matches])
@@ -708,7 +708,7 @@ function PoolPlayView({
   const standingsQuery = useQuery({
     queryKey: ['standings', sportId],
     queryFn: () => getStandings(sportId),
-    refetchInterval: 5000,
+    refetchInterval: 30000,
   })
   const standings = useMemo(
     () => [...(standingsQuery.data ?? [])].sort((a, b) => compareBracketNames(a.name, b.name)),
@@ -1127,7 +1127,7 @@ export default function BracketView() {
     queryKey: ['matches', { sport_id: activeSportId }],
     queryFn: () => getMatches({ sport_id: activeSportId! }),
     enabled: !!activeSportId,
-    refetchInterval: 5000,
+    refetchInterval: 30000,
   })
   const sportsQuery    = useQuery({ queryKey: ['sports'],    queryFn: getSports,        staleTime: Infinity })
   const teamsQuery     = useQuery({ queryKey: ['teams'],     queryFn: () => getTeams(), staleTime: Infinity })

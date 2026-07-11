@@ -68,7 +68,10 @@ export default function MatchResultModal({
     qc.invalidateQueries({ queryKey: ['matches'] })
   }
   const onSuccess = (updated: Match) => { patchMatchCache(updated); onClose() }
-  const onError = (e: unknown) => setError(e instanceof Error ? e.message : 'Failed to submit')
+  const onError = (e: unknown) => {
+    const msg = e instanceof Error ? e.message : 'Failed to submit'
+    setError(msg.startsWith('404') ? 'Match not found — it may have been reset. Close this and try again.' : msg)
+  }
 
 
 

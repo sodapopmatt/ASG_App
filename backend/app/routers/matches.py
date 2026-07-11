@@ -263,7 +263,7 @@ def _attach_estimated_starts(matches: list[dict]) -> list[dict]:
             and b.get("sport_id") in heats_sport_ids
         }
 
-    block_rows = supabase.table("schedule_blocks").select("start_time, end_time, sport_ids").execute().data
+    block_rows = _get_cached_blocks()
     blocks = [
         (_parse_dt(b["start_time"]), _parse_dt(b["end_time"]), set(b["sport_ids"]) if b.get("sport_ids") else None)
         for b in block_rows
@@ -354,6 +354,25 @@ def _fetch_all_matches(q) -> list[dict]:
 # worker per window rather than one per request.
 _GLOBAL_MATCHES_TTL = 10.0  # seconds
 _global_matches_cache: dict[str, tuple[float, list[dict]]] = {}
+
+# Schedule blocks almost never change during an event — cache them to avoid a
+# Supabase round-trip on every GET /matches call (which runs _attach_estimated_starts).
+_BLOCKS_CACHE_TTL = 60.0
+_blocks_cache: tuple[float, list[dict]] | None = None
+
+
+def _get_cached_blocks() -> list[dict]:
+    global _blocks_cache
+    if _blocks_cache and (time.monotonic() - _blocks_cache[0]) < _BLOCKS_CACHE_TTL:
+        return _blocks_cache[1]
+    data = supabase.table("schedule_blocks").select("start_time, end_time, sport_ids").execute().data
+    _blocks_cache = (time.monotonic(), data)
+    return data
+
+
+def invalidate_blocks_cache() -> None:
+    global _blocks_cache
+    _blocks_cache = None
 
 
 @router.get("", response_model=list[Match])

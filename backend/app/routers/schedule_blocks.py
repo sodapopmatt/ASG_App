@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, model_validator
 from uuid import UUID
 from app.database import supabase
 from app.auth import require_admin
+from app.routers.matches import invalidate_blocks_cache
 
 router = APIRouter()
 
@@ -50,7 +51,9 @@ def list_schedule_blocks():
 @router.post("", response_model=ScheduleBlock, status_code=201)
 def create_schedule_block(body: ScheduleBlockCreate, _=Depends(require_admin)):
     payload = body.model_dump(mode="json")
-    return supabase.table("schedule_blocks").insert(payload).execute().data[0]
+    result = supabase.table("schedule_blocks").insert(payload).execute().data[0]
+    invalidate_blocks_cache()
+    return result
 
 
 @router.patch("/{block_id}", response_model=ScheduleBlock)
@@ -76,9 +79,11 @@ def update_schedule_block(block_id: str, body: ScheduleBlockUpdate, _=Depends(re
     result = supabase.table("schedule_blocks").update(payload).eq("id", block_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Schedule block not found")
+    invalidate_blocks_cache()
     return result.data[0]
 
 
 @router.delete("/{block_id}", status_code=204)
 def delete_schedule_block(block_id: str, _=Depends(require_admin)):
     supabase.table("schedule_blocks").delete().eq("id", block_id).execute()
+    invalidate_blocks_cache()
