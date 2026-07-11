@@ -387,15 +387,27 @@ export function ZoomableBracket({ children, bracketWidth, bracketHeight }: {
 // ─── Shared single-elimination chart (used by BracketResultsPage and the pool
 // sports' Bracket Phase tab, which shares the same single-elim bracket shape) ──
 
+// NOTE: this deliberately avoids `position: relative/absolute` (and opacity,
+// transform) on anything rendered here. This whole tree lives inside the
+// bracket library's <foreignObject> (see match-wrapper.js), and WebKit has a
+// 17-year-old unfixed bug (bugs.webkit.org #23113) where HTML content inside a
+// foreignObject that acquires its own RenderLayer — via position, opacity, or
+// transform — gets parented to the SVG root's layer instead and renders at the
+// wrong coordinates (collapsed to the top-left origin). The "In Progress"
+// badge overlay below used position:absolute; the CSS Grid stacking here
+// (both children sharing gridArea '1 / 1') achieves the same visual overlap
+// without ever setting `position`, so it doesn't trigger the bug.
 export function MatchComponent(props: MatchComponentProps) {
   const isPlaying = props.match.state === 'PLAYING'
   const openModal = () => props.onMatchClick({ match: props.match, topWon: props.topWon, bottomWon: props.bottomWon, event: {} as React.MouseEvent<HTMLAnchorElement> })
   return (
-    <div style={{ position: 'relative', height: '100%' }}>
-      <LibMatch {...props} onMatchClick={undefined} onPartyClick={openModal} />
+    <div style={{ display: 'grid', height: '100%' }}>
+      <div style={{ gridArea: '1 / 1' }}>
+        <LibMatch {...props} onMatchClick={undefined} onPartyClick={openModal} />
+      </div>
       {isPlaying && (
         <span style={{
-          position: 'absolute', top: 4, right: 8,
+          gridArea: '1 / 1', justifySelf: 'end', alignSelf: 'start', margin: '4px 8px 0 0',
           display: 'flex', alignItems: 'center', gap: 4,
           fontSize: 10, fontWeight: 600, color: '#92400e',
           fontFamily: 'ui-sans-serif, system-ui, sans-serif',

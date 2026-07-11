@@ -927,15 +927,25 @@ function FallbackMatchList({
 }
 
 // ---- Custom match component ------------------------------------------------
+// NOTE: deliberately avoids `position: relative/absolute` (and opacity,
+// transform) — see the matching comment on MatchComponent in bracketHelpers.tsx
+// for why: this renders inside the bracket library's <foreignObject>, and
+// WebKit has a 17-year-old unfixed bug (bugs.webkit.org #23113) where a
+// positioned/opacity/transformed descendant of foreignObject content gets
+// parented to the SVG root's layer instead, rendering at the wrong
+// coordinates. CSS Grid stacking (shared gridArea) gets the same overlap
+// without ever setting `position`.
 
 function MatchComponent(props: MatchComponentProps) {
   const isPlaying = props.match.state === 'PLAYING'
   return (
-    <div style={{ position: 'relative', height: '100%' }}>
-      <LibMatch {...props} onMatchClick={undefined} />
+    <div style={{ display: 'grid', height: '100%' }}>
+      <div style={{ gridArea: '1 / 1' }}>
+        <LibMatch {...props} onMatchClick={undefined} />
+      </div>
       {isPlaying && (
         <span style={{
-          position: 'absolute', top: 4, right: 8,
+          gridArea: '1 / 1', justifySelf: 'end', alignSelf: 'start', margin: '4px 8px 0 0',
           display: 'flex', alignItems: 'center', gap: 4,
           fontSize: 10, fontWeight: 600, color: '#92400e',
           fontFamily: 'ui-sans-serif, system-ui, sans-serif',
