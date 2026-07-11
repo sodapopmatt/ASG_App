@@ -193,6 +193,11 @@ function LiveClock({ base, actualStart }: {
   )
 }
 
+// Toggle to bring back the orange "pushed"/"Xm late" treatment below — logic
+// is kept intact (not deleted) since admins aren't reliably marking matches
+// in_progress, which made "late" noisy/inaccurate rather than informative.
+const SHOW_LATE_BADGES = false
+
 function StatusBadge({ match }: { match: Match }) {
   const now = useNow()
   const base = 'text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap'
@@ -205,7 +210,7 @@ function StatusBadge({ match }: { match: Match }) {
     const isPushed = !!(match.estimated_start && match.scheduled_at &&
       new Date(match.estimated_start) > new Date(match.scheduled_at))
     const overdueMs = effectiveTime ? now.getTime() - new Date(effectiveTime).getTime() : -Infinity
-    const isOverdue = overdueMs >= 3 * 60 * 1000
+    const isOverdue = SHOW_LATE_BADGES && overdueMs >= 3 * 60 * 1000
     const overdueMins = Math.floor(overdueMs / 60000)
 
     if (isOverdue) {
@@ -222,7 +227,7 @@ function StatusBadge({ match }: { match: Match }) {
     // pushed_by_block (backend-computed) means the shift is fully explained
     // by a schedule block (lunch/photo) — not real backup — so it renders
     // the same as on-schedule.
-    const showAsPushed = isPushed && !match.pushed_by_block
+    const showAsPushed = SHOW_LATE_BADGES && isPushed && !match.pushed_by_block
 
     return (
       <span className={`${base} ${showAsPushed ? 'text-orange-700 bg-orange-100' : 'text-blue-700 bg-blue-100'}`}>
