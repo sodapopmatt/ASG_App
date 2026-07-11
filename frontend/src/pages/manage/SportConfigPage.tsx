@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { getSports, generateBracket, resetBrackets, resetBracketPhase, reconcileAdvancement, updateSport, setSeedOrder, setPoolSetup, getStandings, type DivisionSpec, type PoolSpec, type HeatSpec } from '../../api/sports'
+import { getSports, generateBracket, resetBrackets, resetBracketPhase, reconcileAdvancement, rebuildRemainingSchedule, updateSport, setSeedOrder, setPoolSetup, getStandings, type DivisionSpec, type PoolSpec, type HeatSpec } from '../../api/sports'
 import { getMatches, patchMatch } from '../../api/matches'
 import { getTeams } from '../../api/teams'
 import { getCompanies } from '../../api/companies'
@@ -1274,6 +1274,32 @@ const genMutation = useMutation({
     onError: (e) => setGenError(e instanceof Error ? e.message : 'Failed to restart bracket phase'),
   })
 
+  const rebuildScheduleMutation = useMutation({
+    mutationFn: (startIso: string) => rebuildRemainingSchedule(sportId!, startIso),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['matches'] })
+      alert(`Rescheduled ${data.updated} matches across ${data.courts} court(s), starting ${new Date(data.start_time).toLocaleTimeString()}.`)
+    },
+    onError: (e) => alert(`Reschedule failed: ${e instanceof Error ? e.message : 'unknown error'}`),
+  })
+
+  const handleRebuildSchedule = () => {
+    const now = new Date()
+    const defaultLocal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}T13:00`
+    const input = window.prompt(
+      'Restart schedule at what time? (format: YYYY-MM-DDTHH:MM, local time)\n\nThis re-slots every not-yet-started match on this sport, per court, at the sport\'s match duration.',
+      defaultLocal
+    )
+    if (!input) return
+    const parsed = new Date(input)
+    if (isNaN(parsed.getTime())) {
+      alert('Invalid date/time. Use YYYY-MM-DDTHH:MM (e.g. 2026-07-11T13:00)')
+      return
+    }
+    if (!window.confirm(`Reschedule all unfinished matches to start at ${parsed.toLocaleString()}?`)) return
+    rebuildScheduleMutation.mutate(parsed.toISOString())
+  }
+
   const reconcileMutation = useMutation({
     mutationFn: () => reconcileAdvancement(sportId!),
     onSuccess: (data) => {
@@ -2219,6 +2245,20 @@ const genMutation = useMutation({
               </>
             )}
         </>
+      </CollapsibleSection>
+
+      {/* Rebuild remaining schedule */}
+      <CollapsibleSection title="Restart schedule from time" borderColor="border-blue-100" defaultOpen={false}>
+        <p className="text-xs text-gray-600 mb-2">
+          Re-slots every not-yet-started match on this sport, per court, starting at a time you pick. Uses the sport's match duration. In-progress and completed matches are left alone.
+        </p>
+        <button
+          onClick={handleRebuildSchedule}
+          disabled={rebuildScheduleMutation.isPending}
+          className="w-full py-2 rounded-lg border border-blue-300 text-blue-700 font-semibold text-sm hover:bg-blue-50 disabled:opacity-50"
+        >
+          {rebuildScheduleMutation.isPending ? 'Rescheduling…' : 'Restart Schedule'}
+        </button>
       </CollapsibleSection>
 
       {/* Fix stuck advancement */}

@@ -18,6 +18,20 @@ export interface ReconcileAdvancementResponse {
 export const reconcileAdvancement = (sportId: string) =>
   apiFetch<ReconcileAdvancementResponse>(`/sports/${sportId}/reconcile-advancement`, { method: 'POST' })
 
+export interface RebuildScheduleResponse {
+  updated: number
+  matches_scanned: number
+  courts: number
+  start_time: string
+}
+
+export const rebuildRemainingSchedule = (sportId: string, start_time: string) =>
+  apiFetch<RebuildScheduleResponse>(`/sports/${sportId}/rebuild-remaining-schedule`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ start_time }),
+  })
+
 export interface DivisionSpec {
   name: string
   team_ids: string[]

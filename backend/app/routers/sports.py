@@ -1,4 +1,5 @@
-﻿from fastapi import APIRouter, Depends, HTTPException
+﻿from datetime import datetime, timedelta, timezone
+from fastapi import APIRouter, Depends, HTTPException
 from app.database import supabase
 from app.auth import require_admin
 from app.schemas.sport import Sport, SportCreate, SportUpdate
@@ -1094,4 +1095,77 @@ def reconcile_advancement(sport_id: str, _=Depends(require_admin)):
         "reconciled_count": applied,
         "planned_updates": len(updates_by_match),
         "matches_scanned": len(all_matches),
+    }
+
+
+class RebuildScheduleRequest(BaseModel):
+    start_time: str  # ISO datetime, e.g. "2026-07-11T13:00:00-07:00"
+
+
+@router.post("/{sport_id}/rebuild-remaining-schedule")
+def rebuild_remaining_schedule(
+    sport_id: str,
+    body: RebuildScheduleRequest,
+    _=Depends(require_admin),
+):
+    """Re-slot every `scheduled` (not-yet-started) match for this sport.
+    Groups by court, sorts by current scheduled_at, and re-assigns times
+    starting at `start_time` at match_duration_minutes intervals per court.
+    In-progress and completed matches are left alone.
+    """
+    try:
+        start_dt = datetime.fromisoformat(body.start_time.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid start_time (expected ISO 8601)")
+    if start_dt.tzinfo is None:
+        start_dt = start_dt.replace(tzinfo=timezone.utc)
+
+    sport = supabase.table("sports").select("match_duration_minutes").eq("id", sport_id).limit(1).execute().data
+    if not sport:
+        raise HTTPException(status_code=404, detail="Sport not found")
+    duration = timedelta(minutes=sport[0].get("match_duration_minutes") or 30)
+
+    matches = supabase.table("matches").select(
+        "id, status, location_id, scheduled_at"
+    ).eq("sport_id", sport_id).eq("status", "scheduled").execute().data or []
+
+    # Group by court (matches without a court get slotted per their own timeline).
+    by_court: dict[str, list[dict]] = {}
+    unassigned: list[dict] = []
+    for m in matches:
+        if m.get("location_id"):
+            by_court.setdefault(m["location_id"], []).append(m)
+        else:
+            unassigned.append(m)
+
+    def _sort_key(m: dict) -> str:
+        return m.get("scheduled_at") or ""
+
+    updated = 0
+    for court_matches in by_court.values():
+        court_matches.sort(key=_sort_key)
+        cursor = start_dt
+        for m in court_matches:
+            new_iso = cursor.isoformat()
+            try:
+                supabase.table("matches").update({"scheduled_at": new_iso}).eq("id", m["id"]).execute()
+                updated += 1
+            except Exception:
+                pass
+            cursor = cursor + duration
+
+    # Unassigned matches (e.g. grand final with no court) all get the same
+    # start_time; the court ripple/feeder logic in matches.py handles the rest.
+    for m in unassigned:
+        try:
+            supabase.table("matches").update({"scheduled_at": start_dt.isoformat()}).eq("id", m["id"]).execute()
+            updated += 1
+        except Exception:
+            pass
+
+    return {
+        "updated": updated,
+        "matches_scanned": len(matches),
+        "courts": len(by_court),
+        "start_time": start_dt.isoformat(),
     }
