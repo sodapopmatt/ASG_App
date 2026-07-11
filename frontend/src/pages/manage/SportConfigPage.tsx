@@ -26,7 +26,8 @@ const poolLabel = (i: number): string => {
   } while (n >= 0)
   return label
 }
-const poolName = (i: number, prefix: string = 'Pool') => `${prefix} ${poolLabel(i)}`
+const poolName = (i: number, prefix: string = 'Pool', names?: string[]) =>
+  names?.[i]?.trim() || `${prefix} ${poolLabel(i)}`
 
 function indexBy<T>(arr: T[], key: keyof T): Record<string, T> {
   return Object.fromEntries(arr.map(item => [String(item[key]), item]))
@@ -392,32 +393,6 @@ function CollapsibleSection({
   )
 }
 
-function DivToggle({
-  value,
-  names,
-  onChange,
-}: {
-  value: 0 | 1
-  names: [string, string]
-  onChange: (v: 0 | 1) => void
-}) {
-  return (
-    <div className="flex rounded-lg overflow-hidden border border-gray-200 shrink-0">
-      {([0, 1] as const).map(i => (
-        <button
-          key={i}
-          onClick={() => onChange(i)}
-          className={`px-2 py-1 text-xs font-medium max-w-[5.5rem] truncate transition-colors ${
-            value === i ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
-          }`}
-        >
-          {names[i].trim() || `Div ${i + 1}`}
-        </button>
-      ))}
-    </div>
-  )
-}
-
 function SeedPositionInput({
   position,
   max,
@@ -456,11 +431,15 @@ function CourtPill({
   currentPool,
   poolCount,
   onMoveCourt,
+  namePrefix = 'Pool',
+  poolNames,
 }: {
   loc: { id: string; name: string }
   currentPool: number
   poolCount: number
   onMoveCourt: (locId: string, pool: number) => void
+  namePrefix?: string
+  poolNames?: string[]
 }) {
   return (
     <div className="flex items-center gap-1 bg-blue-50 border border-blue-100 rounded-md px-2 py-1 text-xs text-slate-700">
@@ -472,7 +451,7 @@ function CourtPill({
       >
         <option value={SHARED_COURT_VALUE}>Shared (all pools)</option>
         {Array.from({ length: poolCount }, (_, j) => (
-          <option key={j} value={j}>{poolName(j)}</option>
+          <option key={j} value={j}>{poolName(j, namePrefix, poolNames)}</option>
         ))}
       </select>
     </div>
@@ -494,6 +473,8 @@ function PoolBucketRow({
   isOpen,
   onToggle,
   namePrefix = 'Pool',
+  poolNames,
+  allowUnassign = true,
 }: {
   poolIndex: number
   poolCount: number
@@ -509,6 +490,8 @@ function PoolBucketRow({
   isOpen: boolean
   onToggle: () => void
   namePrefix?: string
+  poolNames?: string[]
+  allowUnassign?: boolean
 }) {
   const [search, setSearch] = useState('')
   const [dropdownOpen, setDropdownOpen] = useState(false)
@@ -546,7 +529,7 @@ function PoolBucketRow({
         onClick={onToggle}
         className={`w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 text-left hover:bg-gray-100 transition-colors rounded-t-xl ${!isOpen ? 'rounded-b-xl' : ''}`}
       >
-        <span className="text-sm font-semibold text-slate-800">{poolName(poolIndex, namePrefix)}</span>
+        <span className="text-sm font-semibold text-slate-800">{poolName(poolIndex, namePrefix, poolNames)}</span>
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-500">{poolTeams.length} teams</span>
           {!cohortMode && poolCourts.length > 0 && (
@@ -582,7 +565,7 @@ function PoolBucketRow({
                     ? 'Unassigned'
                     : inThisPool
                       ? '✓ in this pool'
-                      : poolName(currentPool, namePrefix)
+                      : poolName(currentPool, namePrefix, poolNames)
                   return (
                     <button
                       key={team.id}
@@ -626,16 +609,18 @@ function PoolBucketRow({
                   className="ml-1 text-[10px] bg-transparent text-gray-400 cursor-pointer border-none outline-none"
                 >
                   {Array.from({ length: poolCount }, (_, j) => (
-                    <option key={j} value={j}>{poolName(j, namePrefix)}</option>
+                    <option key={j} value={j}>{poolName(j, namePrefix, poolNames)}</option>
                   ))}
                 </select>
-                <button
-                  onClick={() => onUnassignTeam(team.id)}
-                  className="ml-0.5 text-gray-400 hover:text-red-500 transition-colors leading-none"
-                  title="Remove from pool"
-                >
-                  ×
-                </button>
+                {allowUnassign && (
+                  <button
+                    onClick={() => onUnassignTeam(team.id)}
+                    className="ml-0.5 text-gray-400 hover:text-red-500 transition-colors leading-none"
+                    title="Remove from pool"
+                  >
+                    ×
+                  </button>
+                )}
               </div>
             ))}
             {poolTeams.length === 0 && <p className="text-xs text-gray-400 italic">No teams assigned</p>}
@@ -644,7 +629,7 @@ function PoolBucketRow({
           {!cohortMode && locations.length > 0 && (
             <div className="flex flex-wrap gap-1.5 pt-1 border-t border-gray-100">
               {poolCourts.map(loc => (
-                <CourtPill key={loc.id} loc={loc} currentPool={poolIndex} poolCount={poolCount} onMoveCourt={onMoveCourt} />
+                <CourtPill key={loc.id} loc={loc} currentPool={poolIndex} poolCount={poolCount} onMoveCourt={onMoveCourt} namePrefix={namePrefix} poolNames={poolNames} />
               ))}
             </div>
           )}
@@ -666,6 +651,8 @@ function PoolBuckets({
   onMoveCourt,
   onUnassignTeam,
   namePrefix = 'Pool',
+  poolNames,
+  allowUnassign = true,
 }: {
   poolCount: number
   seeds: Team[]
@@ -678,6 +665,8 @@ function PoolBuckets({
   onMoveCourt: (locId: string, pool: number) => void
   onUnassignTeam: (teamId: string) => void
   namePrefix?: string
+  poolNames?: string[]
+  allowUnassign?: boolean
 }) {
   const [openPool, setOpenPool] = useState<number | null>(null)
 
@@ -703,7 +692,7 @@ function PoolBuckets({
             <p className="text-xs font-semibold text-blue-600 mb-1.5">Shared courts (all pools)</p>
             <div className="flex flex-wrap gap-1.5">
               {sharedCourts.map(loc => (
-                <CourtPill key={loc.id} loc={loc} currentPool={SHARED_COURT_VALUE} poolCount={poolCount} onMoveCourt={onMoveCourt} />
+                <CourtPill key={loc.id} loc={loc} currentPool={SHARED_COURT_VALUE} poolCount={poolCount} onMoveCourt={onMoveCourt} namePrefix={namePrefix} poolNames={poolNames} />
               ))}
             </div>
           </div>
@@ -728,6 +717,8 @@ function PoolBuckets({
           isOpen={openPool === i}
           onToggle={() => setOpenPool(openPool === i ? null : i)}
           namePrefix={namePrefix}
+          poolNames={poolNames}
+          allowUnassign={allowUnassign}
         />
       ))}
 
@@ -748,7 +739,7 @@ function PoolBuckets({
                   >
                     <option value="" disabled>Move to…</option>
                     {Array.from({ length: poolCount }, (_, j) => (
-                      <option key={j} value={j}>{poolName(j, namePrefix)}</option>
+                      <option key={j} value={j}>{poolName(j, namePrefix, poolNames)}</option>
                     ))}
                   </select>
                 </div>
@@ -826,6 +817,7 @@ export default function SportConfigPage() {
   // Division split state (elimination sports across two venues)
   const [splitEnabled, setSplitEnabled] = useState(false)
   const [divNames, setDivNames] = useState<[string, string]>(['Main Gym', 'North Gym'])
+  const [isEditingDivNames, setIsEditingDivNames] = useState(false)
   const [teamDiv, setTeamDiv] = useState<Record<string, 0 | 1>>({})
   const [courtDiv, setCourtDiv] = useState<Record<string, 0 | 1>>({})
 
@@ -1880,22 +1872,36 @@ const genMutation = useMutation({
 
             {splitEnabled ? (
               <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  {([0, 1] as const).map(i => (
-                    <label key={i} className="space-y-1 block">
-                      <span className="text-xs text-gray-400">Division {i + 1} name</span>
-                      <input
-                        type="text"
-                        value={divNames[i]}
-                        onChange={e => setDivNames(prev => (i === 0 ? [e.target.value, prev[1]] : [prev[0], e.target.value]))}
-                        placeholder={`Division ${i + 1}`}
-                        className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
-                      />
-                    </label>
-                  ))}
-                </div>
+                {isEditingDivNames ? (
+                  <div
+                    className="grid grid-cols-2 gap-2"
+                    onBlur={e => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsEditingDivNames(false)
+                    }}
+                  >
+                    {([0, 1] as const).map(i => (
+                      <label key={i} className="space-y-1 block">
+                        <span className="text-xs text-gray-400">Division {i + 1} name</span>
+                        <input
+                          type="text"
+                          autoFocus={i === 0}
+                          value={divNames[i]}
+                          onChange={e => setDivNames(prev => (i === 0 ? [e.target.value, prev[1]] : [prev[0], e.target.value]))}
+                          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                          placeholder={`Division ${i + 1}`}
+                          className="w-full text-sm rounded-lg border border-gray-200 px-3 py-2 bg-white text-slate-700"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    <LockedField label="Division 1 name" value={divNames[0]} onEdit={() => setIsEditingDivNames(true)} />
+                    <LockedField label="Division 2 name" value={divNames[1]} onEdit={() => setIsEditingDivNames(true)} />
+                  </div>
+                )}
 
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Teams</p>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Seed order</p>
                 {seedSaveError && <p className="text-sm text-red-600">{seedSaveError}</p>}
                 <DndContext sensors={seedsDragSensors} collisionDetection={closestCenter} onDragEnd={handleSeedsDragEnd}>
                   <SortableContext items={orderedTeams.map(t => t.id)} strategy={verticalListSortingStrategy}>
@@ -1911,11 +1917,6 @@ const genMutation = useMutation({
                             {companyMap[team.company_id]?.name ?? '—'}
                             {team.name && <span className="text-gray-400"> · {team.name}</span>}
                           </span>
-                          <DivToggle
-                            value={teamDivOf(team.id)}
-                            names={divNames}
-                            onChange={v => setTeamDiv(prev => ({ ...prev, [team.id]: v }))}
-                          />
                           <div className="flex gap-0.5">
                             <button onClick={() => move(idx, -1)} disabled={idx === 0} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><UpIcon /></button>
                             <button onClick={() => move(idx, 1)} disabled={idx === seeds.length - 1} className="p-1 text-gray-400 hover:text-slate-700 disabled:opacity-20"><DownIcon /></button>
@@ -1933,23 +1934,25 @@ const genMutation = useMutation({
                   {seedSaving ? 'Saving…' : seedSavedFeedback ? 'Seed order saved ✓' : seedsDirty ? 'Save Seed Order' : 'Seed order saved'}
                 </button>
 
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Courts</p>
-                {locations.length === 0 ? (
-                  <p className="text-sm text-slate-400 italic">No courts defined — add courts above to assign them to divisions.</p>
-                ) : (
-                  <div className="space-y-1">
-                    {locations.map(loc => (
-                      <div key={loc.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
-                        <span className="flex-1 text-sm text-slate-700 truncate min-w-0">{loc.name}</span>
-                        <DivToggle
-                          value={courtDivOf(loc.id)}
-                          names={divNames}
-                          onChange={v => setCourtDiv(prev => ({ ...prev, [loc.id]: v }))}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Divisions</p>
+                <p className="text-xs text-gray-400 -mt-1">
+                  Assign each team and court to a division. The seed order above still determines
+                  bracket seeding within each division.
+                </p>
+                <PoolBuckets
+                  poolCount={2}
+                  seeds={orderedTeams}
+                  locations={locations}
+                  teamPoolOf={teamDivOf}
+                  courtPoolOf={courtDivOf}
+                  companyMap={companyMap}
+                  cohortMode={false}
+                  allowUnassign={false}
+                  poolNames={divNames}
+                  onMoveTeam={(teamId, div) => setTeamDiv(prev => ({ ...prev, [teamId]: div as 0 | 1 }))}
+                  onMoveCourt={(locId, div) => setCourtDiv(prev => ({ ...prev, [locId]: div as 0 | 1 }))}
+                  onUnassignTeam={() => {}}
+                />
 
                 {!splitValid && (
                   <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
