@@ -8,7 +8,7 @@ export function getActiveAlerts(): Promise<Alert[]> {
 }
 
 export function getAllAlerts(): Promise<Alert[]> {
-  return apiFetch<Alert[]>('/alerts/')
+  return apiFetch<Alert[]>('/alerts')
 }
 
 export function getAlertLog(): Promise<Alert[]> {
@@ -20,7 +20,7 @@ export function createAlert(input: {
   severity: AlertSeverity
   expires_at?: string | null
 }): Promise<Alert> {
-  return apiFetch<Alert>('/alerts/', {
+  return apiFetch<Alert>('/alerts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),

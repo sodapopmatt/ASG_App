@@ -1,9 +1,19 @@
+import time
 from dataclasses import dataclass
+from threading import Lock
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import jwt, JWTError
+
+from app.config import settings
 from app.database import supabase
 
 security = HTTPBearer()
+
+PROFILE_CACHE_TTL_SECONDS = 60
+_profile_cache: dict[str, tuple[float, "UserProfile"]] = {}
+_profile_cache_lock = Lock()
 
 
 @dataclass
@@ -13,23 +23,47 @@ class UserProfile:
     company_id: str | None
 
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+@dataclass
+class AuthUser:
+    id: str
+
+
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> AuthUser:
     try:
-        response = supabase.auth.get_user(credentials.credentials)
-        return response.user
-    except Exception:
+        payload = jwt.decode(
+            credentials.credentials,
+            settings.supabase_jwt_secret,
+            algorithms=["HS256"],
+            audience="authenticated",
+        )
+    except JWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
+    return AuthUser(id=user_id)
 
 
-def get_current_profile(user=Depends(get_current_user)) -> UserProfile:
+def get_current_profile(user: AuthUser = Depends(get_current_user)) -> UserProfile:
+    now = time.monotonic()
+    with _profile_cache_lock:
+        cached = _profile_cache.get(user.id)
+        if cached and cached[0] > now:
+            return cached[1]
+
     try:
-        response = supabase.table("user_profiles").select("role, company_id").eq("id", str(user.id)).limit(1).execute()
+        response = supabase.table("user_profiles").select("role, company_id").eq("id", user.id).limit(1).execute()
     except Exception:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Could not verify user profile, please retry")
     if not response.data:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No profile found for this user")
     row = response.data[0]
-    return UserProfile(id=str(user.id), role=row["role"], company_id=row.get("company_id"))
+    profile = UserProfile(id=user.id, role=row["role"], company_id=row.get("company_id"))
+
+    with _profile_cache_lock:
+        _profile_cache[user.id] = (now + PROFILE_CACHE_TTL_SECONDS, profile)
+
+    return profile
 
 
 def require_admin(profile: UserProfile = Depends(get_current_profile)) -> UserProfile:

@@ -375,7 +375,7 @@ function HeatsScheduleView({
   const { data: brackets = [] } = useQuery<Bracket[]>({
     queryKey: ['brackets', sport.id],
     queryFn: () => getBrackets(sport.id),
-    refetchInterval: 10_000,
+    refetchInterval: 30_000,
   })
 
   const matchesByBracket = useMemo(() => {
@@ -609,7 +609,7 @@ function PoolScheduleView({
   const { data: brackets = [] } = useQuery<Bracket[]>({
     queryKey: ['brackets', sport.id],
     queryFn: () => getBrackets(sport.id),
-    refetchInterval: 10_000,
+    refetchInterval: 30_000,
   })
 
   const sortedBrackets = useMemo(() =>

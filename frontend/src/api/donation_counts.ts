@@ -5,11 +5,11 @@ export function getDonationCounts(params?: { sport_id?: string; company_id?: str
   const qs = new URLSearchParams()
   if (params?.sport_id) qs.set('sport_id', params.sport_id)
   if (params?.company_id) qs.set('company_id', params.company_id)
-  return apiFetch<DonationCount[]>(`/donation-counts/?${qs}`)
+  return apiFetch<DonationCount[]>(`/donation-counts?${qs}`)
 }
 
 export function upsertDonationCount(company_id: string, sport_id: string, item_count: number) {
-  return apiFetch<DonationCount>('/donation-counts/', {
+  return apiFetch<DonationCount>('/donation-counts', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ company_id, sport_id, item_count }),

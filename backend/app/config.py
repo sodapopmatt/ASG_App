@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     supabase_url: str
     supabase_anon_key: str
     supabase_service_role_key: str
+    supabase_jwt_secret: str
 
     # Defaults to the production .env; set ENV_FILE=.env.sandbox to run this
     # process against the sandbox project instead (see .env.sandbox).

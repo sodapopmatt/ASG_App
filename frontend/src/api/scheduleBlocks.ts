@@ -2,7 +2,7 @@ import { apiFetch } from './client'
 import type { ScheduleBlock } from '../types'
 
 export function getScheduleBlocks(): Promise<ScheduleBlock[]> {
-  return apiFetch<ScheduleBlock[]>('/schedule-blocks/')
+  return apiFetch<ScheduleBlock[]>('/schedule-blocks')
 }
 
 export function createScheduleBlock(input: {
@@ -11,7 +11,7 @@ export function createScheduleBlock(input: {
   end_time: string
   sport_ids?: string[] | null
 }): Promise<ScheduleBlock> {
-  return apiFetch<ScheduleBlock>('/schedule-blocks/', {
+  return apiFetch<ScheduleBlock>('/schedule-blocks', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
