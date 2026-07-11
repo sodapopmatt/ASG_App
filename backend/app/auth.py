@@ -1,3 +1,4 @@
+import logging
 import time
 from dataclasses import dataclass
 from threading import Lock
@@ -8,6 +9,8 @@ from jose import jwt, JWTError
 
 from app.config import settings
 from app.database import supabase
+
+logger = logging.getLogger(__name__)
 
 security = HTTPBearer()
 
@@ -34,12 +37,14 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             credentials.credentials,
             settings.supabase_jwt_secret,
             algorithms=["HS256"],
-            audience="authenticated",
+            options={"verify_aud": False},
         )
-    except JWTError:
+    except JWTError as exc:
+        logger.warning("JWT decode failed: %s", exc)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
     user_id = payload.get("sub")
     if not user_id:
+        logger.warning("JWT missing sub claim; keys=%s", list(payload.keys()))
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
     return AuthUser(id=user_id)
 
