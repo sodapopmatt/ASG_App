@@ -95,8 +95,6 @@ export default function ScheduleBlocksPage() {
     setList(list.includes(id) ? list.filter(x => x !== id) : [...list, id])
   }
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['schedule-blocks'] })
-
   const createMutation = useMutation({
     mutationFn: () => {
       const start = toIso(startTime)
@@ -110,8 +108,12 @@ export default function ScheduleBlocksPage() {
         sport_ids: sportIds.length > 0 ? sportIds : null,
       })
     },
-    onSuccess: () => {
-      invalidate()
+    // Write the server's response straight into the cache instead of
+    // invalidating and refetching — saves a second round-trip (this backend's
+    // admin auth check alone costs two Supabase calls per request, so a
+    // refetch roughly doubles perceived save latency).
+    onSuccess: created => {
+      qc.setQueryData<ScheduleBlock[]>(['schedule-blocks'], (old = []) => [...old, created])
       setLabel('')
       setStartTime('')
       setEndTime('')
@@ -134,8 +136,10 @@ export default function ScheduleBlocksPage() {
         sport_ids: editSportIds.length > 0 ? editSportIds : null,
       })
     },
-    onSuccess: () => {
-      invalidate()
+    onSuccess: updated => {
+      qc.setQueryData<ScheduleBlock[]>(['schedule-blocks'], (old = []) =>
+        old.map(b => (b.id === updated.id ? updated : b)),
+      )
       setEditingId(null)
       setError(null)
     },
@@ -144,7 +148,9 @@ export default function ScheduleBlocksPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteScheduleBlock(id),
-    onSuccess: invalidate,
+    onSuccess: (_data, id) => {
+      qc.setQueryData<ScheduleBlock[]>(['schedule-blocks'], (old = []) => old.filter(b => b.id !== id))
+    },
   })
 
   const handleSubmit = (e: React.FormEvent) => {
