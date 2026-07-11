@@ -13,6 +13,9 @@ PHOTO_END = datetime(2026, 7, 9, 12, 30, tzinfo=timezone.utc)
 LUNCH_START = PHOTO_END
 LUNCH_END = datetime(2026, 7, 9, 13, 0, tzinfo=timezone.utc)
 BLOCKS = [(PHOTO_START, PHOTO_END), (LUNCH_START, LUNCH_END)]
+# _compute_estimated_starts blocks are 3-tuples: (start, end, sport_ids | None).
+# None means the block applies to every sport, matching BLOCKS' plain pairs.
+SCOPED_BLOCKS = [(s, e, None) for s, e in BLOCKS]
 
 
 def _match(mid, **kw):
@@ -37,7 +40,7 @@ def _match(mid, **kw):
     return row
 
 
-def _compute(matches, duration=20, blocks=BLOCKS):
+def _compute(matches, duration=20, blocks=SCOPED_BLOCKS):
     return _compute_estimated_starts(matches, {SPORT: duration}, blocks=blocks)
 
 
@@ -140,11 +143,12 @@ def _seed_match(db, sport_id, scheduled_at, location_id="north"):
     }).execute().data[0]
 
 
-def _seed_block(db, start, end):
+def _seed_block(db, start, end, sport_ids=None):
     db.table("schedule_blocks").insert({
         "label": "Lunch",
         "start_time": start.isoformat(),
         "end_time": end.isoformat(),
+        "sport_ids": sport_ids,
     }).execute()
 
 
@@ -211,3 +215,68 @@ def test_pushed_by_block_false_with_no_blocks_at_all(monkeypatch):
     result = matches_router._attach_estimated_starts([m1])[0]
 
     assert result["pushed_by_block"] is False
+
+
+# ── sport-scoped blocks ──────────────────────────────────────────────────────
+# A block's sport_ids column (None = every sport, else a specific list) lets
+# two blocks cover the same time window with different resume times per sport
+# group (e.g. lunch ends 12:30 for one set of sports, 1:00 for another).
+
+def test_scoped_block_does_not_affect_a_different_sport():
+    """Same overlap window as test_scoped_block_affects_its_own_sport, but this
+    match's sport isn't in the block's scope — proving the scoping is actually
+    enforced, not just coincidentally non-overlapping."""
+    other_sport = "sport-other"
+    start = LUNCH_START + timedelta(minutes=10)
+    matches = [
+        {**_match("m1"), "sport_id": other_sport, "scheduled_at": start.isoformat()},
+    ]
+    scoped = [(LUNCH_START, LUNCH_END, {SPORT})]  # scoped to SPORT, not other_sport
+    est = _compute_estimated_starts(matches, {SPORT: 20, other_sport: 20}, blocks=scoped)
+    assert est["m1"] == start
+
+
+def test_scoped_block_affects_its_own_sport():
+    matches = [
+        _match("m1", scheduled_at=(LUNCH_START + timedelta(minutes=10)).isoformat()),
+    ]
+    scoped = [(LUNCH_START, LUNCH_END, {SPORT})]
+    est = _compute_estimated_starts(matches, {SPORT: 20}, blocks=scoped)
+    assert est["m1"] == LUNCH_END
+
+
+def test_two_sports_get_different_resume_times_from_the_same_break(monkeypatch):
+    """The actual scenario this feature was built for: one lunch window, two
+    resume times depending on sport group."""
+    db = FakeSupabase()
+    monkeypatch.setattr(matches_router, "supabase", db)
+    early_sport = _seed_sport(db)  # e.g. Volleyball group, resumes 12:30
+    late_sport = _seed_sport(db)   # e.g. Dodgeball group, resumes 1:00
+    early_end = datetime(2026, 7, 9, 12, 30, tzinfo=timezone.utc)
+    late_end = datetime(2026, 7, 9, 13, 0, tzinfo=timezone.utc)
+    lunch_start = datetime(2026, 7, 9, 12, 0, tzinfo=timezone.utc)
+    _seed_block(db, lunch_start, early_end, sport_ids=[early_sport])
+    _seed_block(db, lunch_start, late_end, sport_ids=[late_sport])
+    m_early = _seed_match(db, early_sport, lunch_start + timedelta(minutes=10), location_id="a")
+    m_late = _seed_match(db, late_sport, lunch_start + timedelta(minutes=10), location_id="b")
+
+    result = {r["id"]: r for r in matches_router._attach_estimated_starts([m_early, m_late])}
+
+    assert result[m_early["id"]]["estimated_start"] == early_end
+    assert result[m_late["id"]]["estimated_start"] == late_end
+
+
+def test_global_block_still_applies_to_every_sport(monkeypatch):
+    """sport_ids=None (the default) preserves today's event-wide behavior."""
+    db = FakeSupabase()
+    monkeypatch.setattr(matches_router, "supabase", db)
+    sport_a = _seed_sport(db)
+    sport_b = _seed_sport(db)
+    _seed_block(db, LUNCH_START, LUNCH_END)  # sport_ids left None
+    m_a = _seed_match(db, sport_a, LUNCH_START + timedelta(minutes=10), location_id="a")
+    m_b = _seed_match(db, sport_b, LUNCH_START + timedelta(minutes=10), location_id="b")
+
+    result = {r["id"]: r for r in matches_router._attach_estimated_starts([m_a, m_b])}
+
+    assert result[m_a["id"]]["estimated_start"] == LUNCH_END
+    assert result[m_b["id"]]["estimated_start"] == LUNCH_END

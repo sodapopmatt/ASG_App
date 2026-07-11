@@ -12,6 +12,7 @@ class ScheduleBlockCreate(BaseModel):
     label: str = Field(min_length=1, max_length=100)
     start_time: datetime
     end_time: datetime
+    sport_ids: list[UUID] | None = None
 
     @model_validator(mode="after")
     def _check_order(self):
@@ -24,6 +25,7 @@ class ScheduleBlockUpdate(BaseModel):
     label: str | None = Field(default=None, min_length=1, max_length=100)
     start_time: datetime | None = None
     end_time: datetime | None = None
+    sport_ids: list[UUID] | None = None
 
 
 class ScheduleBlock(BaseModel):
@@ -31,6 +33,7 @@ class ScheduleBlock(BaseModel):
     label: str
     start_time: datetime
     end_time: datetime
+    sport_ids: list[UUID] | None = None
 
 
 @router.get("", response_model=list[ScheduleBlock])
@@ -52,7 +55,9 @@ def create_schedule_block(body: ScheduleBlockCreate, _=Depends(require_admin)):
 
 @router.patch("/{block_id}", response_model=ScheduleBlock)
 def update_schedule_block(block_id: str, body: ScheduleBlockUpdate, _=Depends(require_admin)):
-    payload = {k: v for k, v in body.model_dump(mode="json").items() if v is not None}
+    # exclude_unset (not exclude_none): a caller explicitly sending sport_ids:
+    # null means "clear back to all sports", which must survive the payload.
+    payload = body.model_dump(exclude_unset=True, mode="json")
     if not payload:
         raise HTTPException(status_code=400, detail="No fields to update")
 

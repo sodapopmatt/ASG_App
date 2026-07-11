@@ -130,4 +130,5 @@ export interface ScheduleBlock {
   label: string
   start_time: string
   end_time: string
+  sport_ids: string[] | null
 }

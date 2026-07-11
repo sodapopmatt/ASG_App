@@ -9,6 +9,7 @@ export function createScheduleBlock(input: {
   label: string
   start_time: string
   end_time: string
+  sport_ids?: string[] | null
 }): Promise<ScheduleBlock> {
   return apiFetch<ScheduleBlock>('/schedule-blocks/', {
     method: 'POST',
@@ -19,7 +20,7 @@ export function createScheduleBlock(input: {
 
 export function updateScheduleBlock(
   id: string,
-  input: Partial<{ label: string; start_time: string; end_time: string }>,
+  input: Partial<{ label: string; start_time: string; end_time: string; sport_ids: string[] | null }>,
 ): Promise<ScheduleBlock> {
   return apiFetch<ScheduleBlock>(`/schedule-blocks/${id}`, {
     method: 'PATCH',

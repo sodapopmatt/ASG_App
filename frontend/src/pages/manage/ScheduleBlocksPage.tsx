@@ -7,7 +7,8 @@ import {
   updateScheduleBlock,
   deleteScheduleBlock,
 } from '../../api/scheduleBlocks'
-import type { ScheduleBlock } from '../../types'
+import { getSports } from '../../api/sports'
+import type { ScheduleBlock, Sport } from '../../types'
 
 function formatRange(b: ScheduleBlock): string {
   const start = new Date(b.start_time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
@@ -26,21 +27,73 @@ function toIso(localDateTime: string): string | null {
   return isNaN(d.getTime()) ? null : d.toISOString()
 }
 
+function sportsLabel(b: ScheduleBlock, sports: Sport[]): string {
+  if (!b.sport_ids || b.sport_ids.length === 0) return 'All Sports'
+  const names = b.sport_ids.map(id => sports.find(s => s.id === id)?.name ?? '?')
+  return names.join(', ')
+}
+
+function SportPicker({
+  sports,
+  selected,
+  onToggle,
+}: {
+  sports: Sport[]
+  selected: string[]
+  onToggle: (id: string) => void
+}) {
+  return (
+    <div>
+      <label className="block text-xs text-gray-500 mb-1">Applies to</label>
+      <div className="flex flex-wrap gap-2">
+        {sports.map(s => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => onToggle(s.id)}
+            className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              selected.includes(s.id)
+                ? 'bg-blue-600 border-blue-600 text-white'
+                : 'bg-white border-gray-200 text-slate-600'
+            }`}
+          >
+            {s.name}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-gray-400 mt-1">
+        {selected.length === 0 ? 'Applies to all sports' : `Applies only to the ${selected.length} selected sport(s)`}
+      </p>
+    </div>
+  )
+}
+
 export default function ScheduleBlocksPage() {
   const qc = useQueryClient()
   const [label, setLabel] = useState('')
   const [startTime, setStartTime] = useState('')
   const [endTime, setEndTime] = useState('')
+  const [sportIds, setSportIds] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editLabel, setEditLabel] = useState('')
   const [editStart, setEditStart] = useState('')
   const [editEnd, setEditEnd] = useState('')
+  const [editSportIds, setEditSportIds] = useState<string[]>([])
 
   const { data: blocks = [] } = useQuery<ScheduleBlock[]>({
     queryKey: ['schedule-blocks'],
     queryFn: getScheduleBlocks,
   })
+
+  const { data: sports = [] } = useQuery<Sport[]>({
+    queryKey: ['sports'],
+    queryFn: getSports,
+  })
+
+  const toggleSport = (id: string, list: string[], setList: (ids: string[]) => void) => {
+    setList(list.includes(id) ? list.filter(x => x !== id) : [...list, id])
+  }
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['schedule-blocks'] })
 
@@ -50,13 +103,19 @@ export default function ScheduleBlocksPage() {
       const end = toIso(endTime)
       if (!start || !end) throw new Error('Enter a valid start and end time')
       if (end <= start) throw new Error('End time must be after start time')
-      return createScheduleBlock({ label: label.trim(), start_time: start, end_time: end })
+      return createScheduleBlock({
+        label: label.trim(),
+        start_time: start,
+        end_time: end,
+        sport_ids: sportIds.length > 0 ? sportIds : null,
+      })
     },
     onSuccess: () => {
       invalidate()
       setLabel('')
       setStartTime('')
       setEndTime('')
+      setSportIds([])
       setError(null)
     },
     onError: e => setError(e instanceof Error ? e.message : 'Failed to create block'),
@@ -68,7 +127,12 @@ export default function ScheduleBlocksPage() {
       const end = toIso(editEnd)
       if (!start || !end) throw new Error('Enter a valid start and end time')
       if (end <= start) throw new Error('End time must be after start time')
-      return updateScheduleBlock(id, { label: editLabel.trim(), start_time: start, end_time: end })
+      return updateScheduleBlock(id, {
+        label: editLabel.trim(),
+        start_time: start,
+        end_time: end,
+        sport_ids: editSportIds.length > 0 ? editSportIds : null,
+      })
     },
     onSuccess: () => {
       invalidate()
@@ -95,6 +159,7 @@ export default function ScheduleBlocksPage() {
     setEditLabel(b.label)
     setEditStart(toLocalInput(b.start_time))
     setEditEnd(toLocalInput(b.end_time))
+    setEditSportIds(b.sport_ids ?? [])
     setError(null)
   }
 
@@ -150,6 +215,10 @@ export default function ScheduleBlocksPage() {
           </div>
         </div>
 
+        {sports.length > 0 && (
+          <SportPicker sports={sports} selected={sportIds} onToggle={id => toggleSport(id, sportIds, setSportIds)} />
+        )}
+
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         <button
@@ -191,6 +260,13 @@ export default function ScheduleBlocksPage() {
                       className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-slate-800 bg-white"
                     />
                   </div>
+                  {sports.length > 0 && (
+                    <SportPicker
+                      sports={sports}
+                      selected={editSportIds}
+                      onToggle={id => toggleSport(id, editSportIds, setEditSportIds)}
+                    />
+                  )}
                   {error && <p className="text-sm text-red-600">{error}</p>}
                   <div className="flex gap-2">
                     <button
@@ -212,7 +288,9 @@ export default function ScheduleBlocksPage() {
                 <div key={b.id} className="px-4 py-3 flex items-center justify-between gap-2">
                   <div>
                     <p className="text-sm font-medium text-slate-800">{b.label}</p>
-                    <p className="text-xs text-gray-400">{formatRange(b)}</p>
+                    <p className="text-xs text-gray-400">
+                      {formatRange(b)} · {sportsLabel(b, sports)}
+                    </p>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
                     <button

@@ -28,7 +28,7 @@ _TABLE_COLUMNS = {
     ],
     "locations": ["id", "sport_id", "name", "pool_index"],
     "event_points": ["id", "company_id", "sport_id", "placement", "points", "notes", "created_at"],
-    "schedule_blocks": ["id", "label", "start_time", "end_time"],
+    "schedule_blocks": ["id", "label", "start_time", "end_time", "sport_ids"],
 }
 
 

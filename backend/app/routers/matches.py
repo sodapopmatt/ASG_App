@@ -48,7 +48,7 @@ def _compute_estimated_starts(
     sport_duration_map: dict[str, int],
     sport_start_map: dict[str, datetime | None] | None = None,
     heats_bracket_ids: set[str] | None = None,
-    blocks: list[tuple[datetime, datetime]] | None = None,
+    blocks: list[tuple[datetime, datetime, set[str] | None]] | None = None,
 ) -> dict[str, datetime | None]:
     """Compute estimated start times accounting for court availability and feeder matches.
 
@@ -71,10 +71,13 @@ def _compute_estimated_starts(
     Terminal matches (completed / forfeit / double_forfeit / draw) keep their
     scheduled slot if they had one, otherwise carry no estimate.
 
-    `blocks` are event-wide blackout windows (lunch, group photo, ...): a
-    not-yet-started match whose slot would overlap one is pushed to start
-    right at the block's end instead. A match already in progress is left to
-    finish naturally rather than being force-pushed.
+    `blocks` are blackout windows (lunch, group photo, ...): a not-yet-started
+    match whose slot would overlap one is pushed to start right at the
+    block's end instead. A match already in progress is left to finish
+    naturally rather than being force-pushed. Each block's third element is
+    either None (applies to every sport) or a set of sport_ids it's scoped
+    to — e.g. two lunch blocks covering the same window with different
+    resume times for different sport groups.
     """
     import heapq
     from datetime import timedelta
@@ -183,7 +186,12 @@ def _compute_estimated_starts(
                 if loc and loc in court_free and court_free[loc] > est:
                     est = court_free[loc]
                 if blocks:
-                    est = _push_past_blocks(est, _duration(m), blocks)
+                    sport_id = m.get("sport_id")
+                    relevant_blocks = [
+                        (bs, be) for bs, be, sids in blocks if sids is None or sport_id in sids
+                    ]
+                    if relevant_blocks:
+                        est = _push_past_blocks(est, _duration(m), relevant_blocks)
                 if loc:
                     court_free[loc] = est + _duration(m)
 
@@ -255,8 +263,11 @@ def _attach_estimated_starts(matches: list[dict]) -> list[dict]:
             and b.get("sport_id") in heats_sport_ids
         }
 
-    block_rows = supabase.table("schedule_blocks").select("start_time, end_time").execute().data
-    blocks = [(_parse_dt(b["start_time"]), _parse_dt(b["end_time"])) for b in block_rows]
+    block_rows = supabase.table("schedule_blocks").select("start_time, end_time, sport_ids").execute().data
+    blocks = [
+        (_parse_dt(b["start_time"]), _parse_dt(b["end_time"]), set(b["sport_ids"]) if b.get("sport_ids") else None)
+        for b in block_rows
+    ]
 
     estimated = _compute_estimated_starts(matches, sport_duration_map, sport_start_map, heats_bracket_ids, blocks)
     # Baseline with no blocks at all: comparing it to `estimated` tells us
