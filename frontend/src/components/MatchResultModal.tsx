@@ -322,9 +322,9 @@ export default function MatchResultModal({
                 <div>
                   <label className="block text-xs text-gray-400 mb-1 truncate">{homeLabel}</label>
                   <input
-                    type="number"
+                    type="text"
                     inputMode="numeric"
-                    min={0}
+                    pattern="[0-9]*"
                     value={homeScore}
                     onChange={e => { setHomeScore(e.target.value); setError(null) }}
                     placeholder="—"
@@ -334,9 +334,9 @@ export default function MatchResultModal({
                 <div>
                   <label className="block text-xs text-gray-400 mb-1 truncate">{awayLabel}</label>
                   <input
-                    type="number"
+                    type="text"
                     inputMode="numeric"
-                    min={0}
+                    pattern="[0-9]*"
                     value={awayScore}
                     onChange={e => { setAwayScore(e.target.value); setError(null) }}
                     placeholder="—"
