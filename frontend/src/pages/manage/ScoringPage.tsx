@@ -442,7 +442,22 @@ function ComputedScoringSection({
   )
 }
 
-// ── Donation scoring (read-only ranking by can count) ────────────────────────
+// ── Donation scoring ──────────────────────────────────────────────────────────
+// Not live (same as Water Ball Toss/Golf): entering donation counts on
+// DonationResultsPage never touches event_points. This section computes an
+// advisory ranking from donation_counts — mirroring the backend's bucket rule
+// in donation_counts.py's _bucket_points (top distinct count = 15 pts each,
+// second distinct count = 10 pts each, any remaining count ≥ 10 = 5 pts each,
+// else 0) — and lets the admin override any row's placement/points before
+// publishing via the generic /event-points/award-placement, same mechanism
+// every other computed sport uses.
+
+interface DonationRow {
+  company: Company
+  count: number
+  rank: number | null
+  defaultPoints: number
+}
 
 function DonationScoringSection({
   sport,
@@ -453,7 +468,16 @@ function DonationScoringSection({
   companies: Company[]
   eventPoints: EventPoints[]
 }) {
-  const { data: donations = [] } = useQuery<DonationCount[]>({
+  const qc = useQueryClient()
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [resetting, setResetting] = useState(false)
+  const [overrides, setOverrides] = useState<Record<string, number | null>>({})
+  const [pointsOverrides, setPointsOverrides] = useState<Record<string, number | null>>({})
+  const [editingRows, setEditingRows] = useState<Set<string>>(new Set())
+
+  const { data: donations = [], isLoading: donationsLoading } = useQuery<DonationCount[]>({
     queryKey: ['donation-counts', sport.id],
     queryFn: () => getDonationCounts({ sport_id: sport.id }),
   })
@@ -462,61 +486,208 @@ function DonationScoringSection({
     () => Object.fromEntries(donations.map(d => [d.company_id, d.item_count])),
     [donations],
   )
-  const pointsByCompany = useMemo(
+
+  const preview = useMemo<DonationRow[]>(() => {
+    const distinctCounts = [...new Set(companies.map(c => countByCompany[c.id] ?? 0).filter(n => n > 0))]
+      .sort((a, b) => b - a)
+    const rankForCount = new Map<number, number>()
+    const pointsForCount = new Map<number, number>()
+    distinctCounts.forEach((count, i) => {
+      rankForCount.set(count, i === 0 ? 1 : i === 1 ? 2 : 3)
+      pointsForCount.set(count, i === 0 ? 15 : i === 1 ? 10 : count >= 10 ? 5 : 0)
+    })
+
+    return [...companies]
+      .map(c => {
+        const count = countByCompany[c.id] ?? 0
+        return {
+          company: c,
+          count,
+          rank: count > 0 ? rankForCount.get(count)! : null,
+          defaultPoints: count > 0 ? pointsForCount.get(count)! : 0,
+        }
+      })
+      .sort((a, b) => b.count - a.count || a.company.name.localeCompare(b.company.name))
+  }, [companies, countByCompany])
+
+  // What actually got saved last time — the baseline default, so a save
+  // survives navigating away and back rather than resetting to a fresh
+  // auto-computed guess every time this section remounts.
+  const savedByCompany = useMemo(
     () => Object.fromEntries(
-      eventPoints.filter(ep => ep.sport_id === sport.id).map(ep => [ep.company_id, ep.points])
+      eventPoints.filter(ep => ep.sport_id === sport.id).map(ep => [ep.company_id, ep])
     ),
     [eventPoints, sport.id],
   )
 
-  const sorted = useMemo(
-    () =>
-      [...companies]
-        .map(c => ({ company: c, count: countByCompany[c.id] ?? 0, pts: pointsByCompany[c.id] ?? 0 }))
-        .sort((a, b) => b.count - a.count),
-    [companies, countByCompany, pointsByCompany],
-  )
+  function getPlacement(row: DonationRow): number | null {
+    if (overrides[row.company.id] !== undefined) return overrides[row.company.id]
+    return savedByCompany[row.company.id]?.placement ?? row.rank
+  }
 
-  // Assign ranks with ties
-  let rank = 1
-  const ranked = sorted.map((row, i) => {
-    if (i > 0 && row.count < sorted[i - 1].count) rank = i + 1
-    return { ...row, rank: row.count > 0 ? rank : null }
-  })
+  // Points default to the bucket rule above; an explicit override, or a
+  // manually changed placement, falls back to the sport's points scale
+  // (a manual exception, not the normal path — see award_placement's
+  // `points` param).
+  function getPoints(row: DonationRow): number {
+    if (pointsOverrides[row.company.id] != null) return pointsOverrides[row.company.id]!
+    if (savedByCompany[row.company.id]) return savedByCompany[row.company.id].points
+    const p = getPlacement(row)
+    if (p === null) return 0
+    if (p === row.rank) return row.defaultPoints
+    return scalePoints(p, sport.points_scale)
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    setSaveError(null)
+    try {
+      const results = await mapWithConcurrency(preview, 3, row => {
+        const p = getPlacement(row)
+        if (p === null) return Promise.resolve(null)
+        return withRetries(() => awardPlacement(row.company.id, sport.id, p, undefined, getPoints(row)))
+      })
+      qc.invalidateQueries({ queryKey: ['event-points'] })
+      qc.invalidateQueries({ queryKey: ['leaderboard'] })
+      const failedNames = results
+        .map((r, i) => (r.status === 'rejected' ? preview[i].company.name : null))
+        .filter((n): n is string => n !== null)
+      if (failedNames.length > 0) {
+        const shown = failedNames.slice(0, 5).join(', ')
+        const more = failedNames.length > 5 ? ` and ${failedNames.length - 5} more` : ''
+        setSaveError(`Failed to publish ${failedNames.length} of ${preview.length}: ${shown}${more}. It's safe to click Publish Standings again.`)
+      } else {
+        setSaved(true)
+        setTimeout(() => setSaved(false), 3000)
+      }
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Failed to save placements')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleResetToDefaults() {
+    if (!window.confirm(
+      'Clear all saved points for this sport? This zeroes out its contribution to the leaderboard/Standings ' +
+      'page entirely — every company shows no points until you save placements again.'
+    )) return
+    setOverrides({})
+    setPointsOverrides({})
+    setEditingRows(new Set())
+    setSaveError(null)
+
+    setResetting(true)
+    try {
+      await withRetries(() => clearEventPoints(sport.id))
+      await qc.invalidateQueries({ queryKey: ['event-points'] })
+      await qc.invalidateQueries({ queryKey: ['leaderboard'] })
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Failed to reset placements')
+    } finally {
+      setResetting(false)
+    }
+  }
+
+  if (donationsLoading) {
+    return <p className="text-sm text-gray-400 text-center py-6">Loading…</p>
+  }
 
   return (
     <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+          Auto-computed placements
+        </p>
+        <p className="text-xs text-gray-400">Edit placement or points to override</p>
+      </div>
+
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
         <div
           className="grid gap-2 px-4 py-2 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-400 uppercase tracking-wider"
-          style={{ gridTemplateColumns: '2rem 1fr auto auto' }}
+          style={{ gridTemplateColumns: '2rem 1fr 3rem 3.5rem 3.5rem' }}
         >
-          <span>#</span><span>Company</span><span className="text-right">Cans</span><span className="text-right">Pts</span>
+          <span>#</span><span>Company</span><span></span><span className="text-right">Place</span><span className="text-right">Pts</span>
         </div>
         <div className="divide-y divide-gray-50">
-          {ranked.map(row => (
-            <div
-              key={row.company.id}
-              className="grid items-center px-4 py-2.5 gap-2"
-              style={{ gridTemplateColumns: '2rem 1fr auto auto' }}
-            >
-              <span className="text-xs font-bold text-gray-400 tabular-nums">
-                {row.rank ?? '—'}
-              </span>
-              <span className="text-sm font-semibold text-slate-800 truncate">{row.company.name}</span>
-              <span className="text-sm tabular-nums text-slate-600 text-right">
-                {row.count > 0 ? row.count : '—'}
-              </span>
-              <span className={`text-sm font-bold tabular-nums text-right ${row.pts > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
-                {row.pts}
-              </span>
-            </div>
-          ))}
+          {preview.map(row => {
+            const p = getPlacement(row)
+            const pts = getPoints(row)
+            const editing = editingRows.has(row.company.id)
+            return (
+              <div
+                key={row.company.id}
+                className="grid items-center px-4 py-2.5 gap-2"
+                style={{ gridTemplateColumns: '2rem 1fr 3rem 3.5rem 3.5rem' }}
+              >
+                <span className="text-xs font-bold text-gray-400 tabular-nums">{p ?? '—'}</span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-800 truncate">{row.company.name}</p>
+                  <p className="text-xs text-gray-400 truncate">
+                    {row.count > 0 ? `${row.count} items` : 'No items yet'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingRows(prev => {
+                    const next = new Set(prev)
+                    if (editing) next.delete(row.company.id)
+                    else next.add(row.company.id)
+                    return next
+                  })}
+                  className="text-xs font-semibold text-blue-600 justify-self-end"
+                >
+                  {editing ? 'Done' : 'Edit'}
+                </button>
+                <input
+                  type="number"
+                  min={1}
+                  disabled={!editing}
+                  value={p ?? ''}
+                  onChange={e => {
+                    const val = e.target.value === '' ? null : Number(e.target.value)
+                    setOverrides(prev => ({ ...prev, [row.company.id]: val }))
+                  }}
+                  placeholder="—"
+                  className="w-14 text-center text-sm rounded-lg border border-gray-200 px-2 py-1 text-slate-700 tabular-nums justify-self-end disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-100"
+                />
+                <input
+                  type="number"
+                  min={0}
+                  disabled={!editing}
+                  value={pts}
+                  onChange={e => {
+                    const val = e.target.value === '' ? null : Number(e.target.value)
+                    setPointsOverrides(prev => ({ ...prev, [row.company.id]: val }))
+                  }}
+                  className={`w-14 text-center text-sm rounded-lg border border-gray-200 px-2 py-1 tabular-nums font-bold justify-self-end disabled:bg-gray-100 disabled:border-gray-100 ${pts > 0 ? 'text-blue-600' : 'text-gray-400'} disabled:text-gray-400`}
+                />
+              </div>
+            )
+          })}
         </div>
       </div>
+      {saveError && <p className="text-sm text-red-600">{saveError}</p>}
       <p className="text-xs text-gray-400 text-center">
-        Points auto-compute when donations are entered. Top donor: 15 pts · 2nd: 10 pts · ≥ 10 items: 5 pts.
+        Ranking is by donation count — top donor: 15 pts, 2nd: 10 pts, ≥10 items: 5 pts, else 0;
+        identical counts are tied. The leaderboard only updates once you publish.
       </p>
+      <div className="flex gap-2">
+        <button
+          onClick={handleResetToDefaults}
+          disabled={saving || resetting}
+          className="py-2 px-4 rounded-lg border border-red-200 text-red-600 font-semibold text-sm hover:bg-red-50 disabled:opacity-50"
+        >
+          {resetting ? 'Clearing…' : 'Clear Points'}
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={saving || resetting}
+          className="flex-1 py-2 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
+        >
+          {saving ? 'Publishing…' : saved ? 'Published ✓' : 'Publish Standings'}
+        </button>
+      </div>
     </div>
   )
 }
@@ -1010,12 +1181,8 @@ export default function ScoringPage() {
       <h2 className="text-xl font-bold text-slate-800">Scoring</h2>
 
       {placementSports.map(sport => {
-        const isDonation = sport.scoring_mode === 'donation_count'
-        const isAuto = isDonation
         const placed = placedCountBySport.get(sport.id) ?? 0
-        const subtitle = isDonation
-          ? 'Ranked by donation count'
-          : placed === 0 ? 'No placements yet' : `${placed} ${placed === 1 ? 'company' : 'companies'} placed`
+        const subtitle = placed === 0 ? 'No placements yet' : `${placed} ${placed === 1 ? 'company' : 'companies'} placed`
         return (
           <button
             key={sport.id}
@@ -1027,7 +1194,7 @@ export default function ScoringPage() {
               <p className="font-semibold text-slate-800 truncate">{sport.name}</p>
               <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>
             </div>
-            {!isAuto && placed > 0 && (
+            {placed > 0 && (
               <span className="shrink-0 text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
                 {placed}
               </span>

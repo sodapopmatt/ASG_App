@@ -131,7 +131,8 @@ def upsert_donation_count(body: DonationCountUpsert, _=Depends(require_admin)):
         .upsert(payload, on_conflict="company_id,sport_id")
         .execute()
     )
-    _recompute_event_points(str(body.sport_id))
+    # Not live: entering a count no longer touches event_points — standings
+    # are reviewed and saved from ScoringPage (same as Water Ball Toss/Golf).
     return result.data[0]
 
 
@@ -146,9 +147,7 @@ def delete_donation_count(donation_id: str, _=Depends(require_admin)):
     )
     if not existing.data:
         return
-    sport_id = existing.data[0]["sport_id"]
     supabase.table("donation_counts").delete().eq("id", donation_id).execute()
-    _recompute_event_points(sport_id)
 
 
 @router.post("/sports/{sport_id}/recompute", status_code=204)

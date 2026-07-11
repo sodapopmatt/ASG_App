@@ -1,10 +1,11 @@
 import { useState, useMemo } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
 import BackLink from '../../components/BackLink'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getSports } from '../../api/sports'
 import { getCompanies } from '../../api/companies'
-import { getDonationCounts, upsertDonationCount, deleteDonationCount, recomputeDonationPoints } from '../../api/donation_counts'
+import { getDonationCounts, upsertDonationCount, deleteDonationCount } from '../../api/donation_counts'
+import { clearEventPoints } from '../../api/event_points'
 import type { Sport, Company, DonationCount } from '../../types'
 
 export default function DonationResultsPage() {
@@ -45,7 +46,8 @@ export default function DonationResultsPage() {
   const QUERY_KEY = ['donation-counts', sportId] as const
 
   // Write the returned record straight into the cache so the display updates
-  // instantly without waiting for a background refetch.
+  // instantly without waiting for a background refetch. Does NOT touch
+  // event_points/leaderboard — standings are reviewed and saved from Scoring.
   const patchCache = (updated: DonationCount) => {
     qc.setQueryData<DonationCount[]>(QUERY_KEY, prev => {
       if (!prev) return [updated]
@@ -54,8 +56,6 @@ export default function DonationResultsPage() {
         ? prev.map(d => d.company_id === updated.company_id ? updated : d)
         : [...prev, updated]
     })
-    qc.invalidateQueries({ queryKey: ['event-points'] })
-    qc.invalidateQueries({ queryKey: ['leaderboard'] })
   }
 
   const saveMutation = useMutation({
@@ -72,8 +72,6 @@ export default function DonationResultsPage() {
       qc.setQueryData<DonationCount[]>(QUERY_KEY, prev =>
         (prev ?? []).filter(d => d.id !== id),
       )
-      qc.invalidateQueries({ queryKey: ['event-points'] })
-      qc.invalidateQueries({ queryKey: ['leaderboard'] })
       setError(null)
     },
     onError: (e: unknown) => setError(e instanceof Error ? e.message : 'Failed to clear'),
@@ -130,17 +128,17 @@ export default function DonationResultsPage() {
   }
 
   const handleResetAll = async () => {
-    if (!window.confirm('Reset all donation counts? This cannot be undone.')) return
+    if (!window.confirm('Reset all donation counts and standings? This cannot be undone.')) return
     setResetting(true)
     setError(null)
     try {
       for (const d of donations) await deleteDonationCount(d.id)
-      // Explicit recompute guarantees event_points are cleared even if an
-      // intermediate per-deletion recompute left a stale row.
-      await recomputeDonationPoints(sportId!)
+      // Also clears any saved event_points for this sport, same as Golf/
+      // Waterball's "Reset All Results" wiping matches + standings together.
+      await clearEventPoints(sportId!)
       qc.setQueryData<DonationCount[]>(QUERY_KEY, [])
-      qc.removeQueries({ queryKey: ['event-points'] })
-      qc.removeQueries({ queryKey: ['leaderboard'] })
+      qc.invalidateQueries({ queryKey: ['event-points'] })
+      qc.invalidateQueries({ queryKey: ['leaderboard'] })
       setEditingId(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to reset')
@@ -162,6 +160,10 @@ export default function DonationResultsPage() {
     <div className="p-4 mt-2 space-y-4">
       <BackLink to="/manage/results" label="Enter Results" />
       <h2 className="text-xl font-bold text-slate-800">{sport.name}</h2>
+      <p className="text-xs text-gray-400 -mt-3">
+        Enter running totals as donations come in. Standings don't update here — review and save
+        placements from Scoring once counts are in.
+      </p>
 
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm divide-y divide-gray-50">
         <div className="px-4 py-3">
@@ -268,6 +270,14 @@ export default function DonationResultsPage() {
           {resetting ? 'Resetting…' : 'Reset All'}
         </button>
       )}
+
+      <p className="text-xs text-gray-400 text-center">
+        Standings are reviewed and saved from{' '}
+        <Link to="/manage/scoring" className="underline font-semibold">
+          Scoring
+        </Link>
+        .
+      </p>
     </div>
   )
 }
