@@ -1282,7 +1282,16 @@ const genMutation = useMutation({
   const patchMutation = useMutation({
     mutationFn: ({ matchId, scheduledAt }: { matchId: string; scheduledAt: string }) =>
       patchMatch(matchId, { scheduled_at: scheduledAt }),
-    onSuccess: (_, { matchId }) => {
+    // Write the response straight into the cache so the input reflects the
+    // new time immediately — invalidateQueries alone triggers a background
+    // refetch that hasn't landed yet by the time pendingTimes is cleared,
+    // so the input would flash back to the old value until it resolved.
+    // Still invalidate afterward so ripple effects on other matches'
+    // estimated_start (court/feeder recalculation) stay eventually correct.
+    onSuccess: (updated, { matchId }) => {
+      qc.setQueryData<Match[]>(['matches', { sport_id: sportId }], (old = []) =>
+        old.map(m => (m.id === updated.id ? { ...m, ...updated } : m)),
+      )
       qc.invalidateQueries({ queryKey: ['matches'] })
       setPendingTimes(prev => { const n = { ...prev }; delete n[matchId]; return n })
     },
