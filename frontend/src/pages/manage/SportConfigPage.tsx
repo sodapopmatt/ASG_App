@@ -990,7 +990,7 @@ export default function SportConfigPage() {
   const isGolf = sport?.scoring_mode === 'executive_golf'
   const isPickleball = sport?.name === 'Pickleball'
 
-  const alreadyGenerated = matches.length > 0
+  const alreadyGenerated = matches.length > 0 || (isPool && brackets.some(b => b.phase === 'pool'))
 
   // â”€â”€ Pool play setup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const effectivePoolCount = Math.max(1, Math.min(

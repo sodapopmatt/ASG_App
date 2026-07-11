@@ -539,6 +539,24 @@ def _generate_pool_play(
     if len(pools) < 1:
         raise HTTPException(status_code=422, detail="At least 1 pool is required")
 
+    # Guard against orphan-bracket accumulation: if pool brackets already exist
+    # and the caller didn't ask to clear them, reject now before creating more.
+    if not body.clear_existing:
+        existing = (
+            supabase.table("brackets")
+            .select("id")
+            .eq("sport_id", sport_id)
+            .eq("phase", "pool")
+            .limit(1)
+            .execute()
+            .data
+        )
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail="Pool play already generated. Use 'Restart Pool Play' to reset before regenerating.",
+            )
+
     all_team_ids = [tid for p in pools for tid in p.team_ids]
     if len(set(all_team_ids)) != len(all_team_ids):
         raise HTTPException(status_code=422, detail="A team cannot be in more than one pool")

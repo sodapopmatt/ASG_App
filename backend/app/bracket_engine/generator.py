@@ -244,13 +244,15 @@ def _compute_scheduled_times(
 
 def _delete_brackets_by_id(bracket_ids: list[str], db: Client) -> None:
     """Delete the given brackets and their matches, safely handling FK self-references."""
-    for bid in bracket_ids:
-        db.table("matches").update({
-            "winner_next_match_id": None,
-            "loser_next_match_id": None,
-        }).eq("bracket_id", bid).execute()
-        db.table("matches").delete().eq("bracket_id", bid).execute()
-        db.table("brackets").delete().eq("id", bid).execute()
+    if not bracket_ids:
+        return
+    # Bulk operations: one round-trip per step instead of 3× len(bracket_ids).
+    db.table("matches").update({
+        "winner_next_match_id": None,
+        "loser_next_match_id": None,
+    }).in_("bracket_id", bracket_ids).execute()
+    db.table("matches").delete().in_("bracket_id", bracket_ids).execute()
+    db.table("brackets").delete().in_("id", bracket_ids).execute()
 
 
 def clear_brackets(sport_id: str, db: Client) -> None:
@@ -497,24 +499,29 @@ def persist_pools(
     if clear_existing:
         clear_brackets(sport_id, db)
 
-    bracket_ids_created: list[str] = []
-
-    # Pass 1: generate all round-robin slots and create bracket rows
-    all_pool_data: list[tuple[str, list, list[str]]] = []  # (bracket_id, slots, courts)
+    # Pass 1: compute all round-robin slots in memory (no DB calls yet).
+    pool_slots: list[tuple[str, list, list[str]]] = []  # (name, slots, courts)
     for p_idx, (pool_name, team_ids, pool_location_ids) in enumerate(pools):
         slots = round_robin.generate_round_robin(team_ids, max_rounds=max_rounds)
-        bracket = db.table("brackets").insert({
-            "sport_id": sport_id,
-            "name": pool_name,
-            "phase": "pool",
-        }).execute().data[0]
-        bracket_ids_created.append(bracket["id"])
-        # When no explicit courts are given but assumed_courts_per_group > 0, create
-        # virtual court IDs for scheduling math only (not written to match rows).
         effective_courts = list(pool_location_ids)
         if not effective_courts and assumed_courts_per_group > 0:
             effective_courts = [f"__virt_{p_idx}_{c}" for c in range(assumed_courts_per_group)]
-        all_pool_data.append((bracket["id"], slots, effective_courts))
+        pool_slots.append((pool_name, slots, effective_courts))
+
+    # Pass 2: bulk-insert all brackets in a single request (N round-trips → 1).
+    bracket_rows = [
+        {"sport_id": sport_id, "name": name, "phase": "pool"}
+        for name, _, _ in pool_slots
+    ]
+    inserted = db.table("brackets").insert(bracket_rows).execute().data
+    # Map name → id (pool names are validated unique in the caller).
+    bracket_id_by_name = {b["name"]: b["id"] for b in inserted}
+    bracket_ids_created = [bracket_id_by_name[name] for name, _, _ in pool_slots]
+
+    all_pool_data: list[tuple[str, list, list[str]]] = [
+        (bracket_id_by_name[name], slots, courts)
+        for name, slots, courts in pool_slots
+    ]
 
     # Pass 2+3: cohort-aware court assignment and scheduling.
     #
@@ -592,10 +599,9 @@ def persist_pools(
                     pool_avail[p_idx] = batch_time + duration
                     batch_time = batch_time + duration
 
-    # Pass 4: insert match rows
-    total_matches = 0
+    # Pass 4: build all match rows and insert them in a single bulk request.
+    all_rows: list[dict] = []
     for pool_idx, (bracket_id, slots, _courts) in enumerate(all_pool_data):
-        rows = []
         for slot_idx, slot in enumerate(slots):
             row: dict = {
                 "sport_id": sport_id,
@@ -613,9 +619,10 @@ def persist_pools(
             t = scheduled_at.get((pool_idx, slot_idx))
             if t is not None:
                 row["scheduled_at"] = t
-            rows.append(row)
-        db.table("matches").insert(rows).execute()
-        total_matches += len(rows)
+            all_rows.append(row)
+    if all_rows:
+        db.table("matches").insert(all_rows).execute()
+    total_matches = len(all_rows)
 
     return {
         "bracket_ids": bracket_ids_created,
